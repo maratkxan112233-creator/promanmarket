@@ -1,5 +1,4 @@
-from aiogram.fsm.state import State
-from aiogram.fsm.state import StatesGroup
+from aiogram.fsm.state import State, StatesGroup
 
 
 class SellerApplicationState(StatesGroup):
@@ -9,3 +8,27 @@ class SellerApplicationState(StatesGroup):
     card_number = State()
     passport_photo = State()
     selfie_photo = State()
+
+
+class EditShopState(StatesGroup):
+    field = State()
+    value = State()
+
+
+class EditProductState(StatesGroup):
+    field = State()
+    value = State()
+
+
+class OrderState(StatesGroup):
+    delivery = State()
+    confirm = State()
+
+
+class ReviewState(StatesGroup):
+    stars = State()
+    comment = State()
+
+
+class SearchState(StatesGroup):
+    query = State()
