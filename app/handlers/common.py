@@ -68,15 +68,6 @@ def _shops_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-# ─── User registration ────────────────────────────────────────────────────────
-@router.message(F.text == "/start")
-async def start_register(message: Message):
-    register_user(message.from_user.id, {
-        "full_name": message.from_user.full_name,
-        "username":  message.from_user.username,
-    })
-
-
 # ─── Aloqa ───────────────────────────────────────────────────────────────────
 @router.message(F.text == "📞 Aloqa")
 async def contact_handler(message: Message):
