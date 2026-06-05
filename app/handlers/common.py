@@ -1,14 +1,18 @@
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import (
+    Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton,
+)
 from aiogram.fsm.context import FSMContext
 
 from app.storage import (
     is_seller, get_seller, get_all_products, get_seller_products,
     get_sellers, get_seller_rating, get_buyer_orders, get_order_by_id,
-    search_products, register_user
+    search_products, register_user, get_product_by_id,
+    save_order, update_order_fields,
 )
-from app.keyboards.seller import main_menu
-from app.states.seller_application import SearchState
+from app.keyboards.seller import main_menu, phone_keyboard, cancel_keyboard
+from app.states.seller_application import SearchState, OrderState
+from app.app.config.settings import settings
 
 router = Router()
 
@@ -26,6 +30,42 @@ DELIVERY_LABELS = {
     "emu":  "🚀 EMU Express",
     "uzum": "🍊 Uzum Pochta",
 }
+
+
+# ─── Rasm/matn xabarlar uchun XAVFSIZ navigatsiya ────────────────────────────
+# Rasmli xabarni edit_text qilib bo'lmaydi (TelegramBadRequest).
+# Shuning uchun rasm bo'lsa — eski xabarni o'chirib, yangisini yuboramiz.
+# Aynan shu "Orqaga" tugmasi yo'qolib qolishi muammosini hal qiladi.
+async def _safe_nav(call: CallbackQuery, text: str, kb: InlineKeyboardMarkup):
+    msg = call.message
+    try:
+        if msg.photo or msg.video or msg.document:
+            try:
+                await msg.delete()
+            except Exception:
+                pass
+            await msg.answer(text, parse_mode="HTML", reply_markup=kb)
+        else:
+            await msg.edit_text(text, parse_mode="HTML", reply_markup=kb)
+    except Exception:
+        try:
+            await msg.answer(text, parse_mode="HTML", reply_markup=kb)
+        except Exception:
+            pass
+
+
+def _shops_keyboard() -> InlineKeyboardMarkup:
+    sellers = get_sellers()
+    rows = []
+    for uid, s in sellers.items():
+        rating, cnt = get_seller_rating(int(uid))
+        stars = f"⭐{rating}" if cnt else ""
+        prods = get_seller_products(int(uid))
+        rows.append([InlineKeyboardButton(
+            text=f"🏪 {s['shop_name']} {stars} ({len(prods)} ta mahsulot)",
+            callback_data=f"shop_{uid}"
+        )])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 # ─── User registration ────────────────────────────────────────────────────────
@@ -83,19 +123,10 @@ async def market_handler(message: Message):
     if not sellers:
         await message.answer("🛒 Hozircha do'kon yo'q.")
         return
-    rows = []
-    for uid, s in sellers.items():
-        rating, cnt = get_seller_rating(int(uid))
-        stars = f"⭐{rating}" if cnt else ""
-        prods = get_seller_products(int(uid))
-        rows.append([InlineKeyboardButton(
-            text=f"🏪 {s['shop_name']} {stars} ({len(prods)} ta mahsulot)",
-            callback_data=f"shop_{uid}"
-        )])
     await message.answer(
         "🛍 <b>Do'konlar</b>\nBitta do'konni tanlang:",
         parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows)
+        reply_markup=_shops_keyboard()
     )
 
 
@@ -122,28 +153,13 @@ async def show_shop(call: CallbackQuery):
             callback_data=f"prod_{p['id']}"
         )])
     rows.append([InlineKeyboardButton(text="🔙 Do'konlar", callback_data="back_shops")])
-    await call.message.edit_text(text, parse_mode="HTML",
-                                  reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+    await _safe_nav(call, text, InlineKeyboardMarkup(inline_keyboard=rows))
     await call.answer()
 
 
 @router.callback_query(F.data == "back_shops")
 async def back_to_shops(call: CallbackQuery):
-    sellers = get_sellers()
-    rows = []
-    for uid, s in sellers.items():
-        rating, cnt = get_seller_rating(int(uid))
-        stars = f"⭐{rating}" if cnt else ""
-        prods = get_seller_products(int(uid))
-        rows.append([InlineKeyboardButton(
-            text=f"🏪 {s['shop_name']} {stars} ({len(prods)} ta mahsulot)",
-            callback_data=f"shop_{uid}"
-        )])
-    await call.message.edit_text(
-        "🛍 <b>Do'konlar</b>\nBitta do'konni tanlang:",
-        parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows)
-    )
+    await _safe_nav(call, "🛍 <b>Do'konlar</b>\nBitta do'konni tanlang:", _shops_keyboard())
     await call.answer()
 
 
@@ -151,7 +167,6 @@ async def back_to_shops(call: CallbackQuery):
 @router.callback_query(F.data.startswith("prod_"))
 async def product_detail(call: CallbackQuery):
     pid = int(call.data.split("_")[1])
-    from app.storage import get_product_by_id
     p = get_product_by_id(pid)
     if not p:
         await call.answer("Topilmadi."); return
@@ -171,91 +186,229 @@ async def product_detail(call: CallbackQuery):
         try:
             await call.message.answer_photo(p["photo"], caption=text, parse_mode="HTML", reply_markup=kb)
         except Exception:
-            await call.message.answer(text, parse_mode="HTML", reply_markup=kb)
+            # file_id eskirgan yoki noto'g'ri bo'lsa — matn bilan ko'rsatamiz
+            await call.message.answer(
+                text + "\n\n<i>(rasm yuklanmadi)</i>",
+                parse_mode="HTML", reply_markup=kb
+            )
     else:
         await call.message.answer(text, parse_mode="HTML", reply_markup=kb)
     await call.answer()
 
 
-# ─── Zakaz qilish ────────────────────────────────────────────────────────────
+# ─── Zakaz qilish: 1) yetkazib berish usuli ─────────────────────────────────
 @router.callback_query(F.data.startswith("order_"))
 async def start_order(call: CallbackQuery, state: FSMContext):
     pid = int(call.data.split("_")[1])
-    from app.storage import get_product_by_id
     p = get_product_by_id(pid)
     if not p:
         await call.answer("Mahsulot topilmadi."); return
-    await state.set_state("OrderState:delivery")
+    await state.set_state(OrderState.delivery)
     await state.update_data(pid=pid)
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📦 BTC Pochta",   callback_data="dlv_btc")],
         [InlineKeyboardButton(text="🚀 EMU Express",  callback_data="dlv_emu")],
         [InlineKeyboardButton(text="🍊 Uzum Pochta",  callback_data="dlv_uzum")],
     ])
-    prepay = int(p["price"] * 0.1)
     await call.message.answer(
         f"🛒 <b>{p['name']}</b> — {p['price']:,} so'm\n\n"
-        f"💳 Oldi-to'lov (10%): <b>{prepay:,} so'm</b>\n"
-        f"<b>❗ Karta raqami: {get_seller(p['seller_id']).get('card_number','—')}</b>\n\n"
         f"🚚 Yetkazib berish usulini tanlang:",
         parse_mode="HTML", reply_markup=kb
     )
     await call.answer()
 
 
-@router.callback_query(F.data.startswith("dlv_"))
+# ─── 2) yetkazib berish tanlandi → manzil so'raymiz ─────────────────────────
+@router.callback_query(OrderState.delivery, F.data.startswith("dlv_"))
 async def choose_delivery(call: CallbackQuery, state: FSMContext):
     dlv = call.data.split("_")[1]
     await state.update_data(delivery=dlv)
+    await state.set_state(OrderState.address)
+    await call.message.answer(
+        "📍 <b>Yetkazib berish manzilini kiriting:</b>\n"
+        "(viloyat, tuman, ko'cha, uy — to'liq yozing)",
+        parse_mode="HTML", reply_markup=cancel_keyboard
+    )
+    await call.answer()
+
+
+# ─── Bekor qilish (har qanday buyurtma bosqichida) ──────────────────────────
+@router.message(
+    OrderState.delivery, F.text == "❌ Bekor qilish"
+)
+@router.message(OrderState.address, F.text == "❌ Bekor qilish")
+@router.message(OrderState.phone,   F.text == "❌ Bekor qilish")
+@router.message(OrderState.receipt, F.text == "❌ Bekor qilish")
+async def cancel_order(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer("❌ Buyurtma bekor qilindi.", reply_markup=main_menu)
+
+
+# ─── 3) manzil qabul qilindi → telefon so'raymiz ────────────────────────────
+@router.message(OrderState.address)
+async def order_address(message: Message, state: FSMContext):
+    if not message.text or not message.text.strip():
+        await message.answer("❌ Manzilni matn ko'rinishida kiriting:")
+        return
+    await state.update_data(address=message.text.strip())
+    await state.set_state(OrderState.phone)
+    await message.answer(
+        "📱 <b>Telefon raqamingizni yuboring</b>\n"
+        "(pastdagi tugma orqali yoki qo'lda yozing):",
+        parse_mode="HTML", reply_markup=phone_keyboard
+    )
+
+
+# ─── 4) telefon qabul → buyurtma saqlanadi, oldi-to'lov ko'rsatiladi ────────
+@router.message(OrderState.phone)
+async def order_phone(message: Message, state: FSMContext):
+    if message.contact:
+        phone = message.contact.phone_number
+    elif message.text and message.text.strip():
+        phone = message.text.strip()
+    else:
+        await message.answer("❌ Telefon raqamni yuboring yoki yozing:")
+        return
+
     data = await state.get_data()
     pid  = data["pid"]
-    from app.storage import get_product_by_id, save_order
+    dlv  = data["delivery"]
     p = get_product_by_id(pid)
-    seller = get_seller(p["seller_id"])
-    prepay = int(p["price"] * 0.1)
+    if not p:
+        await state.clear()
+        await message.answer("❌ Mahsulot topilmadi.", reply_markup=main_menu)
+        return
 
+    commission = int(p["price"] * settings.COMMISSION_RATE)
     order_id = save_order({
-        "buyer_id":     call.from_user.id,
+        "buyer_id":     message.from_user.id,
+        "buyer_name":   message.from_user.full_name,
+        "buyer_username": message.from_user.username,
         "seller_id":    p["seller_id"],
         "product_id":   pid,
         "product_name": p["name"],
         "total":        p["price"],
-        "prepay":       prepay,
+        "prepay":       commission,       # 10% = platforma komissiyasi
+        "commission":   commission,
         "delivery":     dlv,
+        "address":      data["address"],
+        "phone":        phone,
         "status":       "pending",
+        "receipt":      None,
     })
-    await state.clear()
+    await state.update_data(order_id=order_id)
+    await state.set_state(OrderState.receipt)
 
-    dlv_label = DELIVERY_LABELS.get(dlv, dlv)
-    confirm_text = (
+    dlv_label   = DELIVERY_LABELS.get(dlv, dlv)
+    platform_card = settings.PLATFORM_CARD or "⚠️ admin kartani sozlamagan"
+    pct = int(settings.COMMISSION_RATE * 100)
+
+    # ── Xaridorga: oldi-to'lov PLATFORMA kartasiga ──
+    await message.answer(
         f"✅ <b>Zakaz #{order_id} qabul qilindi!</b>\n\n"
         f"📦 {p['name']}\n"
         f"💰 Narx: {p['price']:,} so'm\n"
-        f"💳 Oldi-to'lov (10%): <b>{prepay:,} so'm</b>\n"
-        f"   → Karta: <code>{seller.get('card_number','—')}</code>\n\n"
+        f"💳 Oldi-to'lov ({pct}%): <b>{commission:,} so'm</b>\n"
+        f"   → Karta: <code>{platform_card}</code>\n\n"
         f"🚚 Yetkazib berish: {dlv_label}\n"
+        f"📍 Manzil: {data['address']}\n"
+        f"📱 Tel: {phone}\n"
         f"<b>🔴 Yetkazib berish muddati: kamida 3 KUN</b>\n\n"
-        f"⏳ Holat: {ORDER_STATUSES['pending']}\n"
-        f"📦 Zakaz raqami: #{order_id}"
+        f"🧾 <b>Endi to'lov chekining rasmini (skrinshot) shu yerga yuboring.</b>\n"
+        f"Chek tasdiqlangach buyurtmangiz tayyorlanadi.",
+        parse_mode="HTML", reply_markup=cancel_keyboard
     )
-    await call.message.answer(confirm_text, parse_mode="HTML")
 
-    # Sellerga xabar
+    # ── Sellerga: TO'LIQ ma'lumot (kim, qayerga, telefon) ──
     try:
         from app.bot.bot import bot
         await bot.send_message(
             p["seller_id"],
             f"🛒 <b>Yangi zakaz #{order_id}!</b>\n\n"
             f"📦 {p['name']}\n"
-            f"👤 Xaridor ID: {call.from_user.id}\n"
-            f"🚚 {dlv_label}\n"
-            f"💰 {p['price']:,} so'm\n\n"
-            f"Holatni yangilash: /orders",
+            f"💰 {p['price']:,} so'm\n"
+            f"👤 Xaridor: {message.from_user.full_name}\n"
+            f"📱 Tel: {phone}\n"
+            f"📍 Manzil: {data['address']}\n"
+            f"🚚 {dlv_label}\n\n"
+            f"⏳ Holat: to'lov tasdig'i kutilmoqda.\n"
+            f"Zakazlar: /orders",
             parse_mode="HTML"
         )
     except Exception:
         pass
-    await call.answer()
+
+    # ── Adminga: yangi zakaz xabari ──
+    try:
+        from app.bot.bot import bot
+        await bot.send_message(
+            settings.OWNER_ID,
+            f"🆕 <b>Yangi zakaz #{order_id}</b>\n\n"
+            f"📦 {p['name']} — {p['price']:,} so'm\n"
+            f"💵 Komissiya ({pct}%): {commission:,} so'm\n"
+            f"👤 {message.from_user.full_name} (ID: {message.from_user.id})\n"
+            f"📱 {phone}\n"
+            f"📍 {data['address']}\n"
+            f"🚚 {dlv_label}\n\n"
+            f"🧾 To'lov cheki kutilmoqda...",
+            parse_mode="HTML"
+        )
+    except Exception:
+        pass
+
+
+# ─── 5) chek rasmi qabul qilinadi → admin tasdig'iga yuboriladi ─────────────
+@router.message(OrderState.receipt, F.photo)
+async def order_receipt(message: Message, state: FSMContext):
+    data = await state.get_data()
+    order_id = data.get("order_id")
+    o = get_order_by_id(order_id) if order_id else None
+    if not o:
+        await state.clear()
+        await message.answer("❌ Buyurtma topilmadi.", reply_markup=main_menu)
+        return
+
+    receipt_id = message.photo[-1].file_id
+    update_order_fields(order_id, {"receipt": receipt_id})
+    await state.clear()
+
+    await message.answer(
+        f"🧾 Chek qabul qilindi! Zakaz #{order_id} to'lovi tekshirilmoqda.\n"
+        f"Tasdiqlangach xabar beramiz. ⏳",
+        reply_markup=main_menu
+    )
+
+    # Adminga chek + tasdiqlash tugmalari
+    pct = int(settings.COMMISSION_RATE * 100)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ To'lovni tasdiqlash", callback_data=f"paycfm_{order_id}"),
+            InlineKeyboardButton(text="❌ Rad etish",            callback_data=f"payrej_{order_id}"),
+        ]
+    ])
+    caption = (
+        f"🧾 <b>Zakaz #{order_id} — to'lov cheki</b>\n\n"
+        f"📦 {o.get('product_name','—')}\n"
+        f"💵 Oldi-to'lov ({pct}%): {o.get('prepay',0):,} so'm\n"
+        f"👤 {o.get('buyer_name','—')}\n"
+        f"📱 {o.get('phone','—')}\n"
+        f"📍 {o.get('address','—')}"
+    )
+    try:
+        from app.bot.bot import bot
+        await bot.send_photo(settings.OWNER_ID, receipt_id, caption=caption,
+                             parse_mode="HTML", reply_markup=kb)
+    except Exception:
+        pass
+
+
+@router.message(OrderState.receipt)
+async def order_receipt_invalid(message: Message):
+    await message.answer(
+        "🧾 Iltimos, to'lov chekining <b>rasmini</b> yuboring "
+        "(yoki ❌ Bekor qilish).",
+        parse_mode="HTML"
+    )
 
 
 # ─── Zakazlarim ──────────────────────────────────────────────────────────────
@@ -266,6 +419,7 @@ async def my_orders(message: Message):
         await message.answer("📦 Hozircha zakaz yo'q.")
         return
     text = "📦 <b>Zakazlaringiz:</b>\n\n"
+    rows = []
     for o in orders[-10:]:
         dlv = DELIVERY_LABELS.get(o.get("delivery",""), o.get("delivery",""))
         status = ORDER_STATUSES.get(o.get("status",""), o.get("status",""))
@@ -277,8 +431,30 @@ async def my_orders(message: Message):
         )
         if o.get("status") not in ("delivered","cancelled"):
             text += f"   <b>🔴 Yetkazib berish: kamida 3 KUN</b>\n"
+        # Chek hali yuborilmagan pending buyurtmaga — chek yuborish tugmasi
+        if o.get("status") == "pending" and not o.get("receipt"):
+            rows.append([InlineKeyboardButton(
+                text=f"🧾 #{o['id']} uchun chek yuborish",
+                callback_data=f"sendrcpt_{o['id']}"
+            )])
         text += "\n"
-    await message.answer(text, parse_mode="HTML")
+    kb = InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
+    await message.answer(text, parse_mode="HTML", reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("sendrcpt_"))
+async def resend_receipt(call: CallbackQuery, state: FSMContext):
+    oid = int(call.data.split("_")[1])
+    o = get_order_by_id(oid)
+    if not o or o.get("buyer_id") != call.from_user.id:
+        await call.answer("Topilmadi."); return
+    await state.set_state(OrderState.receipt)
+    await state.update_data(order_id=oid)
+    await call.message.answer(
+        f"🧾 Zakaz #{oid} uchun to'lov chekining rasmini yuboring:",
+        reply_markup=cancel_keyboard
+    )
+    await call.answer()
 
 
 # ─── Qidirish ────────────────────────────────────────────────────────────────
@@ -291,7 +467,7 @@ async def search_start(message: Message, state: FSMContext):
 @router.message(SearchState.query)
 async def do_search(message: Message, state: FSMContext):
     await state.clear()
-    results = search_products(message.text)
+    results = search_products(message.text or "")
     if not results:
         await message.answer("😔 Hech narsa topilmadi. Boshqa so'z bilan sinab ko'ring.", reply_markup=main_menu)
         return
@@ -310,7 +486,6 @@ async def do_search(message: Message, state: FSMContext):
 # ─── Baholash ────────────────────────────────────────────────────────────────
 @router.callback_query(F.data.startswith("rev_"))
 async def save_review(call: CallbackQuery):
-    # rev_<seller_id>_<order_id>_<stars>
     parts = call.data.split("_")
     seller_id = int(parts[1])
     order_id  = int(parts[2])
@@ -323,5 +498,8 @@ async def save_review(call: CallbackQuery):
         "stars":     stars,
     })
     star_str = "⭐" * stars
-    await call.message.edit_text(f"✅ Bahoyingiz qabul qilindi: {star_str} ({stars}/5)")
+    try:
+        await call.message.edit_text(f"✅ Bahoyingiz qabul qilindi: {star_str} ({stars}/5)")
+    except Exception:
+        await call.message.answer(f"✅ Bahoyingiz qabul qilindi: {star_str} ({stars}/5)")
     await call.answer("Rahmat!")

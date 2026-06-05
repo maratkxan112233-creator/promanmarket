@@ -12,6 +12,8 @@ PRODUCTS_FILE     = f"{DATA_DIR}/products.json"
 ORDERS_FILE       = f"{DATA_DIR}/orders.json"
 REVIEWS_FILE      = f"{DATA_DIR}/reviews.json"
 USERS_FILE        = f"{DATA_DIR}/users.json"
+ADMINS_FILE       = f"{DATA_DIR}/admins.json"
+AUDIT_FILE        = f"{DATA_DIR}/audit.json"
 
 
 def _read(path: str) -> Any:
@@ -166,6 +168,14 @@ def get_order_by_id(order_id: int) -> dict | None:
             return o
     return None
 
+def update_order_fields(order_id: int, fields: dict):
+    orders = get_orders()
+    for o in orders:
+        if o["id"] == order_id:
+            o.update(fields)
+            o["updated_at"] = datetime.now().isoformat()
+    _write(ORDERS_FILE, orders)
+
 def update_order_status(order_id: int, status: str):
     orders = get_orders()
     for o in orders:
@@ -202,3 +212,37 @@ def get_seller_rating(seller_id: int) -> tuple[float, int]:
         return 0.0, 0
     avg = sum(r["stars"] for r in reviews) / len(reviews)
     return round(avg, 1), len(reviews)
+
+
+# ─── Sub-adminlar ────────────────────────────────────────────────────────────
+def get_admins() -> dict:
+    return _read(ADMINS_FILE)
+
+def add_admin(user_id: int, data: dict):
+    admins = get_admins()
+    admins[str(user_id)] = data
+    _write(ADMINS_FILE, admins)
+
+def remove_admin(user_id: int) -> bool:
+    admins = get_admins()
+    if str(user_id) in admins:
+        del admins[str(user_id)]
+        _write(ADMINS_FILE, admins)
+        return True
+    return False
+
+def is_sub_admin(user_id: int) -> bool:
+    return str(user_id) in get_admins()
+
+
+# ─── Audit jurnali (kim nima qildi) ──────────────────────────────────────────
+def get_audit() -> list:
+    data = _read(AUDIT_FILE)
+    return data if isinstance(data, list) else []
+
+def add_audit(entry: dict):
+    log = get_audit()
+    entry["id"] = max((e.get("id", 0) for e in log), default=0) + 1
+    entry["created_at"] = datetime.now().isoformat()
+    log.append(entry)
+    _write(AUDIT_FILE, log)

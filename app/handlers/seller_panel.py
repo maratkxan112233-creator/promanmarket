@@ -234,21 +234,31 @@ async def seller_order_detail(call: CallbackQuery):
     if not o or o["seller_id"] != call.from_user.id:
         await call.answer("Topilmadi."); return
     status = ORDER_STATUSES.get(o.get("status",""), "—")
+    dlv = {
+        "btc": "📦 BTC Pochta", "emu": "🚀 EMU Express", "uzum": "🍊 Uzum Pochta",
+    }.get(o.get("delivery",""), o.get("delivery","—"))
+    receipt_line = "🧾 Chek: yuborilgan" if o.get("receipt") else "🧾 Chek: yo'q"
     text = (
         f"🛒 <b>Zakaz #{oid}</b>\n\n"
         f"📦 {o.get('product_name','—')}\n"
-        f"👤 Xaridor: {o.get('buyer_id')}\n"
         f"💰 {o.get('total',0):,} so'm\n"
+        f"👤 Xaridor: {o.get('buyer_name','—')}\n"
+        f"📱 Tel: {o.get('phone','—')}\n"
+        f"📍 Manzil: {o.get('address','—')}\n"
+        f"🚚 {dlv}\n"
+        f"{receipt_line}\n"
         f"📌 Holat: {status}"
     )
-    # Holat o'zgartirish tugmalari
+    # Holat o'zgartirish tugmalari (to'lovni admin tasdiqlaydi, shu sabab "paid" yo'q)
     next_statuses = {
-        "pending":    ["paid","cancelled"],
+        "pending":    ["cancelled"],
         "paid":       ["processing","cancelled"],
         "processing": ["shipped"],
         "shipped":    ["delivered"],
     }
     rows = []
+    if o.get("receipt"):
+        rows.append([InlineKeyboardButton(text="🧾 Chekni ko'rish", callback_data=f"vrcpt_{oid}")])
     for s in next_statuses.get(o.get("status",""), []):
         rows.append([InlineKeyboardButton(
             text=ORDER_STATUSES[s],
@@ -257,6 +267,22 @@ async def seller_order_detail(call: CallbackQuery):
     rows.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="seller_orders")])
     await call.message.edit_text(text, parse_mode="HTML",
                                   reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("vrcpt_"))
+async def seller_view_receipt(call: CallbackQuery):
+    oid = int(call.data.split("_")[1])
+    from app.storage import get_order_by_id
+    o = get_order_by_id(oid)
+    if not o or o["seller_id"] != call.from_user.id:
+        await call.answer("Topilmadi."); return
+    if not o.get("receipt"):
+        await call.answer("Chek yo'q.", show_alert=True); return
+    try:
+        await call.message.answer_photo(o["receipt"], caption=f"🧾 Zakaz #{oid} cheki")
+    except Exception:
+        await call.answer("Chekni ko'rsatib bo'lmadi.", show_alert=True)
     await call.answer()
 
 

@@ -22,7 +22,10 @@ class EditProductState(StatesGroup):
 
 class OrderState(StatesGroup):
     delivery = State()
-    confirm = State()
+    address  = State()
+    phone    = State()
+    receipt  = State()
+    confirm  = State()
 
 
 class ReviewState(StatesGroup):
