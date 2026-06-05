@@ -9,6 +9,7 @@ from app.storage import (
     get_sellers, get_seller_rating, get_buyer_orders, get_order_by_id,
     search_products, register_user, get_product_by_id,
     save_order, update_order_fields,
+    get_user, set_user_field, get_cities,
 )
 from app.keyboards.seller import main_menu, phone_keyboard, cancel_keyboard
 from app.states.seller_application import SearchState, OrderState
@@ -54,10 +55,12 @@ async def _safe_nav(call: CallbackQuery, text: str, kb: InlineKeyboardMarkup):
             pass
 
 
-def _shops_keyboard() -> InlineKeyboardMarkup:
+def _shops_keyboard(city: str) -> InlineKeyboardMarkup:
     sellers = get_sellers()
     rows = []
     for uid, s in sellers.items():
+        if s.get("city") != city:
+            continue
         rating, cnt = get_seller_rating(int(uid))
         stars = f"⭐{rating}" if cnt else ""
         prods = get_seller_products(int(uid))
@@ -65,6 +68,18 @@ def _shops_keyboard() -> InlineKeyboardMarkup:
             text=f"🏪 {s['shop_name']} {stars} ({len(prods)} ta mahsulot)",
             callback_data=f"shop_{uid}"
         )])
+    rows.append([InlineKeyboardButton(text="📍 Shaharni o'zgartirish", callback_data="changecity")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _city_picker() -> InlineKeyboardMarkup:
+    rows, row = [], []
+    for c in get_cities():
+        row.append(InlineKeyboardButton(text=c, callback_data=f"bcity_{c}"))
+        if len(row) == 2:
+            rows.append(row); row = []
+    if row:
+        rows.append(row)
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -95,7 +110,9 @@ async def profile_handler(message: Message):
         role = "🏪 Seller"
     else:
         role  = "🛍 Xaridor"
-        extra = "\n\nSeller bo'lish: 🏪 Seller bo'lish"
+        u = get_user(user.id)
+        city = (u.get("city") if u else None) or "tanlanmagan"
+        extra = f"\n📍 Shahar: {city}\n\nSeller bo'lish: 🏪 Seller bo'lish"
 
     await message.answer(
         f"👤 <b>Profilingiz</b>\n\n"
@@ -110,15 +127,56 @@ async def profile_handler(message: Message):
 # ─── Bozor — do'konlar ro'yxati ──────────────────────────────────────────────
 @router.message(F.text == "🛍 Bozor")
 async def market_handler(message: Message):
-    sellers = get_sellers()
+    u = get_user(message.from_user.id)
+    city = u.get("city") if u else None
+    if not city:
+        await message.answer(
+            "📍 <b>Avval shahringizni tanlang</b>\n"
+            "Sizga shu shahardagi do'konlar ko'rsatiladi:",
+            parse_mode="HTML", reply_markup=_city_picker()
+        )
+        return
+    await _show_market(message, city)
+
+
+async def _show_market(message: Message, city: str):
+    sellers = [s for s in get_sellers().values() if s.get("city") == city]
     if not sellers:
-        await message.answer("🛒 Hozircha do'kon yo'q.")
+        await message.answer(
+            f"🛒 <b>{city}</b> shahrida hozircha do'kon yo'q.\n"
+            "Boshqa shaharni tanlashingiz mumkin:",
+            parse_mode="HTML", reply_markup=_city_picker()
+        )
         return
     await message.answer(
-        "🛍 <b>Do'konlar</b>\nBitta do'konni tanlang:",
+        f"🛍 <b>Do'konlar</b> — 📍 {city}\nBitta do'konni tanlang:",
         parse_mode="HTML",
-        reply_markup=_shops_keyboard()
+        reply_markup=_shops_keyboard(city)
     )
+
+
+@router.callback_query(F.data == "changecity")
+async def change_city(call: CallbackQuery):
+    await call.message.answer("📍 Shaharingizni tanlang:", reply_markup=_city_picker())
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("bcity_"))
+async def buyer_set_city(call: CallbackQuery):
+    city = call.data.split("_", 1)[1]
+    if city not in get_cities():
+        await call.answer("Shahar topilmadi.", show_alert=True); return
+    register_user(call.from_user.id, {
+        "full_name": call.from_user.full_name,
+        "username":  call.from_user.username,
+    })
+    set_user_field(call.from_user.id, "city", city)
+    await call.answer(f"📍 {city} tanlandi")
+    try:
+        await call.message.delete()
+    except Exception:
+        pass
+    await _show_market(call.message, city)
 
 
 @router.callback_query(F.data.startswith("shop_"))
@@ -150,7 +208,13 @@ async def show_shop(call: CallbackQuery):
 
 @router.callback_query(F.data == "back_shops")
 async def back_to_shops(call: CallbackQuery):
-    await _safe_nav(call, "🛍 <b>Do'konlar</b>\nBitta do'konni tanlang:", _shops_keyboard())
+    u = get_user(call.from_user.id)
+    city = (u.get("city") if u else None)
+    if not city:
+        await _safe_nav(call, "📍 Shaharingizni tanlang:", _city_picker())
+        await call.answer(); return
+    await _safe_nav(call, f"🛍 <b>Do'konlar</b> — 📍 {city}\nBitta do'konni tanlang:",
+                    _shops_keyboard(city))
     await call.answer()
 
 

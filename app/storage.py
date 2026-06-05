@@ -3,7 +3,7 @@ import os
 from typing import Any
 from datetime import datetime
 
-DATA_DIR = "data"
+DATA_DIR = os.getenv("DATA_DIR", "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 
 SELLERS_FILE      = f"{DATA_DIR}/sellers.json"
@@ -14,6 +14,9 @@ REVIEWS_FILE      = f"{DATA_DIR}/reviews.json"
 USERS_FILE        = f"{DATA_DIR}/users.json"
 ADMINS_FILE       = f"{DATA_DIR}/admins.json"
 AUDIT_FILE        = f"{DATA_DIR}/audit.json"
+CITIES_FILE       = f"{DATA_DIR}/cities.json"
+
+DEFAULT_CITIES = ["Olmaliq", "Angren", "Bekobod", "Ohangaron", "Chirchiq", "Yangiyo'l", "Toshkent"]
 
 
 def _read(path: str) -> Any:
@@ -90,6 +93,39 @@ def delete_user(user_id: int):
 
 def get_user(user_id: int) -> dict | None:
     return get_users().get(str(user_id))
+
+def set_user_field(user_id: int, field: str, value):
+    users = get_users()
+    u = users.get(str(user_id), {})
+    u[field] = value
+    users[str(user_id)] = u
+    _write(USERS_FILE, users)
+
+
+# ─── Shaharlar (tuman/shahar darajasi) ───────────────────────────────────────
+def get_cities() -> list:
+    data = _read(CITIES_FILE)
+    if not data or not isinstance(data, list):
+        _write(CITIES_FILE, DEFAULT_CITIES)
+        return list(DEFAULT_CITIES)
+    return data
+
+def add_city(name: str) -> bool:
+    name = name.strip()
+    cities = get_cities()
+    if name and name not in cities:
+        cities.append(name)
+        _write(CITIES_FILE, cities)
+        return True
+    return False
+
+def remove_city(name: str) -> bool:
+    cities = get_cities()
+    if name in cities:
+        cities.remove(name)
+        _write(CITIES_FILE, cities)
+        return True
+    return False
 
 
 # ─── Products ────────────────────────────────────────────────────────────────

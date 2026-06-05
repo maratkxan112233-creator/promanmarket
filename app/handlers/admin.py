@@ -1,4 +1,6 @@
 import io
+import os
+import zipfile
 from datetime import datetime, timedelta
 from aiogram import Router, F
 from aiogram.filters import Command
@@ -14,6 +16,7 @@ from app.storage import (
     get_seller_products, add_product,
     get_admins, add_admin, remove_admin, is_sub_admin,
     add_audit, get_audit,
+    get_cities, add_city, remove_city, get_user,
 )
 from app.app.config.settings import settings
 
@@ -62,6 +65,7 @@ def _sellers_text(items):
         lines.append(
             f"<b>{i}. {s['shop_name']}</b>\n"
             f"   👤 {s['full_name']}\n"
+            f"   🏙 {s.get('city','—')}\n"
             f"   📱 {s.get('phone','—')}\n"
             f"   💳 **** {last4}   ⭐ {rating} ({cnt})   🛒 {ordc} zakaz"
         )
@@ -79,6 +83,11 @@ def is_admin(uid: int) -> bool:
 
 def _actor_name(u) -> str:
     return u.full_name + (f" (@{u.username})" if u.username else "")
+
+
+def _admin_city(uid: int):
+    a = get_admins().get(str(uid))
+    return a.get("city") if a else None
 
 
 def _log(actor, action: str, target: str = ""):
@@ -118,9 +127,11 @@ def admin_menu_kb(uid: int):
             [InlineKeyboardButton(text="➕ Mahsulot qo'shish", callback_data="admin_addprod")],
             [InlineKeyboardButton(text="📦 Mahsulotlar",      callback_data="admin_products")],
             [InlineKeyboardButton(text="👥 Foydalanuvchilar", callback_data="admin_users")],
+            [InlineKeyboardButton(text="🏙 Shaharlar",        callback_data="admin_cities")],
             [InlineKeyboardButton(text="📊 Statistika",       callback_data="admin_stats")],
             [InlineKeyboardButton(text="📈 Excel hisobot",    callback_data="admin_excel_menu")],
             [InlineKeyboardButton(text="👮 Adminlar",         callback_data="admin_admins")],
+            [InlineKeyboardButton(text="💾 Zaxira (backup)",  callback_data="admin_backup")],
             [InlineKeyboardButton(text="📜 Jurnal (Word)",    callback_data="admin_log")],
         ])
     # Sub-admin: faqat seller qo'shish (arizalar) + mahsulot qo'shish
@@ -182,6 +193,9 @@ async def admin_back(call: CallbackQuery):
 async def show_applications(call: CallbackQuery):
     if not is_admin(call.from_user.id): return
     pending = {uid: a for uid, a in get_applications().items() if a.get("status") == "pending"}
+    if not is_owner(call.from_user.id):
+        mycity = _admin_city(call.from_user.id)
+        pending = {uid: a for uid, a in pending.items() if a.get("city") == mycity}
     if not pending:
         await call.message.edit_text("✅ Kutilayotgan ariza yo'q.", reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[[InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_back")]]
@@ -196,6 +210,7 @@ async def show_applications(call: CallbackQuery):
             f"📋 <b>Ariza #{uid}</b>\n\n"
             f"👤 {app.get('full_name')}\n"
             f"📱 {app.get('phone')}\n"
+            f"🏙 Shahar: {app.get('city','—')}\n"
             f"🏪 {app.get('shop_name')}\n"
             f"💳 **** {app.get('card_number','')[-4:]}"
         )
@@ -218,10 +233,10 @@ async def approve_seller(call: CallbackQuery):
     add_seller(uid, {
         "user_id": uid, "full_name": app["full_name"],
         "shop_name": app["shop_name"], "phone": app["phone"],
-        "card_number": app["card_number"],
+        "card_number": app["card_number"], "city": app.get("city", ""),
     })
     _log(call.from_user, "Seller qo'shildi",
-         f"{app['full_name']} — do'kon: {app['shop_name']} (ID:{uid})")
+         f"{app['full_name']} — do'kon: {app['shop_name']} (ID:{uid}, {app.get('city','—')})")
     await call.message.edit_text(f"✅ {app['full_name']} seller sifatida tasdiqlandi!")
     try:
         from app.bot.bot import bot
@@ -380,6 +395,7 @@ async def seller_detail(call: CallbackQuery):
     text = (
         f"🏪 <b>{s['shop_name']}</b>\n\n"
         f"👤 {s['full_name']}\n"
+        f"🏙 Shahar: {s.get('city','—')}\n"
         f"📱 {s['phone']}\n"
         f"💳 {s.get('card_number','—')}\n"
         f"🆔 ID: {uid}\n"
@@ -731,16 +747,21 @@ async def excel_seller_report(call: CallbackQuery):
 # ═══════════════════════════════════════════════════════════════════════════
 class AdminAddState(StatesGroup):
     user_id = State()
+    city    = State()
 
 
 @router.callback_query(F.data == "admin_addprod")
 async def admin_addprod_pick(call: CallbackQuery):
     if not is_admin(call.from_user.id): return
-    sellers = get_sellers()
+    sellers = list(get_sellers().items())
+    if not is_owner(call.from_user.id):
+        mycity = _admin_city(call.from_user.id)
+        sellers = [(u, s) for u, s in sellers if s.get("city") == mycity]
     if not sellers:
-        await call.answer("Avval seller qo'shilishi kerak.", show_alert=True); return
-    rows = [[InlineKeyboardButton(text=f"🏪 {s['shop_name']}", callback_data=f"aap_{uid}")]
-            for uid, s in sellers.items()]
+        await call.answer("Sizning shahringizda do'kon yo'q.", show_alert=True); return
+    rows = [[InlineKeyboardButton(text=f"🏪 {s['shop_name']} ({s.get('city','—')})",
+                                  callback_data=f"aap_{uid}")]
+            for uid, s in sellers]
     rows.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_back")])
     await _admin_nav(call, "➕ <b>Mahsulot qaysi do'konga qo'shilsin?</b>",
                      InlineKeyboardMarkup(inline_keyboard=rows))
@@ -755,7 +776,7 @@ async def admin_addprod_start(call: CallbackQuery, state: FSMContext):
     if not seller:
         await call.answer("Do'kon topilmadi.", show_alert=True); return
     await state.set_state(AdminAddProduct.name)
-    await state.update_data(seller_id=sid, shop_name=seller["shop_name"])
+    await state.update_data(seller_id=sid, shop_name=seller["shop_name"], city=seller.get("city", ""))
     await call.message.answer(f"🏪 {seller['shop_name']}\n📦 Mahsulot nomini kiriting:")
     await call.answer()
 
@@ -795,6 +816,7 @@ async def admin_ap_photo(message: Message, state: FSMContext):
     add_product({
         "seller_id":   data["seller_id"],
         "shop_name":   data["shop_name"],
+        "city":        data.get("city", ""),
         "name":        data["name"],
         "description": data["description"],
         "price":       data["price"],
@@ -831,7 +853,7 @@ async def admins_list(call: CallbackQuery):
     if not admins:
         text += "Hozircha sub-admin yo'q.\n"
     for uid, a in admins.items():
-        text += f"• {a.get('name','—')} (ID: {uid})\n"
+        text += f"• {a.get('name','—')} — 🏙 {a.get('city','—')} (ID: {uid})\n"
         rows.append([InlineKeyboardButton(text=f"🗑 {a.get('name', uid)} ni olib tashlash",
                                           callback_data=f"deladmin_{uid}")])
     rows.append([InlineKeyboardButton(text="➕ Admin qo'shish", callback_data="addadmin")])
@@ -863,24 +885,49 @@ async def add_admin_save(message: Message, state: FSMContext):
     if not txt.isdigit():
         await message.answer("❌ Faqat raqamli ID yuboring:"); return
     uid = int(txt)
-    await state.clear()
     if uid == settings.OWNER_ID:
+        await state.clear()
         await message.answer("Bu siz — asosiy egasiz."); return
-    from app.storage import get_user
     u = get_user(uid)
     name = u.get("full_name") if u else f"ID {uid}"
-    add_admin(uid, {"name": name, "added_by": message.from_user.id})
-    _log(message.from_user, "Sub-admin qo'shildi", f"{name} (ID:{uid})")
+    await state.update_data(new_admin_id=uid, new_admin_name=name)
+    await state.set_state(AdminAddState.city)
+    rows, row = [], []
+    for c in get_cities():
+        row.append(InlineKeyboardButton(text=c, callback_data=f"admincity_{c}"))
+        if len(row) == 2:
+            rows.append(row); row = []
+    if row:
+        rows.append(row)
     await message.answer(
-        f"✅ {name} sub-admin qilib tayinlandi.\n"
-        f"U /admin orqali panelga kira oladi.",
-        reply_markup=admin_menu_kb(message.from_user.id)
+        f"👤 {name}\n🏙 Bu admin qaysi shaharni boshqaradi? Tanlang:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows)
+    )
+
+
+@router.callback_query(AdminAddState.city, F.data.startswith("admincity_"))
+async def add_admin_city(call: CallbackQuery, state: FSMContext):
+    if not is_owner(call.from_user.id): return
+    city = call.data.split("_", 1)[1]
+    if city not in get_cities():
+        await call.answer("Shahar topilmadi.", show_alert=True); return
+    data = await state.get_data()
+    uid = data["new_admin_id"]; name = data["new_admin_name"]
+    await state.clear()
+    add_admin(uid, {"name": name, "added_by": call.from_user.id, "city": city})
+    _log(call.from_user, "Sub-admin qo'shildi", f"{name} (ID:{uid}, shahar: {city})")
+    await call.message.answer(
+        f"✅ {name} — <b>{city}</b> shahri admini qilib tayinlandi.\n"
+        f"U /admin orqali faqat shu shahar seller/mahsulotlarini boshqaradi.",
+        parse_mode="HTML", reply_markup=admin_menu_kb(call.from_user.id)
     )
     try:
         from app.bot.bot import bot
-        await bot.send_message(uid, "🛡 Sizga admin (yordamchi) huquqi berildi!\n/admin buyrug'ini bosing.")
+        await bot.send_message(uid, f"🛡 Sizga <b>{city}</b> shahri admini huquqi berildi!\n/admin buyrug'ini bosing.",
+                               parse_mode="HTML")
     except Exception:
         pass
+    await call.answer("Qo'shildi!")
 
 
 @router.callback_query(F.data.startswith("deladmin_"))
@@ -973,3 +1020,186 @@ async def admin_log_word(call: CallbackQuery):
     file = BufferedInputFile(data, filename=fname)
     await call.message.answer_document(file, caption=f"📜 Amallar jurnali — {len(log)} ta yozuv")
     await call.answer("Tayyor!")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  OWNER: SHAHARLAR (tuman/shahar) BOSHQARUVI
+# ═══════════════════════════════════════════════════════════════════════════
+class AdminCityState(StatesGroup):
+    name = State()
+
+
+def _cities_kb():
+    rows = []
+    for c in get_cities():
+        rows.append([
+            InlineKeyboardButton(text=f"🏙 {c}", callback_data="noop"),
+            InlineKeyboardButton(text="🗑", callback_data=f"delcity_{c}"),
+        ])
+    rows.append([InlineKeyboardButton(text="➕ Shahar qo'shish", callback_data="addcity")])
+    rows.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_back")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+@router.callback_query(F.data == "admin_cities")
+async def admin_cities(call: CallbackQuery):
+    if not is_owner(call.from_user.id): return
+    cities = get_cities()
+    text = (f"🏙 <b>Shaharlar / Tumanlar</b> — {len(cities)} ta\n\n"
+            "Sellerlar va xaridorlar shu ro'yxatdan tanlaydi.\n"
+            "Har bir shaharga alohida admin tayinlashingiz mumkin.")
+    await _admin_nav(call, text, _cities_kb())
+    await call.answer()
+
+
+@router.callback_query(F.data == "noop")
+async def _noop(call: CallbackQuery):
+    await call.answer()
+
+
+@router.callback_query(F.data == "addcity")
+async def add_city_start(call: CallbackQuery, state: FSMContext):
+    if not is_owner(call.from_user.id): return
+    await state.set_state(AdminCityState.name)
+    await call.message.answer("🏙 Yangi shahar/tuman nomini yozing:")
+    await call.answer()
+
+
+@router.message(AdminCityState.name)
+async def add_city_save(message: Message, state: FSMContext):
+    if not is_owner(message.from_user.id):
+        await state.clear(); return
+    name = (message.text or "").strip()
+    await state.clear()
+    if not name:
+        await message.answer("❌ Nomi bo'sh bo'lmasin."); return
+    if add_city(name):
+        _log(message.from_user, "Shahar qo'shildi", name)
+        await message.answer(f"✅ «{name}» qo'shildi.", reply_markup=admin_menu_kb(message.from_user.id))
+    else:
+        await message.answer("Bu shahar allaqachon bor.", reply_markup=admin_menu_kb(message.from_user.id))
+
+
+@router.callback_query(F.data.startswith("delcity_"))
+async def del_city_cb(call: CallbackQuery):
+    if not is_owner(call.from_user.id): return
+    name = call.data.split("_", 1)[1]
+    if remove_city(name):
+        _log(call.from_user, "Shahar o'chirildi", name)
+        await call.answer(f"{name} o'chirildi.")
+    else:
+        await call.answer("Topilmadi.")
+    await admin_cities(call)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  OWNER: ZAXIRA (BACKUP) VA TIKLASH (RESTORE)
+# ═══════════════════════════════════════════════════════════════════════════
+from app.storage import DATA_DIR
+
+
+class AdminRestore(StatesGroup):
+    waiting_file = State()
+
+
+def _make_backup_zip() -> tuple[bytes, int]:
+    import glob
+    files = glob.glob(os.path.join(DATA_DIR, "*.json"))
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for f in files:
+            z.write(f, arcname=os.path.basename(f))
+    return buf.getvalue(), len(files)
+
+
+async def _send_backup(message: Message):
+    data, n = _make_backup_zip()
+    if n == 0:
+        await message.answer("Hozircha saqlangan ma'lumot yo'q.")
+        return
+    fname = f"backup_{datetime.now().strftime('%Y%m%d_%H%M')}.zip"
+    await message.answer_document(
+        BufferedInputFile(data, filename=fname),
+        caption=(
+            f"💾 <b>Zaxira nusxa</b> — {n} ta fayl\n"
+            f"📅 {datetime.now().strftime('%d.%m.%Y %H:%M')}\n\n"
+            "Bu faylni xavfsiz joyda saqlang. Yangi serverga ko'chsangiz, "
+            "shu faylni botga /restore bilan yuborib hamma narsani tiklaysiz."
+        ),
+        parse_mode="HTML"
+    )
+
+
+@router.message(Command("backup"))
+async def backup_cmd(message: Message):
+    if not is_owner(message.from_user.id): return
+    await _send_backup(message)
+
+
+@router.callback_query(F.data == "admin_backup")
+async def backup_btn(call: CallbackQuery):
+    if not is_owner(call.from_user.id): return
+    await _send_backup(call.message)
+    await call.answer("Zaxira tayyor ✅")
+
+
+@router.message(Command("restore"))
+async def restore_cmd(message: Message, state: FSMContext):
+    if not is_owner(message.from_user.id): return
+    await state.set_state(AdminRestore.waiting_file)
+    await message.answer(
+        "♻️ <b>Ma'lumotlarni tiklash</b>\n\n"
+        "Avval olingan <b>backup .zip</b> faylini shu yerga (hujjat sifatida) yuboring.\n"
+        "⚠️ Diqqat: hozirgi ma'lumotlar yangisi bilan almashtiriladi.\n\n"
+        "Bekor qilish: /cancel",
+        parse_mode="HTML"
+    )
+
+
+@router.message(AdminRestore.waiting_file, F.text == "/cancel")
+async def restore_cancel(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer("Bekor qilindi.", reply_markup=admin_menu_kb(message.from_user.id))
+
+
+@router.message(AdminRestore.waiting_file, F.document)
+async def restore_file(message: Message, state: FSMContext):
+    if not is_owner(message.from_user.id):
+        await state.clear(); return
+    doc = message.document
+    if not (doc.file_name or "").endswith(".zip"):
+        await message.answer("❌ Iltimos, backup .zip faylini yuboring.")
+        return
+    await state.clear()
+    try:
+        from app.bot.bot import bot
+        bio = io.BytesIO()
+        await bot.download(doc, destination=bio)
+        bio.seek(0)
+        os.makedirs(DATA_DIR, exist_ok=True)
+        count = 0
+        with zipfile.ZipFile(bio) as z:
+            for n in z.namelist():
+                if not n.endswith(".json"):
+                    continue
+                base = os.path.basename(n)        # xavfsizlik: papka yo'llarini tashlaymiz
+                if not base:
+                    continue
+                with z.open(n) as src, open(os.path.join(DATA_DIR, base), "wb") as dst:
+                    dst.write(src.read())
+                count += 1
+        if count == 0:
+            await message.answer("❌ Zip ichida .json fayl topilmadi. To'g'ri backup faylini yuboring.")
+            return
+        _log(message.from_user, "Ma'lumotlar tiklandi", f"{count} ta fayl")
+        await message.answer(
+            f"✅ <b>{count} ta fayl tiklandi!</b>\nMa'lumotlar muvaffaqiyatli yangilandi.",
+            parse_mode="HTML", reply_markup=admin_menu_kb(message.from_user.id)
+        )
+    except Exception as e:
+        await message.answer(f"❌ Faylni o'qishda xato: {e}")
+
+
+@router.message(AdminRestore.waiting_file)
+async def restore_wrong(message: Message):
+    await message.answer("❌ Backup .zip faylini hujjat sifatida yuboring (yoki /cancel).")
