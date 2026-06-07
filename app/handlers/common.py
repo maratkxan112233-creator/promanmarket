@@ -444,6 +444,11 @@ async def order_phone(message: Message, state: FSMContext):
             f"🚚 {dlv_label}\n\n"
             f"🔒 <b>Xaridor ma'lumotlari (ism, tel, manzil) yashirin.</b>\n"
             f"Platforma to'lovi (oldi-to'lov) tasdiqlangach avtomatik ochiladi.\n\n"
+            f"💡 <b>Eslatma:</b> Bot orqali sotilgan har bir zakaz uchun "
+            f"mahsulot narxining {pct}% qismi platforma xizmat haqi sifatida olinadi.\n"
+            f"Bu summa ({commission:,} so'm) xaridorning oldi-to'lovidan to'g'ridan-to'g'ri "
+            f"platformaga o'tadi — sizdan keyinchalik alohida hech narsa so'ralmaydi. "
+            f"Hamkorligingiz uchun rahmat! 🙏\n\n"
             f"⏳ Holat: to'lov tasdig'i kutilmoqda.\n"
             f"Zakazlar: /orders",
             parse_mode="HTML"

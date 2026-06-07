@@ -333,6 +333,9 @@ async def confirm_payment(call: CallbackQuery):
                 f"🚚 {dlv_label}\n\n"
                 f"🔒 <b>Xaridor o'zi olib ketadi — ma'lumotlari ko'rsatilmaydi.</b>\n"
                 f"Xaridor do'kon raqamiga bog'lanib, mahsulotni olib ketadi.\n"
+                f"💡 <i>Eslatma: bu zakaz uchun platforma xizmat haqi "
+                f"({o.get('commission', int(o.get('total',0)*0.1)):,} so'm — 10%) "
+                f"xaridorning oldi-to'lovidan olingan.</i>\n"
                 f"Mahsulotni tayyorlab qo'ying. /orders",
                 parse_mode="HTML"
             )
@@ -364,6 +367,9 @@ async def confirm_payment(call: CallbackQuery):
                 f"📱 {o.get('phone','—')}\n"
                 f"📍 {o.get('address','—')}\n"
                 f"🚚 {dlv_label}\n\n"
+                f"💡 <i>Eslatma: bu zakaz uchun platforma xizmat haqi "
+                f"({o.get('commission', int(o.get('total',0)*0.1)):,} so'm — 10%) "
+                f"xaridorning oldi-to'lovidan olingan.</i>\n"
                 f"Endi buyurtmani tayyorlab, taksi orqali manzilga jo'nating. /orders",
                 parse_mode="HTML"
             )
