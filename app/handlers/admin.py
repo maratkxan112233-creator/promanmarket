@@ -289,17 +289,28 @@ async def confirm_payment(call: CallbackQuery):
         )
     except Exception:
         pass
-    # Sellerga
+    # Sellerga — XARIDOR KONTAKTI ENDI OCHILADI (10% to'langani uchun)
     try:
         from app.bot.bot import bot
+        dlv_map = {
+            "pickup": "🚶 O'zi olib ketadi",
+            "btc": "📦 BTC Pochta", "emu": "🚀 EMU Express", "uzum": "🍊 Uzum Pochta",
+        }
+        dlv_label = dlv_map.get(o.get("delivery", ""), o.get("delivery", "—"))
+        if o.get("delivery") == "pickup":
+            extra = "📦 Xaridor mahsulotni o'zi olib ketadi — telefon orqali bog'laning."
+        else:
+            extra = "Endi buyurtmani tayyorlab, manzilga jo'nating."
         await bot.send_message(
             o["seller_id"],
-            f"💳 <b>Zakaz #{oid} — to'lov tasdiqlandi!</b>\n\n"
+            f"💳 <b>Zakaz #{oid} — to'lov tasdiqlandi!</b>\n"
+            f"🔓 <b>Xaridor ma'lumotlari ochildi:</b>\n\n"
             f"📦 {o.get('product_name','—')}\n"
             f"👤 {o.get('buyer_name','—')}\n"
             f"📱 {o.get('phone','—')}\n"
-            f"📍 {o.get('address','—')}\n\n"
-            f"Endi buyurtmani tayyorlang. /orders",
+            f"📍 {o.get('address','—')}\n"
+            f"🚚 {dlv_label}\n\n"
+            f"{extra} /orders",
             parse_mode="HTML"
         )
     except Exception:
@@ -638,7 +649,7 @@ def _build_excel(orders: list, title: str) -> bytes:
         cell.fill = fill
         cell.alignment = Alignment(horizontal="center")
 
-    dlv_map = {"btc": "BTC Pochta", "emu": "EMU Express", "uzum": "Uzum Pochta"}
+    dlv_map = {"pickup": "O'zi olib ketadi", "btc": "BTC Pochta", "emu": "EMU Express", "uzum": "Uzum Pochta"}
     total = 0
     total_comm = 0
     for i, o in enumerate(orders, 1):

@@ -27,6 +27,7 @@ ORDER_STATUSES = {
 }
 
 DELIVERY_LABELS = {
+    "pickup": "🚶 O'zi olib ketadi",
     "btc":  "📦 BTC Pochta",
     "emu":  "🚀 EMU Express",
     "uzum": "🍊 Uzum Pochta",
@@ -251,23 +252,54 @@ async def product_detail(call: CallbackQuery):
     await call.answer()
 
 
-# ─── Zakaz qilish: 1) yetkazib berish usuli ─────────────────────────────────
+# ─── Zakaz qilish: 0) olib ketish usuli (o'zi / dostavka) ───────────────────
 @router.callback_query(F.data.startswith("order_"))
 async def start_order(call: CallbackQuery, state: FSMContext):
     pid = int(call.data.split("_")[1])
     p = get_product_by_id(pid)
     if not p:
         await call.answer("Mahsulot topilmadi."); return
-    await state.set_state(OrderState.delivery)
+    await state.set_state(OrderState.fulfillment)
     await state.update_data(pid=pid)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🚶 O'zim olib ketaman", callback_data="flf_pickup")],
+        [InlineKeyboardButton(text="🚚 Dostavka qildiraman", callback_data="flf_delivery")],
+    ])
+    await call.message.answer(
+        f"🛒 <b>{p['name']}</b> — {p['price']:,} so'm\n\n"
+        f"Mahsulotni qanday olmoqchisiz?",
+        parse_mode="HTML", reply_markup=kb
+    )
+    await call.answer()
+
+
+# ─── 0a) O'zim olib ketaman → pochta usuli/manzil shart emas, telefon so'raymiz ─
+@router.callback_query(OrderState.fulfillment, F.data == "flf_pickup")
+async def fulfillment_pickup(call: CallbackQuery, state: FSMContext):
+    await state.update_data(fulfillment="pickup", delivery="pickup",
+                            address="🚶 O'zi olib ketadi (do'kondan)")
+    await state.set_state(OrderState.phone)
+    await call.message.answer(
+        "📱 <b>Telefon raqamingizni yuboring</b>\n"
+        "(pastdagi tugma orqali yoki qo'lda yozing):\n\n"
+        "<i>To'lov tasdiqlangach do'kon bilan bog'lanib, mahsulotni o'zingiz olib ketasiz.</i>",
+        parse_mode="HTML", reply_markup=phone_keyboard
+    )
+    await call.answer()
+
+
+# ─── 0b) Dostavka → pochta usulini tanlash bosqichiga o'tamiz ───────────────
+@router.callback_query(OrderState.fulfillment, F.data == "flf_delivery")
+async def fulfillment_delivery(call: CallbackQuery, state: FSMContext):
+    await state.update_data(fulfillment="delivery")
+    await state.set_state(OrderState.delivery)
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📦 BTC Pochta",   callback_data="dlv_btc")],
         [InlineKeyboardButton(text="🚀 EMU Express",  callback_data="dlv_emu")],
         [InlineKeyboardButton(text="🍊 Uzum Pochta",  callback_data="dlv_uzum")],
     ])
     await call.message.answer(
-        f"🛒 <b>{p['name']}</b> — {p['price']:,} so'm\n\n"
-        f"🚚 Yetkazib berish usulini tanlang:",
+        "🚚 Yetkazib berish usulini tanlang:",
         parse_mode="HTML", reply_markup=kb
     )
     await call.answer()
@@ -288,6 +320,9 @@ async def choose_delivery(call: CallbackQuery, state: FSMContext):
 
 
 # ─── Bekor qilish (har qanday buyurtma bosqichida) ──────────────────────────
+@router.message(
+    OrderState.fulfillment, F.text == "❌ Bekor qilish"
+)
 @router.message(
     OrderState.delivery, F.text == "❌ Bekor qilish"
 )
@@ -327,7 +362,7 @@ async def order_phone(message: Message, state: FSMContext):
 
     data = await state.get_data()
     pid  = data["pid"]
-    dlv  = data["delivery"]
+    dlv  = data.get("delivery", "pickup")
     p = get_product_by_id(pid)
     if not p:
         await state.clear()
@@ -345,8 +380,9 @@ async def order_phone(message: Message, state: FSMContext):
         "total":        p["price"],
         "prepay":       commission,       # 10% = platforma komissiyasi
         "commission":   commission,
+        "fulfillment":  data.get("fulfillment", "delivery"),
         "delivery":     dlv,
-        "address":      data["address"],
+        "address":      data.get("address", "—"),
         "phone":        phone,
         "status":       "pending",
         "receipt":      None,
@@ -357,24 +393,37 @@ async def order_phone(message: Message, state: FSMContext):
     dlv_label   = DELIVERY_LABELS.get(dlv, dlv)
     platform_card = settings.PLATFORM_CARD or "⚠️ admin kartani sozlamagan"
     pct = int(settings.COMMISSION_RATE * 100)
+    is_pickup = data.get("fulfillment") == "pickup"
 
     # ── Xaridorga: oldi-to'lov PLATFORMA kartasiga ──
+    if is_pickup:
+        deliver_line = (
+            f"🚶 Olish usuli: O'zingiz olib ketasiz\n"
+            f"<b>🔵 To'lov tasdiqlangach do'kon bilan bog'lanasiz.</b>\n\n"
+        )
+    else:
+        deliver_line = (
+            f"🚚 Yetkazib berish: {dlv_label}\n"
+            f"📍 Manzil: {data['address']}\n"
+            f"📱 Tel: {phone}\n"
+            f"<b>🔴 Yetkazib berish muddati: kamida 3 KUN</b>\n\n"
+        )
     await message.answer(
         f"✅ <b>Zakaz #{order_id} qabul qilindi!</b>\n\n"
         f"📦 {p['name']}\n"
         f"💰 Narx: {p['price']:,} so'm\n"
         f"💳 Oldi-to'lov ({pct}%): <b>{commission:,} so'm</b>\n"
         f"   → Karta: <code>{platform_card}</code>\n\n"
-        f"🚚 Yetkazib berish: {dlv_label}\n"
-        f"📍 Manzil: {data['address']}\n"
-        f"📱 Tel: {phone}\n"
-        f"<b>🔴 Yetkazib berish muddati: kamida 3 KUN</b>\n\n"
+        f"{deliver_line}"
         f"🧾 <b>Endi to'lov chekining rasmini (skrinshot) shu yerga yuboring.</b>\n"
         f"Chek tasdiqlangach buyurtmangiz tayyorlanadi.",
         parse_mode="HTML", reply_markup=cancel_keyboard
     )
 
-    # ── Sellerga: TO'LIQ ma'lumot (kim, qayerga, telefon) ──
+    # ── Sellerga: faqat MAHSULOT haqida. Xaridor kontakti YASHIRIN! ──
+    # Telefon/manzil faqat admin 10% to'lovni tasdiqlagandan keyin ochiladi.
+    # Bu seller bilan xaridor to'g'ridan-to'g'ri kelishib, komissiyani
+    # chetlab o'tishining oldini oladi.
     try:
         from app.bot.bot import bot
         await bot.send_message(
@@ -382,10 +431,9 @@ async def order_phone(message: Message, state: FSMContext):
             f"🛒 <b>Yangi zakaz #{order_id}!</b>\n\n"
             f"📦 {p['name']}\n"
             f"💰 {p['price']:,} so'm\n"
-            f"👤 Xaridor: {message.from_user.full_name}\n"
-            f"📱 Tel: {phone}\n"
-            f"📍 Manzil: {data['address']}\n"
             f"🚚 {dlv_label}\n\n"
+            f"🔒 <b>Xaridor ma'lumotlari (ism, tel, manzil) yashirin.</b>\n"
+            f"Platforma to'lovi (oldi-to'lov) tasdiqlangach avtomatik ochiladi.\n\n"
             f"⏳ Holat: to'lov tasdig'i kutilmoqda.\n"
             f"Zakazlar: /orders",
             parse_mode="HTML"
@@ -393,7 +441,7 @@ async def order_phone(message: Message, state: FSMContext):
     except Exception:
         pass
 
-    # ── Adminga: yangi zakaz xabari ──
+    # ── Adminga: yangi zakaz xabari (to'liq) ──
     try:
         from app.bot.bot import bot
         await bot.send_message(
@@ -485,7 +533,10 @@ async def my_orders(message: Message):
             f"   📌 {status}\n"
         )
         if o.get("status") not in ("delivered","cancelled"):
-            text += f"   <b>🔴 Yetkazib berish: kamida 3 KUN</b>\n"
+            if o.get("delivery") == "pickup":
+                text += f"   <b>🔵 To'lov tasdiqlangach do'kon bilan bog'lanasiz</b>\n"
+            else:
+                text += f"   <b>🔴 Yetkazib berish: kamida 3 KUN</b>\n"
         # Chek hali yuborilmagan pending buyurtmaga — chek yuborish tugmasi
         if o.get("status") == "pending" and not o.get("receipt"):
             rows.append([InlineKeyboardButton(

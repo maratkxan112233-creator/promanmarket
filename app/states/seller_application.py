@@ -22,11 +22,12 @@ class EditProductState(StatesGroup):
 
 
 class OrderState(StatesGroup):
-    delivery = State()
-    address  = State()
-    phone    = State()
-    receipt  = State()
-    confirm  = State()
+    fulfillment = State()   # o'zi olib ketadi / dostavka
+    delivery    = State()
+    address     = State()
+    phone       = State()
+    receipt     = State()
+    confirm     = State()
 
 
 class ReviewState(StatesGroup):

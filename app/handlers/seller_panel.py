@@ -235,27 +235,47 @@ async def seller_order_detail(call: CallbackQuery):
         await call.answer("Topilmadi."); return
     status = ORDER_STATUSES.get(o.get("status",""), "—")
     dlv = {
+        "pickup": "🚶 O'zi olib ketadi",
         "btc": "📦 BTC Pochta", "emu": "🚀 EMU Express", "uzum": "🍊 Uzum Pochta",
     }.get(o.get("delivery",""), o.get("delivery","—"))
     receipt_line = "🧾 Chek: yuborilgan" if o.get("receipt") else "🧾 Chek: yo'q"
+
+    # Xaridor kontakti faqat to'lov tasdiqlangandan keyin ko'rinadi (10% himoyasi)
+    unlocked = o.get("status") in ("paid", "processing", "shipped", "delivered")
+    if unlocked:
+        buyer_block = (
+            f"👤 Xaridor: {o.get('buyer_name','—')}\n"
+            f"📱 Tel: {o.get('phone','—')}\n"
+            f"📍 Manzil: {o.get('address','—')}\n"
+        )
+    else:
+        buyer_block = (
+            f"🔒 <b>Xaridor ma'lumotlari yashirin</b>\n"
+            f"   (platforma to'lovi tasdiqlangach ochiladi)\n"
+        )
     text = (
         f"🛒 <b>Zakaz #{oid}</b>\n\n"
         f"📦 {o.get('product_name','—')}\n"
         f"💰 {o.get('total',0):,} so'm\n"
-        f"👤 Xaridor: {o.get('buyer_name','—')}\n"
-        f"📱 Tel: {o.get('phone','—')}\n"
-        f"📍 Manzil: {o.get('address','—')}\n"
+        f"{buyer_block}"
         f"🚚 {dlv}\n"
         f"{receipt_line}\n"
         f"📌 Holat: {status}"
     )
     # Holat o'zgartirish tugmalari (to'lovni admin tasdiqlaydi, shu sabab "paid" yo'q)
-    next_statuses = {
-        "pending":    ["cancelled"],
-        "paid":       ["processing","cancelled"],
-        "processing": ["shipped"],
-        "shipped":    ["delivered"],
-    }
+    if o.get("delivery") == "pickup":
+        next_statuses = {
+            "pending":    ["cancelled"],
+            "paid":       ["processing","cancelled"],
+            "processing": ["delivered"],   # o'zi olib ketadi — to'g'ridan topshirildi
+        }
+    else:
+        next_statuses = {
+            "pending":    ["cancelled"],
+            "paid":       ["processing","cancelled"],
+            "processing": ["shipped"],
+            "shipped":    ["delivered"],
+        }
     rows = []
     if o.get("receipt"):
         rows.append([InlineKeyboardButton(text="🧾 Chekni ko'rish", callback_data=f"vrcpt_{oid}")])
