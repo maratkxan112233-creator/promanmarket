@@ -231,8 +231,9 @@ async def product_detail(call: CallbackQuery):
         f"🏪 {p.get('shop_name','—')}\n"
         f"📝 {p.get('description','—')}\n"
         f"💰 {p['price']:,} so'm\n\n"
-        f"<b>⚠️ Yetkazib berish muddati: kamida 3 kun</b>\n"
-        f"📮 BTC | EMU | Uzum Pochta orqali jo'natiladi"
+        f"<b>🛒 Zakaz berishda tanlaysiz:</b>\n"
+        f"🚶 O'zingiz olib ketish — do'kondan\n"
+        f"🚚 Dostavka — BTC | EMU | Uzum Pochta (kamida 3 kun)"
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🛒 Zakaz qilish", callback_data=f"order_{pid}")],
