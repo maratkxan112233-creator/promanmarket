@@ -131,18 +131,19 @@
   .nav .item .ic{font-size:21px;line-height:1;}
   .nav .item.active{color:var(--purple);}
 
-  /* ── Detail sheet ── */
+  /* ── Detail (to'liq ekran sahifa) ── */
   .overlay{
-    position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.45);
-    display:none;align-items:flex-end;
+    position:fixed;inset:0;z-index:50;background:#fff;
+    display:none;flex-direction:column;
   }
   .overlay.show{display:flex;}
   .sheet{
-    width:100%;background:#fff;border-radius:20px 20px 0 0;max-height:92vh;
-    overflow-y:auto;animation:up .28s ease;padding-bottom:calc(20px + env(safe-area-inset-bottom));
+    position:relative;width:100%;flex:1;background:#fff;
+    overflow-y:auto;animation:up .25s ease;
+    padding-bottom:calc(20px + env(safe-area-inset-bottom));
   }
-  @keyframes up{from{transform:translateY(100%);}to{transform:none;}}
-  .sheet-img{width:100%;aspect-ratio:1/1;background:var(--gray);object-fit:cover;}
+  @keyframes up{from{opacity:0;transform:translateY(14px);}to{opacity:1;transform:none;}}
+  .sheet-img{width:100%;aspect-ratio:1/1;background:var(--gray);object-fit:cover;display:block;}
   .sheet-img.ph{display:flex;align-items:center;justify-content:center;font-size:60px;color:#c9c9cf;}
   .sheet-body{padding:16px 18px 0;}
   .sheet h2{font-size:18px;font-weight:800;margin:0 0 4px;line-height:1.25;}
@@ -161,11 +162,11 @@
   }
   .buy button:active{opacity:.85;}
   .closex{
-    position:absolute;top:10px;right:12px;width:34px;height:34px;border-radius:50%;
-    background:rgba(255,255,255,.9);display:flex;align-items:center;justify-content:center;
-    font-size:18px;color:#333;box-shadow:0 1px 4px rgba(0,0,0,.15);
+    position:absolute;top:calc(10px + env(safe-area-inset-top));left:12px;z-index:2;
+    width:38px;height:38px;border-radius:50%;
+    background:rgba(255,255,255,.95);display:flex;align-items:center;justify-content:center;
+    font-size:20px;color:#222;box-shadow:0 1px 5px rgba(0,0,0,.18);cursor:pointer;
   }
-  .sheet{position:relative;}
 </style>
 </head>
 <body>
@@ -298,7 +299,7 @@ function openSheet(id){
   const src = img(p);
   const monthly = p.price ? Math.round(p.price/12) : 0;
   document.getElementById('sheet').innerHTML = `
-    <div class="closex" id="closex">✕</div>
+    <div class="closex" id="closex">←</div>
     ${src ? `<img class="sheet-img" src="${src}" onerror="imgFail(this,true)">`
           : `<div class="sheet-img ph">📦</div>`}
     <div class="sheet-body">
