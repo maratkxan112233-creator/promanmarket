@@ -248,7 +248,7 @@ function card(p){
   return `
   <div class="card" data-id="${p.id}">
     <div class="imgwrap">
-      ${src ? `<img src="${src}" loading="lazy" onerror="this.outerHTML='<div class=&quot;ph&quot;>📦</div>'">` : `<div class="ph">📦</div>`}
+      ${src ? `<img src="${src}" loading="lazy" onerror="imgFail(this)">` : `<div class="ph">📦</div>`}
       <div class="heart ${favs.has(p.id)?'on':''}" data-fav="${p.id}">♥</div>
     </div>
     <div class="info">
@@ -299,7 +299,7 @@ function openSheet(id){
   const monthly = p.price ? Math.round(p.price/12) : 0;
   document.getElementById('sheet').innerHTML = `
     <div class="closex" id="closex">✕</div>
-    ${src ? `<img class="sheet-img" src="${src}" onerror="this.outerHTML='<div class=&quot;sheet-img ph&quot;>📦</div>'">`
+    ${src ? `<img class="sheet-img" src="${src}" onerror="imgFail(this,true)">`
           : `<div class="sheet-img ph">📦</div>`}
     <div class="sheet-body">
       <h2>${esc(p.name)}</h2>
@@ -328,6 +328,17 @@ function order(id){
   if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
   tg.sendData(JSON.stringify({action:'order', id:id}));
   // Telegram WebApp'ni avtomatik yopadi va botga ma'lumot yuboradi
+}
+
+function imgFail(el, big){
+  const n = +(el.dataset.tries || 0);
+  if (n < 2){
+    el.dataset.tries = n + 1;
+    const base = el.src.split('&_r=')[0];
+    setTimeout(()=>{ el.src = base + '&_r=' + Date.now(); }, 400 * (n + 1));
+  } else {
+    el.outerHTML = big ? '<div class="sheet-img ph">📦</div>' : '<div class="ph">📦</div>';
+  }
 }
 
 function esc(s){ return (s||'').replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }

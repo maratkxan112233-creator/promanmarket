@@ -5,7 +5,7 @@ import os
 import threading
 import time
 import urllib.request
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
 from app.bot.bot import bot
@@ -146,8 +146,9 @@ class AppHandler(BaseHTTPRequestHandler):
 
 def run_http_server():
     port = int(os.getenv("PORT", os.getenv("WEBAPP_PORT", "8080")))
-    server = HTTPServer(("0.0.0.0", port), AppHandler)
-    logger.info("HTTP server (Mini App + API) :%s da ishlamoqda", port)
+    server = ThreadingHTTPServer(("0.0.0.0", port), AppHandler)
+    server.daemon_threads = True
+    logger.info("HTTP server (Mini App + API, multi-thread) :%s da ishlamoqda", port)
     server.serve_forever()
 
 
