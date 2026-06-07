@@ -80,3 +80,24 @@ app/
         └── users/
             └── user_service.py
 ```
+
+---
+
+## 🛍 Mini App (Uzum'daqa do'kon interfeysi)
+
+Mahsulotlar endi Telegram ichida **grid (karta)** ko'rinishda chiqadi — rasm, narx, chegirma, reyting va "shu bugun yetkazib berish" chipi bilan.
+
+### Ishlash tartibi
+- `app/main.py` ichidagi HTTP server ham health-check, ham Mini App'ni (`/`), ham `/api/products` va `/api/photo` (rasm proksisi) ni beradi.
+- Botning pastki menyusida **"🛍 Do'kon (ilova)"** tugmasi paydo bo'ladi (faqat `WEBAPP_URL` sozlangan bo'lsa).
+- Mahsulotda **"Buyurtma berish"** bosilsa — Mini App yopiladi va botdagi mavjud zakaz oqimi (olib ketish/dostavka → telefon → chek) ishga tushadi.
+
+### Sozlash (Railway)
+1. Railway → loyiha → **Settings → Networking → Generate Domain**. Hosil bo'lgan https manzilni oling.
+2. Railway → **Variables**:
+   - `WEBAPP_URL=https://<sizning-domeningiz>.up.railway.app`
+   - (PORT'ni Railway o'zi beradi — qo'shish shart emas.)
+3. Redeploy. Tugma chiqadi.
+
+### Chegirma ko'rsatish (ixtiyoriy)
+Mahsulot JSON'iga `"old_price": 99000` qo'shilsa — kartada `↓%` chegirma va ustidan chizilgan eski narx chiqadi. Bo'lmasa, oddiy narx ko'rinadi (soxta chegirma qo'yilmaydi).

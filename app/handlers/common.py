@@ -256,24 +256,51 @@ async def product_detail(call: CallbackQuery):
 
 
 # ─── Zakaz qilish: 0) olib ketish usuli (o'zi / dostavka) ───────────────────
+async def _ask_fulfillment(message: Message, state: FSMContext, p: dict):
+    await state.set_state(OrderState.fulfillment)
+    await state.update_data(pid=p["id"])
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🚶 O'zim olib ketaman", callback_data="flf_pickup")],
+        [InlineKeyboardButton(text="🚚 Dostavka qildiraman", callback_data="flf_delivery")],
+    ])
+    await message.answer(
+        f"🛒 <b>{p['name']}</b> — {p['price']:,} so'm\n\n"
+        f"Mahsulotni qanday olmoqchisiz?",
+        parse_mode="HTML", reply_markup=kb
+    )
+
+
 @router.callback_query(F.data.startswith("order_"))
 async def start_order(call: CallbackQuery, state: FSMContext):
     pid = int(call.data.split("_")[1])
     p = get_product_by_id(pid)
     if not p:
         await call.answer("Mahsulot topilmadi."); return
-    await state.set_state(OrderState.fulfillment)
-    await state.update_data(pid=pid)
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🚶 O'zim olib ketaman", callback_data="flf_pickup")],
-        [InlineKeyboardButton(text="🚚 Dostavka qildiraman", callback_data="flf_delivery")],
-    ])
-    await call.message.answer(
-        f"🛒 <b>{p['name']}</b> — {p['price']:,} so'm\n\n"
-        f"Mahsulotni qanday olmoqchisiz?",
-        parse_mode="HTML", reply_markup=kb
-    )
+    await _ask_fulfillment(call.message, state, p)
     await call.answer()
+
+
+# ─── Mini App (WebApp) dan kelgan "Buyurtma" — bot ichidagi zakaz oqimini boshlaydi ─
+@router.message(F.web_app_data)
+async def webapp_order(message: Message, state: FSMContext):
+    import json as _json
+    try:
+        data = _json.loads(message.web_app_data.data)
+    except Exception:
+        await message.answer("❌ Ma'lumot o'qilmadi. Qaytadan urinib ko'ring.", reply_markup=main_menu)
+        return
+    if data.get("action") != "order":
+        return
+    register_user(message.from_user.id, {
+        "full_name": message.from_user.full_name,
+        "username":  message.from_user.username,
+    })
+    p = get_product_by_id(int(data.get("id", 0)))
+    if not p:
+        await message.answer("❌ Mahsulot topilmadi.", reply_markup=main_menu)
+        return
+    await state.clear()
+    await _ask_fulfillment(message, state, p)
 
 
 # ─── 0a) O'zim olib ketaman → pochta usuli/manzil shart emas, telefon so'raymiz ─

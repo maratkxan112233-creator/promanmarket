@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>ProMan Market</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --purple:#7000FF;
+    --purple-soft:#efe7ff;
+    --pink:#ff2d6e;
+    --yellow:#ffe27a;
+    --ink:#1a1a1a;
+    --muted:#8a8a8f;
+    --line:#eeeef1;
+    --bg:#ffffff;
+    --gray:#f4f4f6;
+    --gold:#ffb800;
+    --nav-h:62px;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;background:var(--bg);}
+  body{
+    font-family:'Manrope',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+    color:var(--ink);
+    padding-bottom:calc(var(--nav-h) + env(safe-area-inset-bottom));
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ── Tabs ── */
+  .tabs{
+    position:sticky;top:0;z-index:20;background:#fff;
+    display:flex;gap:0;border-bottom:1px solid var(--line);
+    padding-top:env(safe-area-inset-top);
+  }
+  .tab{
+    flex:1;text-align:center;padding:15px 0 13px;
+    font-size:16px;font-weight:700;color:var(--muted);
+    position:relative;cursor:pointer;
+  }
+  .tab.active{color:var(--ink);}
+  .tab.active::after{
+    content:"";position:absolute;left:25%;right:25%;bottom:-1px;height:3px;
+    background:var(--purple);border-radius:3px 3px 0 0;
+  }
+
+  /* ── City chips ── */
+  .chips{
+    display:flex;gap:8px;overflow-x:auto;padding:12px 14px 4px;
+    scrollbar-width:none;
+  }
+  .chips::-webkit-scrollbar{display:none;}
+  .chip{
+    flex:0 0 auto;padding:8px 15px;border-radius:20px;
+    background:var(--gray);color:#444;font-size:13px;font-weight:600;
+    border:1px solid transparent;white-space:nowrap;cursor:pointer;
+  }
+  .chip.active{background:var(--purple-soft);color:var(--purple);border-color:var(--purple);}
+
+  /* ── Grid ── */
+  .grid{
+    display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:10px 12px 24px;
+  }
+  .card{
+    background:#fff;border-radius:14px;overflow:hidden;cursor:pointer;
+    display:flex;flex-direction:column;
+    animation:pop .35s ease both;
+  }
+  @keyframes pop{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:none;}}
+  .imgwrap{
+    position:relative;width:100%;aspect-ratio:1/1;background:var(--gray);
+    border-radius:14px;overflow:hidden;
+  }
+  .imgwrap img{width:100%;height:100%;object-fit:cover;display:block;}
+  .imgwrap .ph{
+    width:100%;height:100%;display:flex;align-items:center;justify-content:center;
+    font-size:34px;color:#c9c9cf;
+  }
+  .heart{
+    position:absolute;top:8px;right:8px;width:30px;height:30px;border-radius:50%;
+    background:rgba(255,255,255,.92);display:flex;align-items:center;justify-content:center;
+    box-shadow:0 1px 4px rgba(0,0,0,.12);font-size:15px;color:#9a9aa0;
+  }
+  .heart.on{color:var(--pink);}
+  .info{padding:8px 4px 4px;}
+  .price-row{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap;}
+  .price{font-size:17px;font-weight:800;color:var(--purple);letter-spacing:-.3px;}
+  .disc{font-size:13px;font-weight:800;color:var(--pink);}
+  .oldprice{font-size:12px;color:#b5b5bb;text-decoration:line-through;margin-top:1px;}
+  .monthly{
+    display:inline-block;margin-top:6px;background:var(--yellow);
+    color:#5a4a00;font-size:11.5px;font-weight:700;padding:3px 8px;border-radius:6px;
+  }
+  .title{
+    font-size:13px;font-weight:500;color:#333;line-height:1.3;margin-top:7px;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+    min-height:34px;
+  }
+  .rate{display:flex;align-items:center;gap:5px;margin-top:6px;font-size:12px;color:var(--muted);}
+  .rate .star{color:var(--gold);}
+  .rate b{color:#444;font-weight:700;}
+  .deliv{
+    display:flex;align-items:center;gap:6px;margin-top:9px;
+    background:var(--purple-soft);color:var(--purple);
+    font-size:12px;font-weight:700;padding:7px 10px;border-radius:9px;
+  }
+
+  /* ── States ── */
+  .state{padding:60px 24px;text-align:center;color:var(--muted);}
+  .state .big{font-size:42px;margin-bottom:10px;}
+  .spinner{
+    width:34px;height:34px;border:3px solid var(--line);border-top-color:var(--purple);
+    border-radius:50%;animation:spin .8s linear infinite;margin:60px auto;
+  }
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  /* ── Bottom nav ── */
+  .nav{
+    position:fixed;left:0;right:0;bottom:0;z-index:30;background:#fff;
+    border-top:1px solid var(--line);display:flex;height:var(--nav-h);
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+  .nav .item{
+    flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:3px;font-size:11px;font-weight:600;color:var(--muted);cursor:pointer;
+  }
+  .nav .item .ic{font-size:21px;line-height:1;}
+  .nav .item.active{color:var(--purple);}
+
+  /* ── Detail sheet ── */
+  .overlay{
+    position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.45);
+    display:none;align-items:flex-end;
+  }
+  .overlay.show{display:flex;}
+  .sheet{
+    width:100%;background:#fff;border-radius:20px 20px 0 0;max-height:92vh;
+    overflow-y:auto;animation:up .28s ease;padding-bottom:calc(20px + env(safe-area-inset-bottom));
+  }
+  @keyframes up{from{transform:translateY(100%);}to{transform:none;}}
+  .sheet-img{width:100%;aspect-ratio:1/1;background:var(--gray);object-fit:cover;}
+  .sheet-img.ph{display:flex;align-items:center;justify-content:center;font-size:60px;color:#c9c9cf;}
+  .sheet-body{padding:16px 18px 0;}
+  .sheet h2{font-size:18px;font-weight:800;margin:0 0 4px;line-height:1.25;}
+  .sheet .shop{font-size:13px;color:var(--muted);margin-bottom:12px;}
+  .sheet .sp{font-size:24px;font-weight:800;color:var(--purple);}
+  .sheet .so{font-size:14px;color:#b5b5bb;text-decoration:line-through;margin-left:8px;}
+  .sheet .desc{font-size:14px;color:#444;line-height:1.5;margin:14px 0 4px;white-space:pre-wrap;}
+  .sheet .note{font-size:12.5px;color:var(--muted);margin-top:14px;line-height:1.5;}
+  .buy{
+    position:sticky;bottom:0;background:#fff;padding:14px 18px;margin-top:18px;
+    border-top:1px solid var(--line);
+  }
+  .buy button{
+    width:100%;border:0;background:var(--purple);color:#fff;font-weight:800;font-size:16px;
+    padding:15px;border-radius:13px;cursor:pointer;font-family:inherit;
+  }
+  .buy button:active{opacity:.85;}
+  .closex{
+    position:absolute;top:10px;right:12px;width:34px;height:34px;border-radius:50%;
+    background:rgba(255,255,255,.9);display:flex;align-items:center;justify-content:center;
+    font-size:18px;color:#333;box-shadow:0 1px 4px rgba(0,0,0,.15);
+  }
+  .sheet{position:relative;}
+</style>
+</head>
+<body>
+
+<div class="tabs">
+  <div class="tab active" data-tab="all">Tavsiya</div>
+  <div class="tab" data-tab="disc">Chegirma 🔥</div>
+</div>
+
+<div class="chips" id="chips"></div>
+
+<div id="content">
+  <div class="spinner"></div>
+</div>
+
+<!-- Detail sheet -->
+<div class="overlay" id="overlay">
+  <div class="sheet" id="sheet"></div>
+</div>
+
+<!-- Bottom nav -->
+<div class="nav">
+  <div class="item active"><div class="ic">⌂</div>Asosiy</div>
+  <div class="item"><div class="ic">▦</div>Katalog</div>
+  <div class="item"><div class="ic">🛍</div>Savatcha</div>
+  <div class="item"><div class="ic">◎</div>Karta</div>
+  <div class="item"><div class="ic">☺</div>Profil</div>
+</div>
+
+<script>
+const tg = window.Telegram ? window.Telegram.WebApp : null;
+if (tg){ tg.expand(); tg.ready(); try{ tg.setHeaderColor('#ffffff'); tg.setBackgroundColor('#ffffff'); }catch(e){} }
+
+let ALL = [];
+let curTab = 'all';
+let curCity = 'all';
+const favs = new Set();
+
+const fmt = n => (n||0).toLocaleString('ru-RU').replace(/,/g,' ').replace(/\u00a0/g,' ');
+const img = (p) => p.has_photo ? `/api/photo?id=${p.id}` : null;
+
+function disc(p){
+  if (p.old_price && p.old_price > p.price){
+    return Math.round((p.old_price - p.price) / p.old_price * 100);
+  }
+  return 0;
+}
+
+async function load(){
+  try{
+    const r = await fetch('/api/products');
+    ALL = await r.json();
+  }catch(e){ ALL = []; }
+  buildChips();
+  render();
+}
+
+function buildChips(){
+  const box = document.getElementById('chips');
+  const cities = [...new Set(ALL.map(p=>p.city).filter(Boolean))].sort();
+  let html = `<div class="chip ${curCity==='all'?'active':''}" data-city="all">Hammasi</div>`;
+  cities.forEach(c => html += `<div class="chip ${curCity===c?'active':''}" data-city="${c}">📍 ${c}</div>`);
+  box.innerHTML = html;
+  box.querySelectorAll('.chip').forEach(el=>{
+    el.onclick = ()=>{ curCity = el.dataset.city; buildChips(); render(); };
+  });
+}
+
+function filtered(){
+  let list = ALL.slice();
+  if (curCity !== 'all') list = list.filter(p => p.city === curCity);
+  if (curTab === 'disc') list = list.filter(p => disc(p) > 0);
+  return list;
+}
+
+function card(p){
+  const d = disc(p);
+  const src = img(p);
+  const monthly = p.price ? Math.round(p.price/12) : 0;
+  return `
+  <div class="card" data-id="${p.id}">
+    <div class="imgwrap">
+      ${src ? `<img src="${src}" loading="lazy" onerror="this.outerHTML='<div class=&quot;ph&quot;>📦</div>'">` : `<div class="ph">📦</div>`}
+      <div class="heart ${favs.has(p.id)?'on':''}" data-fav="${p.id}">♥</div>
+    </div>
+    <div class="info">
+      <div class="price-row">
+        <span class="price">${fmt(p.price)}</span>
+        ${d ? `<span class="disc">↓${d}%</span>` : ``}
+      </div>
+      ${d ? `<div class="oldprice">${fmt(p.old_price)} so'm</div>` : ``}
+      ${monthly ? `<div class="monthly">${fmt(monthly)} so'm/oy</div>` : ``}
+      <div class="title">${esc(p.name)}</div>
+      <div class="rate">
+        <span class="star">★</span> <b>${p.rating || '—'}</b>
+        <span>💬 ${p.reviews||0}</span>
+      </div>
+      <div class="deliv">🚕 Bugun yetkazib beramiz</div>
+    </div>
+  </div>`;
+}
+
+function render(){
+  const list = filtered();
+  const c = document.getElementById('content');
+  if (!list.length){
+    const msg = curTab==='disc' ? "Chegirmadagi mahsulot yo'q." : "Hozircha mahsulot yo'q.";
+    c.innerHTML = `<div class="state"><div class="big">🛍</div>${msg}</div>`;
+    return;
+  }
+  c.innerHTML = `<div class="grid">${list.map(card).join('')}</div>`;
+  c.querySelectorAll('.card').forEach(el=>{
+    el.onclick = (e)=>{
+      if (e.target.dataset.fav){ toggleFav(+e.target.dataset.fav, e.target); return; }
+      openSheet(+el.dataset.id);
+    };
+  });
+}
+
+function toggleFav(id, el){
+  if (favs.has(id)){ favs.delete(id); el.classList.remove('on'); }
+  else { favs.add(id); el.classList.add('on'); }
+  if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+}
+
+function openSheet(id){
+  const p = ALL.find(x=>x.id===id);
+  if (!p) return;
+  const d = disc(p);
+  const src = img(p);
+  const monthly = p.price ? Math.round(p.price/12) : 0;
+  document.getElementById('sheet').innerHTML = `
+    <div class="closex" id="closex">✕</div>
+    ${src ? `<img class="sheet-img" src="${src}" onerror="this.outerHTML='<div class=&quot;sheet-img ph&quot;>📦</div>'">`
+          : `<div class="sheet-img ph">📦</div>`}
+    <div class="sheet-body">
+      <h2>${esc(p.name)}</h2>
+      <div class="shop">🏪 ${esc(p.shop_name||'')} ${p.city?('· 📍 '+esc(p.city)):''}</div>
+      <div>
+        <span class="sp">${fmt(p.price)} so'm</span>
+        ${d ? `<span class="so">${fmt(p.old_price)} so'm</span>` : ``}
+      </div>
+      ${monthly ? `<div class="monthly" style="margin-top:10px">${fmt(monthly)} so'm/oy</div>` : ``}
+      ${p.description ? `<div class="desc">${esc(p.description)}</div>` : ``}
+      <div class="note">⭐ Reyting: ${p.rating||'—'} (${p.reviews||0} ta sharh)<br>
+        🚕 Taksi pochta — shu bugunoq · 🚶 yoki o'zingiz olib ketasiz<br>
+        💳 To'lov: oldindan 10% platforma kartasiga, qolgani do'konga.</div>
+    </div>
+    <div class="buy"><button id="buybtn">🛒 Buyurtma berish</button></div>`;
+  document.getElementById('overlay').classList.add('show');
+  document.getElementById('closex').onclick = closeSheet;
+  document.getElementById('buybtn').onclick = ()=> order(p.id);
+}
+
+function closeSheet(){ document.getElementById('overlay').classList.remove('show'); }
+document.getElementById('overlay').onclick = (e)=>{ if (e.target.id==='overlay') closeSheet(); };
+
+function order(id){
+  if (!tg){ alert('Bu sahifani Telegram ichida oching.'); return; }
+  if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+  tg.sendData(JSON.stringify({action:'order', id:id}));
+  // Telegram WebApp'ni avtomatik yopadi va botga ma'lumot yuboradi
+}
+
+function esc(s){ return (s||'').replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
+
+document.querySelectorAll('.tab').forEach(el=>{
+  el.onclick = ()=>{
+    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    el.classList.add('active');
+    curTab = el.dataset.tab;
+    render();
+  };
+});
+
+load();
+</script>
+</body>
+</html>

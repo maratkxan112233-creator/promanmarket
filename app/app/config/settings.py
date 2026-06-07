@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     PLATFORM_CARD: str = ""          # 10% oldi-to'lov tushadigan platforma kartasi
     PLATFORM_CARD_NAME: str = ""     # platforma kartasi egasining ismi
     COMMISSION_RATE: float = 0.10     # platforma komissiyasi (0.10 = 10%)
+    WEBAPP_URL: str = ""              # Mini App (do'kon) ochiladigan https manzil (Railway public URL)
     DATABASE_URL: Optional[str] = None
     REDIS_URL: Optional[str] = None
 
