@@ -398,6 +398,7 @@ async def order_phone(message: Message, state: FSMContext):
 
     dlv_label   = DELIVERY_LABELS.get(dlv, dlv)
     platform_card = settings.PLATFORM_CARD or "⚠️ admin kartani sozlamagan"
+    card_name_line = f"   → Karta egasi: <b>{settings.PLATFORM_CARD_NAME}</b>\n" if settings.PLATFORM_CARD_NAME else ""
     pct = int(settings.COMMISSION_RATE * 100)
     is_pickup = data.get("fulfillment") == "pickup"
 
@@ -421,7 +422,8 @@ async def order_phone(message: Message, state: FSMContext):
         f"📦 {p['name']}\n"
         f"💰 Narx: {p['price']:,} so'm\n"
         f"💳 Oldi-to'lov ({pct}%): <b>{commission:,} so'm</b>\n"
-        f"   → Karta: <code>{platform_card}</code>\n\n"
+        f"   → Karta: <code>{platform_card}</code>\n"
+        f"{card_name_line}\n"
         f"{deliver_line}"
         f"🧾 <b>Endi to'lov chekining rasmini (skrinshot) shu yerga yuboring.</b>\n"
         f"Chek tasdiqlangach buyurtmangiz tayyorlanadi.",
