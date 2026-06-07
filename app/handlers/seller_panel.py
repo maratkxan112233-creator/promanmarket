@@ -241,13 +241,21 @@ async def seller_order_detail(call: CallbackQuery):
     }.get(o.get("delivery",""), o.get("delivery","—"))
     receipt_line = "🧾 Chek: yuborilgan" if o.get("receipt") else "🧾 Chek: yo'q"
 
-    # Xaridor kontakti faqat to'lov tasdiqlangandan keyin ko'rinadi (10% himoyasi)
-    unlocked = o.get("status") in ("paid", "processing", "shipped", "delivered")
+    # Xaridor kontakti faqat TAKSI + to'lov tasdiqlangan bo'lsa ko'rinadi.
+    # Pickup (o'zi olib ketadi) — danniylar HECH QACHON ko'rsatilmaydi.
+    is_pickup = o.get("delivery") == "pickup"
+    paid_ok = o.get("status") in ("paid", "processing", "shipped", "delivered")
+    unlocked = (not is_pickup) and paid_ok
     if unlocked:
         buyer_block = (
             f"👤 Xaridor: {o.get('buyer_name','—')}\n"
             f"📱 Tel: {o.get('phone','—')}\n"
             f"📍 Manzil: {o.get('address','—')}\n"
+        )
+    elif is_pickup:
+        buyer_block = (
+            f"🔒 <b>Xaridor o'zi olib ketadi — ma'lumotlari ko'rsatilmaydi.</b>\n"
+            f"   (xaridor do'kon raqamiga o'zi bog'lanadi)\n"
         )
     else:
         buyer_block = (

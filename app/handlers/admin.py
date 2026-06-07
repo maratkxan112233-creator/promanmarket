@@ -265,58 +265,110 @@ async def reject_seller_cb(call: CallbackQuery):
 # ─── To'lov chekini tasdiqlash / rad etish ───────────────────────────────────
 @router.callback_query(F.data.startswith("paycfm_"))
 async def confirm_payment(call: CallbackQuery):
-    if not is_owner(call.from_user.id): return
+    if not is_owner(call.from_user.id):
+        await call.answer("Ruxsat yo'q.", show_alert=True); return
+    # Tugma spinnerini DARHOL to'xtatamiz — "qotib qolish" oldini oladi
+    await call.answer("✅ To'lov tasdiqlandi!")
+
     oid = int(call.data.split("_")[1])
     o = get_order_by_id(oid)
     if not o:
-        await call.answer("Zakaz topilmadi.", show_alert=True); return
+        try: await call.message.answer("❌ Zakaz topilmadi.")
+        except Exception: pass
+        return
+
     update_order_status(oid, "paid")
+    try:
+        _log(call.from_user, "To'lov tasdiqlandi", f"Zakaz #{oid}")
+    except Exception:
+        pass
+
     try:
         await call.message.edit_caption(
             caption=(call.message.caption or "") + "\n\n✅ TO'LOV TASDIQLANDI",
         )
     except Exception:
         pass
-    # Xaridorga
-    try:
-        from app.bot.bot import bot
-        await bot.send_message(
-            o["buyer_id"],
-            f"✅ <b>Zakaz #{oid} to'lovi tasdiqlandi!</b>\n"
-            f"📦 {o.get('product_name','—')}\n"
-            f"Buyurtmangiz tayyorlanmoqda. 🔄",
-            parse_mode="HTML"
-        )
-    except Exception:
-        pass
-    # Sellerga — XARIDOR KONTAKTI ENDI OCHILADI (10% to'langani uchun)
-    try:
-        from app.bot.bot import bot
-        dlv_map = {
-            "pickup": "🚶 O'zi olib ketadi",
-            "taxi": "🚕 Taksi pochta (shu bugunoq)",
-            "btc": "📦 BTC Pochta", "emu": "🚀 EMU Express", "uzum": "🍊 Uzum Pochta",
-        }
-        dlv_label = dlv_map.get(o.get("delivery", ""), o.get("delivery", "—"))
-        if o.get("delivery") == "pickup":
-            extra = "📦 Xaridor mahsulotni o'zi olib ketadi — telefon orqali bog'laning."
-        else:
-            extra = "Endi buyurtmani tayyorlab, manzilga jo'nating."
-        await bot.send_message(
-            o["seller_id"],
-            f"💳 <b>Zakaz #{oid} — to'lov tasdiqlandi!</b>\n"
-            f"🔓 <b>Xaridor ma'lumotlari ochildi:</b>\n\n"
-            f"📦 {o.get('product_name','—')}\n"
-            f"👤 {o.get('buyer_name','—')}\n"
-            f"📱 {o.get('phone','—')}\n"
-            f"📍 {o.get('address','—')}\n"
-            f"🚚 {dlv_label}\n\n"
-            f"{extra} /orders",
-            parse_mode="HTML"
-        )
-    except Exception:
-        pass
-    await call.answer("✅ To'lov tasdiqlandi!")
+
+    from app.bot.bot import bot
+    is_pickup = o.get("delivery") == "pickup"
+    dlv_map = {
+        "pickup": "🚶 O'zi olib ketadi",
+        "taxi": "🚕 Taksi pochta (shu bugunoq)",
+        "btc": "📦 BTC Pochta", "emu": "🚀 EMU Express", "uzum": "🍊 Uzum Pochta",
+    }
+    dlv_label = dlv_map.get(o.get("delivery", ""), o.get("delivery", "—"))
+
+    if is_pickup:
+        # ── PICKUP: xaridor o'zi olib ketadi ──
+        # Sellerga xaridor danniylari KO'RSATILMAYDI.
+        # Xaridorga esa do'kon kontaktini beramiz — borib olib ketishi uchun.
+        shop = get_seller(o["seller_id"]) or {}
+        shop_name = shop.get("shop_name", "—")
+        shop_phone = shop.get("phone", "—")
+        shop_city = shop.get("city", "—")
+
+        # Xaridorga — do'kon kontakti ochiladi
+        try:
+            await bot.send_message(
+                o["buyer_id"],
+                f"✅ <b>Zakaz #{oid} to'lovi tasdiqlandi!</b>\n"
+                f"📦 {o.get('product_name','—')}\n\n"
+                f"🚶 <b>Mahsulotni o'zingiz olib ketasiz.</b>\n"
+                f"🏪 Do'kon: {shop_name}\n"
+                f"🏙 Shahar: {shop_city}\n"
+                f"📱 Do'kon tel: {shop_phone}\n\n"
+                f"Do'kon bilan bog'lanib, mahsulotni olib keting.",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+
+        # Sellerga — XARIDOR DANNIYLARI KO'RSATILMAYDI
+        try:
+            await bot.send_message(
+                o["seller_id"],
+                f"💳 <b>Zakaz #{oid} — to'lov tasdiqlandi!</b>\n\n"
+                f"📦 {o.get('product_name','—')}\n"
+                f"🚚 {dlv_label}\n\n"
+                f"🔒 <b>Xaridor o'zi olib ketadi — ma'lumotlari ko'rsatilmaydi.</b>\n"
+                f"Xaridor do'kon raqamiga bog'lanib, mahsulotni olib ketadi.\n"
+                f"Mahsulotni tayyorlab qo'ying. /orders",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+    else:
+        # ── TAKSI/DOSTAVKA: xaridor danniylari ENDI ochiladi (to'lov tasdiqlangani uchun) ──
+        # Xaridorga
+        try:
+            await bot.send_message(
+                o["buyer_id"],
+                f"✅ <b>Zakaz #{oid} to'lovi tasdiqlandi!</b>\n"
+                f"📦 {o.get('product_name','—')}\n"
+                f"🚕 Yetkazib berish: SHU BUGUNOQ (taksi pochta)\n"
+                f"Buyurtmangiz tayyorlanmoqda. 🔄",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+
+        # Sellerga — to'liq xaridor ma'lumotlari
+        try:
+            await bot.send_message(
+                o["seller_id"],
+                f"💳 <b>Zakaz #{oid} — to'lov tasdiqlandi!</b>\n"
+                f"🔓 <b>Xaridor ma'lumotlari ochildi:</b>\n\n"
+                f"📦 {o.get('product_name','—')}\n"
+                f"👤 {o.get('buyer_name','—')}\n"
+                f"📱 {o.get('phone','—')}\n"
+                f"📍 {o.get('address','—')}\n"
+                f"🚚 {dlv_label}\n\n"
+                f"Endi buyurtmani tayyorlab, taksi orqali manzilga jo'nating. /orders",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
 
 
 @router.callback_query(F.data.startswith("payrej_"))
