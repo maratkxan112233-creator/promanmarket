@@ -294,6 +294,7 @@ async def confirm_payment(call: CallbackQuery):
         from app.bot.bot import bot
         dlv_map = {
             "pickup": "🚶 O'zi olib ketadi",
+            "taxi": "🚕 Taksi pochta (shu bugunoq)",
             "btc": "📦 BTC Pochta", "emu": "🚀 EMU Express", "uzum": "🍊 Uzum Pochta",
         }
         dlv_label = dlv_map.get(o.get("delivery", ""), o.get("delivery", "—"))
@@ -649,7 +650,7 @@ def _build_excel(orders: list, title: str) -> bytes:
         cell.fill = fill
         cell.alignment = Alignment(horizontal="center")
 
-    dlv_map = {"pickup": "O'zi olib ketadi", "btc": "BTC Pochta", "emu": "EMU Express", "uzum": "Uzum Pochta"}
+    dlv_map = {"pickup": "O'zi olib ketadi", "taxi": "Taksi pochta (shu bugunoq)", "btc": "BTC Pochta", "emu": "EMU Express", "uzum": "Uzum Pochta"}
     total = 0
     total_comm = 0
     for i, o in enumerate(orders, 1):

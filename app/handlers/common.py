@@ -28,6 +28,8 @@ ORDER_STATUSES = {
 
 DELIVERY_LABELS = {
     "pickup": "🚶 O'zi olib ketadi",
+    "taxi": "🚕 Taksi pochta (shu bugunoq)",
+    # eski zakazlar uchun (tarixiy) — yangi zakazlarda ishlatilmaydi
     "btc":  "📦 BTC Pochta",
     "emu":  "🚀 EMU Express",
     "uzum": "🍊 Uzum Pochta",
@@ -233,7 +235,7 @@ async def product_detail(call: CallbackQuery):
         f"💰 {p['price']:,} so'm\n\n"
         f"<b>🛒 Zakaz berishda tanlaysiz:</b>\n"
         f"🚶 O'zingiz olib ketish — do'kondan\n"
-        f"🚚 Dostavka — BTC | EMU | Uzum Pochta (kamida 3 kun)"
+        f"🚕 Dostavka — Taksi pochta (shu bugunoq)"
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🛒 Zakaz qilish", callback_data=f"order_{pid}")],
@@ -295,9 +297,7 @@ async def fulfillment_delivery(call: CallbackQuery, state: FSMContext):
     await state.update_data(fulfillment="delivery")
     await state.set_state(OrderState.delivery)
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📦 BTC Pochta",   callback_data="dlv_btc")],
-        [InlineKeyboardButton(text="🚀 EMU Express",  callback_data="dlv_emu")],
-        [InlineKeyboardButton(text="🍊 Uzum Pochta",  callback_data="dlv_uzum")],
+        [InlineKeyboardButton(text="🚕 Taksi pochta (shu bugunoq)", callback_data="dlv_taxi")],
     ])
     await call.message.answer(
         "🚚 Yetkazib berish usulini tanlang:",
@@ -407,7 +407,7 @@ async def order_phone(message: Message, state: FSMContext):
             f"🚚 Yetkazib berish: {dlv_label}\n"
             f"📍 Manzil: {data['address']}\n"
             f"📱 Tel: {phone}\n"
-            f"<b>🔴 Yetkazib berish muddati: kamida 3 KUN</b>\n\n"
+            f"<b>🟢 Yetkazib berish: SHU BUGUNOQ (taksi pochta)</b>\n\n"
         )
     await message.answer(
         f"✅ <b>Zakaz #{order_id} qabul qilindi!</b>\n\n"
@@ -537,7 +537,7 @@ async def my_orders(message: Message):
             if o.get("delivery") == "pickup":
                 text += f"   <b>🔵 To'lov tasdiqlangach do'kon bilan bog'lanasiz</b>\n"
             else:
-                text += f"   <b>🔴 Yetkazib berish: kamida 3 KUN</b>\n"
+                text += f"   <b>🟢 Yetkazib berish: SHU BUGUNOQ</b>\n"
         # Chek hali yuborilmagan pending buyurtmaga — chek yuborish tugmasi
         if o.get("status") == "pending" and not o.get("receipt"):
             rows.append([InlineKeyboardButton(

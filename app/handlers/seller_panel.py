@@ -236,6 +236,7 @@ async def seller_order_detail(call: CallbackQuery):
     status = ORDER_STATUSES.get(o.get("status",""), "—")
     dlv = {
         "pickup": "🚶 O'zi olib ketadi",
+        "taxi": "🚕 Taksi pochta (shu bugunoq)",
         "btc": "📦 BTC Pochta", "emu": "🚀 EMU Express", "uzum": "🍊 Uzum Pochta",
     }.get(o.get("delivery",""), o.get("delivery","—"))
     receipt_line = "🧾 Chek: yuborilgan" if o.get("receipt") else "🧾 Chek: yo'q"
