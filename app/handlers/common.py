@@ -300,7 +300,12 @@ async def fulfillment_delivery(call: CallbackQuery, state: FSMContext):
         [InlineKeyboardButton(text="🚕 Taksi pochta (shu bugunoq)", callback_data="dlv_taxi")],
     ])
     await call.message.answer(
-        "🚚 Yetkazib berish usulini tanlang:",
+        "🚚 <b>Yetkazib berish usulini tanlang:</b>\n\n"
+        "🚕 <b>Taksi pochta</b> — mahsulot shu bugunoq taksi orqali "
+        "manzilingizga yetkaziladi.\n\n"
+        "ℹ️ <i>Eslatma: taksi (yetkazib berish) haqi xaridor tomonidan "
+        "to'lanadi va masofaga qarab belgilanadi. Mahsulot narxiga "
+        "kirmaydi — taksi haqini yetkazilganda haydovchiga to'laysiz.</i>",
         parse_mode="HTML", reply_markup=kb
     )
     await call.answer()
@@ -407,7 +412,9 @@ async def order_phone(message: Message, state: FSMContext):
             f"🚚 Yetkazib berish: {dlv_label}\n"
             f"📍 Manzil: {data['address']}\n"
             f"📱 Tel: {phone}\n"
-            f"<b>🟢 Yetkazib berish: SHU BUGUNOQ (taksi pochta)</b>\n\n"
+            f"<b>🟢 Yetkazib berish: SHU BUGUNOQ (taksi pochta)</b>\n"
+            f"<i>ℹ️ Taksi haqi xaridor tomonidan to'lanadi (masofaga qarab) "
+            f"va mahsulot narxiga kirmaydi.</i>\n\n"
         )
     await message.answer(
         f"✅ <b>Zakaz #{order_id} qabul qilindi!</b>\n\n"
