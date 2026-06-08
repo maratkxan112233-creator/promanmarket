@@ -137,9 +137,36 @@ def remove_city(name: str) -> bool:
 
 
 # ─── Products ────────────────────────────────────────────────────────────────
+def to_int(value, default: int = 0) -> int:
+    """Narxni xavfsiz butun songa o'giradi.
+    Eski/buzilgan ma'lumotda narx matn ("150 000", "150,000") bo'lib qolgan
+    bo'lishi mumkin — `f"{price:,}"` formatlash bunda crash beradi. Shuning uchun
+    o'qishda har doim int'ga keltiramiz."""
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, str):
+        cleaned = value.replace(" ", "").replace(",", "").replace("'", "")
+        try:
+            return int(float(cleaned))
+        except (ValueError, TypeError):
+            return default
+    return default
+
+def _normalize_product(p: dict) -> dict:
+    """Mahsulot narxlarini int'ga keltiradi (ko'rsatishda crash bo'lmasligi uchun)."""
+    if isinstance(p, dict):
+        p["price"] = to_int(p.get("price"), 0)
+        if p.get("old_price") is not None:
+            p["old_price"] = to_int(p.get("old_price"), 0)
+    return p
+
 def get_all_products() -> list:
     data = _read(PRODUCTS_FILE)
-    return data if isinstance(data, list) else []
+    if not isinstance(data, list):
+        return []
+    return [_normalize_product(p) for p in data if isinstance(p, dict)]
 
 def get_seller_products(seller_id: int) -> list:
     return [p for p in get_all_products() if p.get("seller_id") == seller_id]
@@ -210,9 +237,19 @@ def search_products(query: str) -> list:
 
 
 # ─── Orders ──────────────────────────────────────────────────────────────────
+def _normalize_order(o: dict) -> dict:
+    """Buyurtma summalarini int'ga keltiradi (formatlashda crash bo'lmasligi uchun)."""
+    if isinstance(o, dict):
+        for k in ("total", "prepay", "commission"):
+            if o.get(k) is not None:
+                o[k] = to_int(o.get(k), 0)
+    return o
+
 def get_orders() -> list:
     data = _read(ORDERS_FILE)
-    return data if isinstance(data, list) else []
+    if not isinstance(data, list):
+        return []
+    return [_normalize_order(o) for o in data if isinstance(o, dict)]
 
 def save_order(order: dict):
     orders = get_orders()
