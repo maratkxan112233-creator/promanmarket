@@ -103,6 +103,10 @@
   .rate{display:flex;align-items:center;gap:5px;margin-top:6px;font-size:12px;color:var(--muted);}
   .rate .star{color:var(--gold);}
   .rate b{color:#444;font-weight:700;}
+  .swatches{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;}
+  .swatch{font-size:11px;padding:2px 7px;border-radius:20px;background:var(--purple-soft);color:var(--purple);font-weight:600;white-space:nowrap;}
+  .colors-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:10px 0;}
+  .colors-label{font-size:13px;color:var(--muted);}
   .deliv{
     display:flex;align-items:center;gap:6px;margin-top:9px;
     background:var(--purple-soft);color:var(--purple);
@@ -301,6 +305,7 @@ function card(p){
       ${d ? `<div class="oldprice">${fmt(p.old_price)} so'm</div>` : ``}
       ${monthly ? `<div class="monthly">${fmt(monthly)} so'm/oy</div>` : ``}
       <div class="title">${esc(p.name)}</div>
+      ${(p.colors&&p.colors.length)?`<div class="swatches">${p.colors.map(c=>`<span class="swatch" title="${esc(c)}">${esc(c)}</span>`).join('')}</div>`:``}
       <div class="rate">
         <span class="star">★</span> <b>${p.rating || '—'}</b>
         <span>💬 ${p.reviews||0}</span>
@@ -362,6 +367,7 @@ function openSheet(id){
         ${d ? `<span class="so">${fmt(p.old_price)} so'm</span>` : ``}
       </div>
       ${monthly ? `<div class="monthly" style="margin-top:10px">${fmt(monthly)} so'm/oy</div>` : ``}
+      ${(p.colors&&p.colors.length)?`<div class="colors-row"><span class="colors-label">🎨 Ranglar:</span>${p.colors.map(c=>`<span class="swatch">${esc(c)}</span>`).join('')}</div>`:``}
       ${p.description ? `<div class="desc">${esc(p.description)}</div>` : ``}
       <div class="note">⭐ Reyting: ${p.rating||'—'} (${p.reviews||0} ta sharh)<br>
         🚕 Taksi pochta — shu bugunoq · 🚶 yoki o'zingiz olib ketasiz<br>

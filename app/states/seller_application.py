@@ -22,7 +22,8 @@ class EditProductState(StatesGroup):
 
 
 class OrderState(StatesGroup):
-    fulfillment = State()   # o'zi olib ketadi / dostavka
+    color       = State()
+    fulfillment = State()
     delivery    = State()
     address     = State()
     phone       = State()

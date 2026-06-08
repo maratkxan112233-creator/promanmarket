@@ -28,6 +28,7 @@ class AddProductState(StatesGroup):
     description = State()
     price       = State()
     photo       = State()
+    colors      = State()
 
 class EditProductState(StatesGroup):
     waiting_value = State()
@@ -190,7 +191,15 @@ def _build_product(message: Message, data: dict, photos: list) -> dict:
         "description": data["description"],
         "price":       data["price"],
         "photos":      photos,
+        "colors":      data.get("colors", []),
     }
+
+
+def _colors_prompt() -> str:
+    return (
+        "🎨 Mavjud ranglarni kiriting (vergul bilan ajrating) yoki /skip yozing:\n"
+        "Masalan: Qizil, Ko'k, Yashil"
+    )
 
 
 # ─── Albom (bir nechta rasm birga) ───────────────────────────────────────────
@@ -200,13 +209,9 @@ async def product_photo_album(message: Message, state: FSMContext):
     key  = (message.from_user.id, message.media_group_id)
 
     async def done(photos):
-        add_product(_build_product(message, data, photos))
-        await state.clear()
-        await message.answer(
-            f"✅ <b>{data['name']}</b> qo'shildi!\n"
-            f"💰 {data['price']:,} so'm · 🖼 {len(photos)} ta rasm",
-            parse_mode="HTML", reply_markup=seller_menu_kb()
-        )
+        await state.update_data(pending_photos=photos)
+        await state.set_state(AddProductState.colors)
+        await message.answer(_colors_prompt())
 
     collect(key, message.photo[-1].file_id, 1.5, done)
 
@@ -214,31 +219,59 @@ async def product_photo_album(message: Message, state: FSMContext):
 # ─── Bitta rasm ──────────────────────────────────────────────────────────────
 @router.message(AddProductState.photo, F.photo)
 async def product_photo_single(message: Message, state: FSMContext):
-    data = await state.get_data()
-    add_product(_build_product(message, data, [message.photo[-1].file_id]))
-    await state.clear()
-    await message.answer(
-        f"✅ <b>{data['name']}</b> qo'shildi!\n💰 {data['price']:,} so'm · 🖼 1 ta rasm",
-        parse_mode="HTML", reply_markup=seller_menu_kb()
-    )
+    await state.update_data(pending_photos=[message.photo[-1].file_id])
+    await state.set_state(AddProductState.colors)
+    await message.answer(_colors_prompt())
 
 
 # ─── Rasmsiz (/skip) ─────────────────────────────────────────────────────────
 @router.message(AddProductState.photo, F.text == "/skip")
 async def product_photo_skip(message: Message, state: FSMContext):
-    data = await state.get_data()
-    add_product(_build_product(message, data, []))
-    await state.clear()
-    await message.answer(
-        f"✅ <b>{data['name']}</b> qo'shildi!\n💰 {data['price']:,} so'm",
-        parse_mode="HTML", reply_markup=seller_menu_kb()
-    )
+    await state.update_data(pending_photos=[])
+    await state.set_state(AddProductState.colors)
+    await message.answer(_colors_prompt())
 
 
 # ─── Noto'g'ri tur ───────────────────────────────────────────────────────────
 @router.message(AddProductState.photo)
 async def product_photo_wrong(message: Message, state: FSMContext):
     await message.answer("❌ Rasm yuboring yoki /skip yozing:")
+
+
+# ─── Rang kiritish ────────────────────────────────────────────────────────────
+@router.message(AddProductState.colors, F.text == "/skip")
+async def product_colors_skip(message: Message, state: FSMContext):
+    data = await state.get_data()
+    await state.update_data(colors=[])
+    data["colors"] = []
+    photos = data.get("pending_photos", [])
+    add_product(_build_product(message, data, photos))
+    await state.clear()
+    photo_info = f"🖼 {len(photos)} ta rasm · " if photos else ""
+    await message.answer(
+        f"✅ <b>{data['name']}</b> qo'shildi!\n💰 {data['price']:,} so'm · {photo_info}🎨 Rangsiz",
+        parse_mode="HTML", reply_markup=seller_menu_kb()
+    )
+
+
+@router.message(AddProductState.colors, F.text)
+async def product_colors_enter(message: Message, state: FSMContext):
+    colors = [c.strip() for c in message.text.split(",") if c.strip()]
+    if not colors:
+        await message.answer("❌ Ranglarni vergul bilan ajratib yozing yoki /skip yozing:")
+        return
+    data = await state.get_data()
+    data["colors"] = colors
+    photos = data.get("pending_photos", [])
+    add_product(_build_product(message, data, photos))
+    await state.clear()
+    photo_info = f"🖼 {len(photos)} ta rasm · " if photos else ""
+    colors_str = ", ".join(colors)
+    await message.answer(
+        f"✅ <b>{data['name']}</b> qo'shildi!\n"
+        f"💰 {data['price']:,} so'm · {photo_info}🎨 {colors_str}",
+        parse_mode="HTML", reply_markup=seller_menu_kb()
+    )
 
 
 # ─── Zakazlar (seller) ───────────────────────────────────────────────────────

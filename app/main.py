@@ -45,6 +45,7 @@ def build_products_payload() -> list:
             "reviews":     cnt,
             "has_photo":   bool(photos),
             "photo_count": len(photos),
+            "colors":      p.get("colors", []),
         })
     return out
 

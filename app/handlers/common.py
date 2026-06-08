@@ -301,16 +301,48 @@ async def product_detail(call: CallbackQuery):
     await call.answer()
 
 
+# ─── Zakaz qilish: rang tanlash (agar ranglar bo'lsa) ───────────────────────
+async def _ask_color(message: Message, state: FSMContext, p: dict):
+    colors = p.get("colors") or []
+    if not colors:
+        await _ask_fulfillment(message, state, p)
+        return
+    await state.set_state(OrderState.color)
+    await state.update_data(pid=p["id"])
+    buttons = [[InlineKeyboardButton(text=c, callback_data=f"color_{i}_{c[:30]}")] for i, c in enumerate(colors)]
+    kb = InlineKeyboardMarkup(inline_keyboard=buttons)
+    await message.answer(
+        f"🎨 <b>{p['name']}</b> uchun rang tanlang:",
+        parse_mode="HTML", reply_markup=kb
+    )
+
+
+@router.callback_query(OrderState.color, F.data.startswith("color_"))
+async def choose_color(call: CallbackQuery, state: FSMContext):
+    parts = call.data.split("_", 2)
+    color = parts[2] if len(parts) > 2 else parts[-1]
+    await state.update_data(selected_color=color)
+    data = await state.get_data()
+    p = get_product_by_id(data["pid"])
+    if not p:
+        await call.answer("Mahsulot topilmadi."); return
+    await _ask_fulfillment(call.message, state, p)
+    await call.answer()
+
+
 # ─── Zakaz qilish: 0) olib ketish usuli (o'zi / dostavka) ───────────────────
 async def _ask_fulfillment(message: Message, state: FSMContext, p: dict):
     await state.set_state(OrderState.fulfillment)
     await state.update_data(pid=p["id"])
+    data = await state.get_data()
+    color_line = f"🎨 Rang: <b>{data['selected_color']}</b>\n" if data.get("selected_color") else ""
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🚶 O'zim olib ketaman", callback_data="flf_pickup")],
         [InlineKeyboardButton(text="🚚 Dostavka qildiraman", callback_data="flf_delivery")],
     ])
     await message.answer(
-        f"🛒 <b>{p['name']}</b> — {p['price']:,} so'm\n\n"
+        f"🛒 <b>{p['name']}</b> — {p['price']:,} so'm\n"
+        f"{color_line}\n"
         f"Mahsulotni qanday olmoqchisiz?",
         parse_mode="HTML", reply_markup=kb
     )
@@ -322,7 +354,8 @@ async def start_order(call: CallbackQuery, state: FSMContext):
     p = get_product_by_id(pid)
     if not p:
         await call.answer("Mahsulot topilmadi."); return
-    await _ask_fulfillment(call.message, state, p)
+    await state.clear()
+    await _ask_color(call.message, state, p)
     await call.answer()
 
 
@@ -346,7 +379,7 @@ async def webapp_order(message: Message, state: FSMContext):
         await message.answer("❌ Mahsulot topilmadi.", reply_markup=main_menu)
         return
     await state.clear()
-    await _ask_fulfillment(message, state, p)
+    await _ask_color(message, state, p)
 
 
 # ─── 0a) O'zim olib ketaman → pochta usuli/manzil shart emas, telefon so'raymiz ─
@@ -399,6 +432,9 @@ async def choose_delivery(call: CallbackQuery, state: FSMContext):
 
 
 # ─── Bekor qilish (har qanday buyurtma bosqichida) ──────────────────────────
+@router.message(
+    OrderState.color, F.text == "❌ Bekor qilish"
+)
 @router.message(
     OrderState.fulfillment, F.text == "❌ Bekor qilish"
 )
@@ -463,6 +499,7 @@ async def order_phone(message: Message, state: FSMContext):
         "delivery":     dlv,
         "address":      data.get("address", "—"),
         "phone":        phone,
+        "color":        data.get("selected_color", ""),
         "status":       "pending",
         "receipt":      None,
     })
