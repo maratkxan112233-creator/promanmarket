@@ -256,7 +256,12 @@ async def product_colors_skip(message: Message, state: FSMContext):
 
 @router.message(AddProductState.colors, F.text)
 async def product_colors_enter(message: Message, state: FSMContext):
-    colors = [c.strip() for c in message.text.split(",") if c.strip()]
+    text = message.text or ""
+    if text.startswith("/") or text.startswith("🛍") or text.startswith("🏪") or text.startswith("❌"):
+        await state.clear()
+        await message.answer("❌ Mahsulot qo'shish bekor qilindi.", reply_markup=seller_menu_kb())
+        return
+    colors = [c.strip() for c in text.split(",") if c.strip()]
     if not colors:
         await message.answer("❌ Ranglarni vergul bilan ajratib yozing yoki /skip yozing:")
         return
