@@ -90,7 +90,7 @@ def _city_picker() -> InlineKeyboardMarkup:
 @router.message(F.text == "📞 Aloqa")
 async def contact_handler(message: Message):
     await message.answer(
-        "📞 <b>Aloqa</b>\n\nSavol va takliflar: @promanmarketbot\nIsh vaqti: 09:00–18:00",
+        "📞 <b>Aloqa</b>\n\nSavol va takliflar: @promanmarketbot\nAdmin: @Marufzxon\nIsh vaqti: 09:00–18:00",
         parse_mode="HTML"
     )
 
@@ -200,10 +200,11 @@ async def show_shop(call: CallbackQuery):
     )
     rows = []
     for p in products:
-        rows.append([InlineKeyboardButton(
-            text=f"📦 {p['name']} — {p['price']:,} so'm",
-            callback_data=f"prod_{p['id']}"
-        )])
+        price = p.get("price", 0)
+        old   = p.get("old_price", 0)
+        disc  = f" ↓{round((old-price)/old*100)}%" if old and old > price else ""
+        label = f"📦 {p['name']} — {price:,} so'm{disc}"
+        rows.append([InlineKeyboardButton(text=label, callback_data=f"prod_{p['id']}")])
     rows.append([InlineKeyboardButton(text="🔙 Do'konlar", callback_data="back_shops")])
     await _safe_nav(call, text, InlineKeyboardMarkup(inline_keyboard=rows))
     await call.answer()
@@ -222,21 +223,60 @@ async def back_to_shops(call: CallbackQuery):
 
 
 # ─── Mahsulot detail ─────────────────────────────────────────────────────────
+def _product_caption(p: dict) -> str:
+    """Tezkor uslubida mahsulot kartochkasi matni."""
+    price     = p.get("price", 0)
+    old_price = p.get("old_price", 0)
+    name      = p.get("name", "—")
+    shop      = p.get("shop_name", "—")
+    desc      = p.get("description", "")
+    city      = p.get("city", "")
+
+    # Chegirma hisoblash
+    disc_pct = 0
+    if old_price and old_price > price:
+        disc_pct = round((old_price - price) / old_price * 100)
+
+    # Oylik to'lov
+    monthly = round(price / 12) if price else 0
+
+    # Reyting
+    rating, rev_cnt = get_seller_rating(p.get("seller_id", 0))
+
+    lines = []
+    lines.append(f"📦 <b>{name}</b>")
+    lines.append(f"🏪 {shop}" + (f"  ·  📍 {city}" if city else ""))
+
+    # Narx qatori
+    price_line = f"💰 <b>{price:,} so'm</b>"
+    if disc_pct:
+        price_line += f"  <b>↓{disc_pct}%</b>"
+    lines.append(price_line)
+    if old_price and disc_pct:
+        lines.append(f"<s>{old_price:,} so'm</s>")
+    if monthly:
+        lines.append(f"📅 {monthly:,} so'm/oy")
+
+    if desc:
+        lines.append(f"\n📝 {desc}")
+
+    # Reyting
+    if rev_cnt:
+        stars = "⭐" * min(int(rating), 5)
+        lines.append(f"\n{stars} {rating}  💬 {rev_cnt} ta sharh")
+
+    lines.append("\n🚕 Bugun yetkazib beramiz  |  🚶 O'zingiz olib keta olasiz")
+    return "\n".join(lines)
+
+
 @router.callback_query(F.data.startswith("prod_"))
 async def product_detail(call: CallbackQuery):
     pid = int(call.data.split("_")[1])
     p = get_product_by_id(pid)
     if not p:
         await call.answer("Topilmadi."); return
-    text = (
-        f"📦 <b>{p['name']}</b>\n"
-        f"🏪 {p.get('shop_name','—')}\n"
-        f"📝 {p.get('description','—')}\n"
-        f"💰 {p['price']:,} so'm\n\n"
-        f"<b>🛒 Zakaz berishda tanlaysiz:</b>\n"
-        f"🚶 O'zingiz olib ketish — do'kondan\n"
-        f"🚕 Dostavka — Taksi pochta (shu bugunoq)"
-    )
+
+    text = _product_caption(p)
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🛒 Zakaz qilish", callback_data=f"order_{pid}")],
         [InlineKeyboardButton(text="🔙 Orqaga",       callback_data=f"shop_{p['seller_id']}")],
@@ -245,20 +285,17 @@ async def product_detail(call: CallbackQuery):
     if len(photos) > 1:
         from aiogram.types import InputMediaPhoto
         media = [InputMediaPhoto(media=ph) for ph in photos[:10]]
+        media[0] = InputMediaPhoto(media=photos[0], caption=text, parse_mode="HTML")
         try:
             await call.message.answer_media_group(media)
+            await call.message.answer("👆 Yuqoridagi mahsulot:", reply_markup=kb)
         except Exception:
-            pass
-        await call.message.answer(text, parse_mode="HTML", reply_markup=kb)
+            await call.message.answer(text, parse_mode="HTML", reply_markup=kb)
     elif len(photos) == 1:
         try:
             await call.message.answer_photo(photos[0], caption=text, parse_mode="HTML", reply_markup=kb)
         except Exception:
-            # file_id eskirgan yoki noto'g'ri bo'lsa — matn bilan ko'rsatamiz
-            await call.message.answer(
-                text + "\n\n<i>(rasm yuklanmadi)</i>",
-                parse_mode="HTML", reply_markup=kb
-            )
+            await call.message.answer(text + "\n\n<i>(rasm yuklanmadi)</i>", parse_mode="HTML", reply_markup=kb)
     else:
         await call.message.answer(text, parse_mode="HTML", reply_markup=kb)
     await call.answer()
@@ -628,16 +665,42 @@ async def do_search(message: Message, state: FSMContext):
     if not results:
         await message.answer("😔 Hech narsa topilmadi. Boshqa so'z bilan sinab ko'ring.", reply_markup=main_menu)
         return
-    text = f"🔍 <b>Natijalar:</b> {len(results)} ta topildi\n\n"
-    rows = []
-    for p in results[:10]:
-        text += f"📦 {p['name']} — {p['price']:,} so'm\n"
-        rows.append([InlineKeyboardButton(
-            text=f"📦 {p['name']} — {p['price']:,} so'm",
-            callback_data=f"prod_{p['id']}"
-        )])
-    await message.answer(text, parse_mode="HTML",
-                          reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+
+    await message.answer(
+        f"🔍 <b>{len(results)} ta natija topildi</b>",
+        parse_mode="HTML"
+    )
+
+    for p in results[:5]:
+        caption = _product_caption(p)
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🛒 Zakaz qilish", callback_data=f"order_{p['id']}")],
+            [InlineKeyboardButton(text="🔍 Batafsil",     callback_data=f"prod_{p['id']}")],
+        ])
+        photos = product_photos(p)
+        if photos:
+            try:
+                await message.answer_photo(photos[0], caption=caption, parse_mode="HTML", reply_markup=kb)
+                continue
+            except Exception:
+                pass
+        await message.answer(caption, parse_mode="HTML", reply_markup=kb)
+
+    if len(results) > 5:
+        rows = []
+        for p in results[5:15]:
+            price = p.get("price", 0)
+            old   = p.get("old_price", 0)
+            disc  = f" ↓{round((old-price)/old*100)}%" if old and old > price else ""
+            rows.append([InlineKeyboardButton(
+                text=f"📦 {p['name']} — {price:,} so'm{disc}",
+                callback_data=f"prod_{p['id']}"
+            )])
+        await message.answer(
+            f"📋 Qolgan natijalar:",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=rows)
+        )
 
 
 # ─── Baholash ────────────────────────────────────────────────────────────────
