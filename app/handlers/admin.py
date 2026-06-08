@@ -550,21 +550,24 @@ async def admin_product_detail(call: CallbackQuery):
     pid = int(call.data.split("_")[1])
     p = get_product_by_id(pid)
     if not p:
-        await call.answer("Topilmadi."); return
+        await call.answer("Topilmadi.", show_alert=True); return
+    colors_line = f"\n🎨 Ranglar: {', '.join(p['colors'])}" if p.get("colors") else ""
     text = (
         f"📦 <b>{p['name']}</b>\n"
         f"🏪 {p.get('shop_name','—')}\n"
         f"📝 {p.get('description','—')}\n"
         f"💰 {p['price']:,} so'm"
+        f"{colors_line}"
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✏️ Nomini o'zgartirish",  callback_data=f"eprod_name_{pid}")],
-        [InlineKeyboardButton(text="✏️ Narxini o'zgartirish", callback_data=f"eprod_price_{pid}")],
+        [InlineKeyboardButton(text="✏️ Nomini o'zgartirish",    callback_data=f"eprod_name_{pid}")],
+        [InlineKeyboardButton(text="✏️ Narxini o'zgartirish",   callback_data=f"eprod_price_{pid}")],
         [InlineKeyboardButton(text="✏️ Tavsifini o'zgartirish", callback_data=f"eprod_desc_{pid}")],
-        [InlineKeyboardButton(text="🗑 O'chirish",            callback_data=f"dprod_{pid}")],
-        [InlineKeyboardButton(text="🔙 Orqaga",               callback_data="admin_products")],
+        [InlineKeyboardButton(text="🎨 Ranglarini o'zgartirish", callback_data=f"eprod_colors_{pid}")],
+        [InlineKeyboardButton(text="🗑 O'chirish",               callback_data=f"dprod_{pid}")],
+        [InlineKeyboardButton(text="🔙 Orqaga",                  callback_data="admin_products")],
     ])
-    await call.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+    await _admin_nav(call, text, kb)
     await call.answer()
 
 
@@ -574,7 +577,12 @@ async def edit_product_start(call: CallbackQuery, state: FSMContext):
     parts = call.data.split("_")   # eprod_name_5
     field = parts[1]
     pid   = int(parts[2])
-    labels = {"name": "Nom", "price": "Narx (faqat raqam)", "desc": "Tavsif"}
+    labels = {
+        "name":   "Nom",
+        "price":  "Narx (faqat raqam)",
+        "desc":   "Tavsif",
+        "colors": "Ranglar (vergul bilan, masalan: Qizil, Ko'k) yoki bo'sh qoldiring",
+    }
     await state.set_state(AdminEditProduct.waiting_value)
     await state.update_data(field=field, pid=pid)
     await call.message.answer(f"✏️ Yangi <b>{labels.get(field,'qiymat')}</b>ni kiriting:", parse_mode="HTML")
@@ -590,9 +598,15 @@ async def edit_product_save(message: Message, state: FSMContext):
     pid   = data["pid"]
     mapping = {"name": "name", "price": "price", "desc": "description"}
     value = int(message.text) if field == "price" and message.text.isdigit() else message.text
-    update_product(pid, {mapping[field]: value})
+    if field == "colors":
+        colors = [c.strip() for c in message.text.split(",") if c.strip()] if message.text.strip() else []
+        update_product(pid, {"colors": colors})
+    else:
+        update_product(pid, {mapping[field]: value})
     await state.clear()
-    await message.answer("✅ Mahsulot yangilandi!")
+    p = get_product_by_id(pid)
+    name = p["name"] if p else f"#{pid}"
+    await message.answer(f"✅ <b>{name}</b> yangilandi!", parse_mode="HTML")
 
 
 @router.callback_query(F.data.startswith("dprod_"))
@@ -603,7 +617,18 @@ async def admin_del_product(call: CallbackQuery):
     admin_delete_product(pid)
     _log(call.from_user, "Mahsulot o'chirildi",
          f"{_p['name']} (ID:{pid})" if _p else f"ID:{pid}")
-    await call.message.edit_text("🗑 Mahsulot o'chirildi.")
+    name = _p["name"] if _p else f"#{pid}"
+    products = get_all_products()
+    rows = []
+    for p in products:
+        rows.append([InlineKeyboardButton(
+            text=f"📦 {p['name']} — {p['price']:,} so'm",
+            callback_data=f"aprod_{p['id']}"
+        )])
+    rows.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_back")])
+    kb = InlineKeyboardMarkup(inline_keyboard=rows)
+    text = f"🗑 <b>{name}</b> o'chirildi.\n\n📦 <b>Barcha mahsulotlar:</b>" if products else f"🗑 <b>{name}</b> o'chirildi.\n\nMahsulot yo'q."
+    await _admin_nav(call, text, kb)
     await call.answer("O'chirildi")
 
 
