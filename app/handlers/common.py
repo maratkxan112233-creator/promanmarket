@@ -1,6 +1,7 @@
 from aiogram import Router, F
 from aiogram.types import (
     Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton,
+    InputMediaPhoto,
 )
 from aiogram.fsm.context import FSMContext
 
@@ -264,6 +265,22 @@ def _product_caption(p: dict) -> str:
     return "\n".join(lines)
 
 
+def _product_kb(p: dict, idx: int, total: int) -> InlineKeyboardMarkup:
+    """Mahsulot xabari uchun klaviatura. Bir nechta rasm bo'lsa ◀ raqam ▶ qatori qo'shiladi."""
+    rows = []
+    if total > 1:
+        prev = (idx - 1) % total
+        nxt  = (idx + 1) % total
+        rows.append([
+            InlineKeyboardButton(text="◀",                callback_data=f"pnav_{p['id']}_{prev}"),
+            InlineKeyboardButton(text=f"{idx + 1}/{total}", callback_data="noop"),
+            InlineKeyboardButton(text="▶",                callback_data=f"pnav_{p['id']}_{nxt}"),
+        ])
+    rows.append([InlineKeyboardButton(text="🛒 Zakaz qilish", callback_data=f"order_{p['id']}")])
+    rows.append([InlineKeyboardButton(text="🔙 Orqaga",       callback_data=f"shop_{p['seller_id']}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 @router.callback_query(F.data.startswith("prod_"))
 async def product_detail(call: CallbackQuery):
     pid = int(call.data.split("_")[1])
@@ -271,28 +288,47 @@ async def product_detail(call: CallbackQuery):
     if not p:
         await call.answer("Topilmadi."); return
 
-    text = _product_caption(p)
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🛒 Zakaz qilish", callback_data=f"order_{pid}")],
-        [InlineKeyboardButton(text="🔙 Orqaga",       callback_data=f"shop_{p['seller_id']}")],
-    ])
+    text   = _product_caption(p)
     photos = product_photos(p)
-    if len(photos) > 1:
-        from aiogram.types import InputMediaPhoto
-        media = [InputMediaPhoto(media=ph) for ph in photos[:10]]
-        media[0] = InputMediaPhoto(media=photos[0], caption=text, parse_mode="HTML")
-        try:
-            await call.message.answer_media_group(media)
-            await call.message.answer("👆 Yuqoridagi mahsulot:", reply_markup=kb)
-        except Exception:
-            await call.message.answer(text, parse_mode="HTML", reply_markup=kb)
-    elif len(photos) == 1:
+    total  = len(photos)
+    kb     = _product_kb(p, 0, total)
+
+    # Oldingi xabarni (do'kon ro'yxati yoki avvalgi mahsulot) o'chiramiz —
+    # chatda bir vaqtda faqat bitta mahsulot rasmi turadi, shunda Telegram
+    # rasm ko'ruvchisida boshqa mahsulot rasmlari aralashib ketmaydi.
+    try:
+        await call.message.delete()
+    except Exception:
+        pass
+
+    if total >= 1:
         try:
             await call.message.answer_photo(photos[0], caption=text, parse_mode="HTML", reply_markup=kb)
         except Exception:
             await call.message.answer(text + "\n\n<i>(rasm yuklanmadi)</i>", parse_mode="HTML", reply_markup=kb)
     else:
         await call.message.answer(text, parse_mode="HTML", reply_markup=kb)
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("pnav_"))
+async def product_photo_nav(call: CallbackQuery):
+    """◀ / ▶ — o'sha xabar ichida mahsulot rasmini almashtiradi (yangi xabar yubormaydi)."""
+    _, pid, idx = call.data.split("_")
+    p = get_product_by_id(int(pid))
+    if not p:
+        await call.answer("Topilmadi."); return
+    photos = product_photos(p)
+    idx = int(idx)
+    if not (0 <= idx < len(photos)):
+        await call.answer(); return
+    try:
+        await call.message.edit_media(
+            InputMediaPhoto(media=photos[idx], caption=_product_caption(p), parse_mode="HTML"),
+            reply_markup=_product_kb(p, idx, len(photos)),
+        )
+    except Exception:
+        pass
     await call.answer()
 
 
