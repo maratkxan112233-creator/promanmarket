@@ -30,7 +30,7 @@ ORDER_STATUSES = {
 DELIVERY_LABELS = {
     "pickup": "🚶 O'zi olib ketadi",
     "taxi": "🚕 Taksi pochta (shu bugunoq)",
-    # eski zakazlar uchun (tarixiy) — yangi zakazlarda ishlatilmaydi
+    # eski buyurtmalar uchun (tarixiy) — yangi buyurtmalarda ishlatilmaydi
     "btc":  "📦 BTC Pochta",
     "emu":  "🚀 EMU Express",
     "uzum": "🍊 Uzum Pochta",
@@ -38,6 +38,9 @@ DELIVERY_LABELS = {
 
 # Shu summa va undan ortiq xaridga shahar ichida yetkazib berish bepul.
 FREE_DELIVERY_MIN = 300_000
+# Bepul yetkazib berish buyurtmalarida platforma sellerga shu foizni qaytaradi
+# (seller taksini o'zi to'laydi, platforma esa 5% ni kartasiga o'tkazib beradi).
+DELIVERY_REFUND_RATE = 0.05
 # Xaridorni qiziqtirish uchun har joyda chiqadigan doimiy reklama yozuvi.
 FREE_DELIVERY_BANNER = (
     f"🚚🎉 <b>{FREE_DELIVERY_MIN:,} so'mdan ortiq xaridga shahar ichida "
@@ -284,7 +287,7 @@ def _product_caption(p: dict) -> str:
 def _product_kb(p: dict) -> InlineKeyboardMarkup:
     """Mahsulot xabari uchun tugmalar: buyurtma va orqaga."""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🛒 Zakaz qilish", callback_data=f"order_{p['id']}")],
+        [InlineKeyboardButton(text="🛒 Buyurtma qilish", callback_data=f"order_{p['id']}")],
         [InlineKeyboardButton(text="🔙 Orqaga",       callback_data=f"shop_{p['seller_id']}")],
     ])
 
@@ -351,7 +354,7 @@ async def product_detail(call: CallbackQuery):
     await call.answer()
 
 
-# ─── Zakaz qilish: rang tanlash (agar ranglar bo'lsa) ───────────────────────
+# ─── Buyurtma qilish: rang tanlash (agar ranglar bo'lsa) ───────────────────────
 async def _ask_color(message: Message, state: FSMContext, p: dict):
     colors = p.get("colors") or []
     if not colors:
@@ -380,22 +383,48 @@ async def choose_color(call: CallbackQuery, state: FSMContext):
     await call.answer()
 
 
-# ─── Zakaz qilish: 0) olib ketish usuli (o'zi / dostavka) ───────────────────
+# ─── Buyurtma qilish: 0) olib ketish usuli (o'zi / yetkazib berish) ─────────────
 async def _ask_fulfillment(message: Message, state: FSMContext, p: dict):
     await state.set_state(OrderState.fulfillment)
     await state.update_data(pid=p["id"])
     data = await state.get_data()
+    qty   = data.get("quantity", 1)
+    total = p["price"] * qty
     color_line = f"🎨 Rang: <b>{data['selected_color']}</b>\n" if data.get("selected_color") else ""
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🚶 O'zim olib ketaman", callback_data="flf_pickup")],
-        [InlineKeyboardButton(text="🚚 Dostavka qildiraman", callback_data="flf_delivery")],
+        [InlineKeyboardButton(text="🚚 Menga yetkazib berilsin", callback_data="flf_delivery")],
     ])
     await message.answer(
-        f"🛒 <b>{p['name']}</b> — {p['price']:,} so'm\n"
+        f"🛒 <b>{p['name']}</b>\n"
+        f"🔢 Miqdor: {qty} dona\n"
+        f"💰 Jami: <b>{total:,} so'm</b>\n"
         f"{color_line}\n"
         f"Mahsulotni qanday olmoqchisiz?",
         parse_mode="HTML", reply_markup=kb
     )
+
+
+# ─── Buyurtma qilish: miqdor (nechta dona) ───────────────────────────────────
+def _qty_text(p: dict, qty: int) -> str:
+    total = p["price"] * qty
+    return (
+        f"🔢 <b>{p['name']}</b>\n"
+        f"Nechta dona olmoqchisiz?\n\n"
+        f"Miqdor: <b>{qty} dona</b>\n"
+        f"💰 Jami: <b>{total:,} so'm</b>"
+    )
+
+
+def _qty_kb(qty: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="➖",          callback_data=f"qset_{max(1, qty - 1)}"),
+            InlineKeyboardButton(text=f"{qty} dona", callback_data="noop"),
+            InlineKeyboardButton(text="➕",          callback_data=f"qset_{min(99, qty + 1)}"),
+        ],
+        [InlineKeyboardButton(text="✅ Davom etish", callback_data=f"qok_{qty}")],
+    ])
 
 
 @router.callback_query(F.data.startswith("order_"))
@@ -405,6 +434,34 @@ async def start_order(call: CallbackQuery, state: FSMContext):
     if not p:
         await call.answer("Mahsulot topilmadi."); return
     await state.clear()
+    await state.update_data(pid=pid)
+    await state.set_state(OrderState.quantity)
+    await call.message.answer(_qty_text(p, 1), parse_mode="HTML", reply_markup=_qty_kb(1))
+    await call.answer()
+
+
+@router.callback_query(OrderState.quantity, F.data.startswith("qset_"))
+async def order_qty_set(call: CallbackQuery, state: FSMContext):
+    qty  = max(1, min(99, int(call.data.split("_")[1])))
+    data = await state.get_data()
+    p = get_product_by_id(data.get("pid"))
+    if not p:
+        await call.answer("Mahsulot topilmadi."); return
+    try:
+        await call.message.edit_text(_qty_text(p, qty), parse_mode="HTML", reply_markup=_qty_kb(qty))
+    except Exception:
+        pass
+    await call.answer()
+
+
+@router.callback_query(OrderState.quantity, F.data.startswith("qok_"))
+async def order_qty_ok(call: CallbackQuery, state: FSMContext):
+    qty = max(1, min(99, int(call.data.split("_")[1])))
+    await state.update_data(quantity=qty)
+    data = await state.get_data()
+    p = get_product_by_id(data.get("pid"))
+    if not p:
+        await call.answer("Mahsulot topilmadi."); return
     await _ask_color(call.message, state, p)
     await call.answer()
 
@@ -424,14 +481,15 @@ async def fulfillment_pickup(call: CallbackQuery, state: FSMContext):
     await call.answer()
 
 
-# ─── 0b) Dostavka → pochta usulini tanlash bosqichiga o'tamiz ───────────────
+# ─── 0b) Yetkazib berish → pochta usulini tanlash bosqichiga o'tamiz ─────────
 @router.callback_query(OrderState.fulfillment, F.data == "flf_delivery")
 async def fulfillment_delivery(call: CallbackQuery, state: FSMContext):
     await state.update_data(fulfillment="delivery")
     await state.set_state(OrderState.delivery)
     data = await state.get_data()
     p = get_product_by_id(data.get("pid"))
-    free = bool(p) and p.get("price", 0) >= FREE_DELIVERY_MIN
+    total = (p.get("price", 0) * data.get("quantity", 1)) if p else 0
+    free = total >= FREE_DELIVERY_MIN
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🚕 Taksi pochta (shu bugunoq)", callback_data="dlv_taxi")],
     ])
@@ -525,7 +583,9 @@ async def order_phone(message: Message, state: FSMContext):
         await message.answer("❌ Mahsulot topilmadi.", reply_markup=main_menu)
         return
 
-    commission = int(p["price"] * settings.COMMISSION_RATE)
+    qty   = data.get("quantity", 1)
+    total = p["price"] * qty
+    commission = int(total * settings.COMMISSION_RATE)
     order_id = save_order({
         "buyer_id":     message.from_user.id,
         "buyer_name":   message.from_user.full_name,
@@ -533,7 +593,9 @@ async def order_phone(message: Message, state: FSMContext):
         "seller_id":    p["seller_id"],
         "product_id":   pid,
         "product_name": p["name"],
-        "total":        p["price"],
+        "quantity":     qty,
+        "unit_price":   p["price"],
+        "total":        total,
         "prepay":       commission,       # 10% = platforma komissiyasi
         "commission":   commission,
         "fulfillment":  data.get("fulfillment", "delivery"),
@@ -552,10 +614,20 @@ async def order_phone(message: Message, state: FSMContext):
     card_name_line = f"   → Karta egasi: <b>{settings.PLATFORM_CARD_NAME}</b>\n" if settings.PLATFORM_CARD_NAME else ""
     pct = int(settings.COMMISSION_RATE * 100)
     is_pickup = data.get("fulfillment") == "pickup"
-    is_free_delivery = (not is_pickup) and p["price"] >= FREE_DELIVERY_MIN
+    is_free_delivery = (not is_pickup) and total >= FREE_DELIVERY_MIN
+    delivery_refund  = int(total * DELIVERY_REFUND_RATE) if is_free_delivery else 0
+    seller_card      = (get_seller(p["seller_id"]) or {}).get("card_number", "")
     seller_dlv_note = (
-        "\n🚚 <b>Bu zakazda shahar ichida yetkazib berish BEPUL</b> "
-        f"(xarid {FREE_DELIVERY_MIN:,} so'mdan ortiq — taksi haqini do'kon qoplaydi).\n"
+        "\n🚚 <b>Bu buyurtmada yetkazib berish XARIDOR uchun BEPUL.</b>\n"
+        "⚠️ Taksi (yetkazib berish) haqini <b>SIZ haydovchiga to'laysiz</b>.\n"
+        f"💸 Platforma sizga <b>5% ({delivery_refund:,} so'm)</b> kartangizga qaytaradi "
+        "(taksi haqini qoplash uchun).\n"
+        if is_free_delivery else ""
+    )
+    owner_free_note = (
+        f"\n🚚 <b>BEPUL YETKAZIB BERISH buyurtmasi</b>\n"
+        f"➡️ Sellerga <b>5% ({delivery_refund:,} so'm)</b> o'tkazing (taksi haqini qoplash):\n"
+        f"💳 Seller kartasi: <code>{seller_card or '—'}</code>\n"
         if is_free_delivery else ""
     )
 
@@ -565,7 +637,7 @@ async def order_phone(message: Message, state: FSMContext):
             f"🚶 Olish usuli: O'zingiz olib ketasiz\n"
             f"<b>🔵 To'lov tasdiqlangach do'kon bilan bog'lanasiz.</b>\n\n"
         )
-    elif p["price"] >= FREE_DELIVERY_MIN:
+    elif total >= FREE_DELIVERY_MIN:
         deliver_line = (
             f"🚚 Yetkazib berish: {dlv_label}\n"
             f"📍 Manzil: {data['address']}\n"
@@ -585,9 +657,10 @@ async def order_phone(message: Message, state: FSMContext):
             f"va mahsulot narxiga kirmaydi.</i>\n\n"
         )
     await message.answer(
-        f"✅ <b>Zakaz #{order_id} qabul qilindi!</b>\n\n"
+        f"✅ <b>Buyurtma #{order_id} qabul qilindi!</b>\n\n"
         f"📦 {p['name']}\n"
-        f"💰 Narx: {p['price']:,} so'm\n"
+        f"🔢 Miqdor: {qty} dona × {p['price']:,} so'm\n"
+        f"💰 Jami: <b>{total:,} so'm</b>\n"
         f"💳 Oldi-to'lov ({pct}%): <b>{commission:,} so'm</b>\n"
         f"   → Karta: <code>{platform_card}</code>\n"
         f"{card_name_line}\n"
@@ -605,37 +678,40 @@ async def order_phone(message: Message, state: FSMContext):
         from app.bot.bot import bot
         await bot.send_message(
             p["seller_id"],
-            f"🛒 <b>Yangi zakaz #{order_id}!</b>\n\n"
+            f"🛒 <b>Yangi buyurtma #{order_id}!</b>\n\n"
             f"📦 {p['name']}\n"
-            f"💰 {p['price']:,} so'm\n"
+            f"🔢 Miqdor: {qty} dona × {p['price']:,} so'm\n"
+            f"💰 Jami: {total:,} so'm\n"
             f"🚚 {dlv_label}\n"
             f"{seller_dlv_note}\n"
             f"🔒 <b>Xaridor ma'lumotlari (ism, tel, manzil) yashirin.</b>\n"
             f"Platforma to'lovi (oldi-to'lov) tasdiqlangach avtomatik ochiladi.\n\n"
-            f"💡 <b>Eslatma:</b> Bot orqali sotilgan har bir zakaz uchun "
+            f"💡 <b>Eslatma:</b> Bot orqali sotilgan har bir buyurtma uchun "
             f"mahsulot narxining {pct}% qismi platforma xizmat haqi sifatida olinadi.\n"
             f"Bu summa ({commission:,} so'm) xaridorning oldi-to'lovidan to'g'ridan-to'g'ri "
             f"platformaga o'tadi — sizdan keyinchalik alohida hech narsa so'ralmaydi. "
             f"Hamkorligingiz uchun rahmat! 🙏\n\n"
             f"⏳ Holat: to'lov tasdig'i kutilmoqda.\n"
-            f"Zakazlar: /orders",
+            f"Buyurtmalar: /orders",
             parse_mode="HTML"
         )
     except Exception:
         pass
 
-    # ── Adminga: yangi zakaz xabari (to'liq) ──
+    # ── Adminga: yangi buyurtma xabari (to'liq) ──
     try:
         from app.bot.bot import bot
         await bot.send_message(
             settings.OWNER_ID,
-            f"🆕 <b>Yangi zakaz #{order_id}</b>\n\n"
-            f"📦 {p['name']} — {p['price']:,} so'm\n"
+            f"🆕 <b>Yangi buyurtma #{order_id}</b>\n\n"
+            f"📦 {p['name']}\n"
+            f"🔢 {qty} dona × {p['price']:,} = <b>{total:,} so'm</b>\n"
             f"💵 Komissiya ({pct}%): {commission:,} so'm\n"
             f"👤 {message.from_user.full_name} (ID: {message.from_user.id})\n"
             f"📱 {phone}\n"
             f"📍 {data['address']}\n"
-            f"🚚 {dlv_label}\n\n"
+            f"🚚 {dlv_label}\n"
+            f"{owner_free_note}\n"
             f"🧾 To'lov cheki kutilmoqda...",
             parse_mode="HTML"
         )
@@ -659,7 +735,7 @@ async def order_receipt(message: Message, state: FSMContext):
     await state.clear()
 
     await message.answer(
-        f"🧾 Chek qabul qilindi! Zakaz #{order_id} to'lovi tekshirilmoqda.\n"
+        f"🧾 Chek qabul qilindi! Buyurtma #{order_id} to'lovi tekshirilmoqda.\n"
         f"Tasdiqlangach xabar beramiz. ⏳",
         reply_markup=main_menu
     )
@@ -673,7 +749,7 @@ async def order_receipt(message: Message, state: FSMContext):
         ]
     ])
     caption = (
-        f"🧾 <b>Zakaz #{order_id} — to'lov cheki</b>\n\n"
+        f"🧾 <b>Buyurtma #{order_id} — to'lov cheki</b>\n\n"
         f"📦 {o.get('product_name','—')}\n"
         f"💵 Oldi-to'lov ({pct}%): {o.get('prepay',0):,} so'm\n"
         f"👤 {o.get('buyer_name','—')}\n"
@@ -697,14 +773,14 @@ async def order_receipt_invalid(message: Message):
     )
 
 
-# ─── Zakazlarim ──────────────────────────────────────────────────────────────
-@router.message(F.text == "📦 Zakazlarim")
+# ─── Buyurtmalarim ──────────────────────────────────────────────────────────────
+@router.message(F.text == "📦 Buyurtmalarim")
 async def my_orders(message: Message):
     orders = get_buyer_orders(message.from_user.id)
     if not orders:
-        await message.answer("📦 Hozircha zakaz yo'q.")
+        await message.answer("📦 Hozircha buyurtma yo'q.")
         return
-    text = "📦 <b>Zakazlaringiz:</b>\n\n"
+    text = "📦 <b>Buyurtmalaringiz:</b>\n\n"
     rows = []
     for o in orders[-10:]:
         dlv = DELIVERY_LABELS.get(o.get("delivery",""), o.get("delivery",""))
@@ -740,7 +816,7 @@ async def resend_receipt(call: CallbackQuery, state: FSMContext):
     await state.set_state(OrderState.receipt)
     await state.update_data(order_id=oid)
     await call.message.answer(
-        f"🧾 Zakaz #{oid} uchun to'lov chekining rasmini yuboring:",
+        f"🧾 Buyurtma #{oid} uchun to'lov chekining rasmini yuboring:",
         reply_markup=cancel_keyboard
     )
     await call.answer()
@@ -769,7 +845,7 @@ async def do_search(message: Message, state: FSMContext):
     for p in results[:5]:
         caption = _product_caption(p)
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🛒 Zakaz qilish", callback_data=f"order_{p['id']}")],
+            [InlineKeyboardButton(text="🛒 Buyurtma qilish", callback_data=f"order_{p['id']}")],
             [InlineKeyboardButton(text="🔍 Batafsil",     callback_data=f"prod_{p['id']}")],
         ])
         photos = product_photos(p)

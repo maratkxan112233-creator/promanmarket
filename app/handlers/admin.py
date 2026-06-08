@@ -26,7 +26,7 @@ router = Router()
 
 # Mahsulot qo'shishni bo'lib yuboruvchi menyu tugmalari
 _MENU_BUTTONS = {
-    "🛍 Bozor", "🔍 Qidirish", "🏪 Seller bo'lish", "📦 Zakazlarim",
+    "🛍 Bozor", "🔍 Qidirish", "🏪 Seller bo'lish", "📦 Buyurtmalarim",
     "👤 Profilim", "📞 Aloqa", "🛍 Do'kon (ilova)", "❌ Bekor qilish",
 }
 
@@ -75,7 +75,7 @@ def _sellers_text(items):
             f"   👤 {s['full_name']}\n"
             f"   🏙 {s.get('city','—')}\n"
             f"   📱 {s.get('phone','—')}\n"
-            f"   💳 **** {last4}   ⭐ {rating} ({cnt})   🛒 {ordc} zakaz"
+            f"   💳 **** {last4}   ⭐ {rating} ({cnt})   🛒 {ordc} buyurtma"
         )
     return "\n".join(lines)
 
@@ -281,13 +281,13 @@ async def confirm_payment(call: CallbackQuery):
     oid = int(call.data.split("_")[1])
     o = get_order_by_id(oid)
     if not o:
-        try: await call.message.answer("❌ Zakaz topilmadi.")
+        try: await call.message.answer("❌ Buyurtma topilmadi.")
         except Exception: pass
         return
 
     update_order_status(oid, "paid")
     try:
-        _log(call.from_user, "To'lov tasdiqlandi", f"Zakaz #{oid}")
+        _log(call.from_user, "To'lov tasdiqlandi", f"Buyurtma #{oid}")
     except Exception:
         pass
 
@@ -309,7 +309,7 @@ async def confirm_payment(call: CallbackQuery):
 
     if is_pickup:
         # ── PICKUP: xaridor o'zi olib ketadi ──
-        # Sellerga xaridor danniylari KO'RSATILMAYDI.
+        # Sellerga xaridor ma'lumotlari KO'RSATILMAYDI.
         # Xaridorga esa do'kon kontaktini beramiz — borib olib ketishi uchun.
         shop = get_seller(o["seller_id"]) or {}
         shop_name = shop.get("shop_name", "—")
@@ -320,7 +320,7 @@ async def confirm_payment(call: CallbackQuery):
         try:
             await bot.send_message(
                 o["buyer_id"],
-                f"✅ <b>Zakaz #{oid} to'lovi tasdiqlandi!</b>\n"
+                f"✅ <b>Buyurtma #{oid} to'lovi tasdiqlandi!</b>\n"
                 f"📦 {o.get('product_name','—')}\n\n"
                 f"🚶 <b>Mahsulotni o'zingiz olib ketasiz.</b>\n"
                 f"🏪 Do'kon: {shop_name}\n"
@@ -332,16 +332,16 @@ async def confirm_payment(call: CallbackQuery):
         except Exception:
             pass
 
-        # Sellerga — XARIDOR DANNIYLARI KO'RSATILMAYDI
+        # Sellerga — XARIDOR MA'LUMOTLARI KO'RSATILMAYDI
         try:
             await bot.send_message(
                 o["seller_id"],
-                f"💳 <b>Zakaz #{oid} — to'lov tasdiqlandi!</b>\n\n"
+                f"💳 <b>Buyurtma #{oid} — to'lov tasdiqlandi!</b>\n\n"
                 f"📦 {o.get('product_name','—')}\n"
                 f"🚚 {dlv_label}\n\n"
                 f"🔒 <b>Xaridor o'zi olib ketadi — ma'lumotlari ko'rsatilmaydi.</b>\n"
                 f"Xaridor do'kon raqamiga bog'lanib, mahsulotni olib ketadi.\n"
-                f"💡 <i>Eslatma: bu zakaz uchun platforma xizmat haqi "
+                f"💡 <i>Eslatma: bu buyurtma uchun platforma xizmat haqi "
                 f"({o.get('commission', int(o.get('total',0)*0.1)):,} so'm — 10%) "
                 f"xaridorning oldi-to'lovidan olingan.</i>\n"
                 f"Mahsulotni tayyorlab qo'ying. /orders",
@@ -350,12 +350,12 @@ async def confirm_payment(call: CallbackQuery):
         except Exception:
             pass
     else:
-        # ── TAKSI/DOSTAVKA: xaridor danniylari ENDI ochiladi (to'lov tasdiqlangani uchun) ──
+        # ── TAKSI/YETKAZIB BERISH: xaridor ma'lumotlari ENDI ochiladi (to'lov tasdiqlangani uchun) ──
         # Xaridorga
         try:
             await bot.send_message(
                 o["buyer_id"],
-                f"✅ <b>Zakaz #{oid} to'lovi tasdiqlandi!</b>\n"
+                f"✅ <b>Buyurtma #{oid} to'lovi tasdiqlandi!</b>\n"
                 f"📦 {o.get('product_name','—')}\n"
                 f"🚕 Yetkazib berish: SHU BUGUNOQ (taksi pochta)\n"
                 f"Buyurtmangiz tayyorlanmoqda. 🔄",
@@ -368,14 +368,14 @@ async def confirm_payment(call: CallbackQuery):
         try:
             await bot.send_message(
                 o["seller_id"],
-                f"💳 <b>Zakaz #{oid} — to'lov tasdiqlandi!</b>\n"
+                f"💳 <b>Buyurtma #{oid} — to'lov tasdiqlandi!</b>\n"
                 f"🔓 <b>Xaridor ma'lumotlari ochildi:</b>\n\n"
                 f"📦 {o.get('product_name','—')}\n"
                 f"👤 {o.get('buyer_name','—')}\n"
                 f"📱 {o.get('phone','—')}\n"
                 f"📍 {o.get('address','—')}\n"
                 f"🚚 {dlv_label}\n\n"
-                f"💡 <i>Eslatma: bu zakaz uchun platforma xizmat haqi "
+                f"💡 <i>Eslatma: bu buyurtma uchun platforma xizmat haqi "
                 f"({o.get('commission', int(o.get('total',0)*0.1)):,} so'm — 10%) "
                 f"xaridorning oldi-to'lovidan olingan.</i>\n"
                 f"Endi buyurtmani tayyorlab, taksi orqali manzilga jo'nating. /orders",
@@ -391,7 +391,7 @@ async def reject_payment(call: CallbackQuery):
     oid = int(call.data.split("_")[1])
     o = get_order_by_id(oid)
     if not o:
-        await call.answer("Zakaz topilmadi.", show_alert=True); return
+        await call.answer("Buyurtma topilmadi.", show_alert=True); return
     try:
         await call.message.edit_caption(
             caption=(call.message.caption or "") + "\n\n❌ CHEK RAD ETILDI",
@@ -402,9 +402,9 @@ async def reject_payment(call: CallbackQuery):
         from app.bot.bot import bot
         await bot.send_message(
             o["buyer_id"],
-            f"❌ <b>Zakaz #{oid} cheki rad etildi.</b>\n"
+            f"❌ <b>Buyurtma #{oid} cheki rad etildi.</b>\n"
             f"Iltimos, to'g'ri to'lov chekini qayta yuboring:\n"
-            f"📦 Zakazlarim → 🧾 chek yuborish",
+            f"📦 Buyurtmalarim → 🧾 chek yuborish",
             parse_mode="HTML"
         )
     except Exception:
@@ -707,7 +707,7 @@ async def show_stats(call: CallbackQuery):
         f"✅ Tasdiqlangan: {len([a for a in apps.values() if a.get('status')=='approved'])}\n"
         f"🏪 Sellerlar: {len(get_sellers())}\n"
         f"📦 Mahsulotlar: {len(get_all_products())}\n"
-        f"🛒 Zakazlar: {len(orders)} ta\n"
+        f"🛒 Buyurtmalar: {len(orders)} ta\n"
         f"💰 Jami savdo: {revenue:,} so'm"
     )
     await call.message.edit_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(
@@ -788,7 +788,7 @@ async def excel_daily(call: CallbackQuery):
     orders = [o for o in get_orders() if o.get("created_at", "")[:10] == today]
     data = _build_excel(orders, "Kunlik")
     file = BufferedInputFile(data, filename=f"kunlik_{today}.xlsx")
-    await call.message.answer_document(file, caption=f"📅 Kunlik hisobot — {today}\nZakazlar: {len(orders)} ta")
+    await call.message.answer_document(file, caption=f"📅 Kunlik hisobot — {today}\nBuyurtmalar: {len(orders)} ta")
     await call.answer()
 
 
@@ -799,7 +799,7 @@ async def excel_monthly(call: CallbackQuery):
     orders = [o for o in get_orders() if o.get("created_at", "")[:7] == month]
     data = _build_excel(orders, "Oylik")
     file = BufferedInputFile(data, filename=f"oylik_{month}.xlsx")
-    await call.message.answer_document(file, caption=f"📆 Oylik hisobot — {month}\nZakazlar: {len(orders)} ta")
+    await call.message.answer_document(file, caption=f"📆 Oylik hisobot — {month}\nBuyurtmalar: {len(orders)} ta")
     await call.answer()
 
 
@@ -814,7 +814,7 @@ async def excel_sellers_list(call: CallbackQuery):
     for uid, s in sellers.items():
         cnt = len(get_seller_orders(int(uid)))
         rows.append([InlineKeyboardButton(
-            text=f"🏪 {s['shop_name']} ({cnt} zakaz)",
+            text=f"🏪 {s['shop_name']} ({cnt} buyurtma)",
             callback_data=f"excel_seller_{uid}"
         )])
     rows.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_excel_menu")])
@@ -832,7 +832,7 @@ async def excel_seller_report(call: CallbackQuery):
     seller = get_seller(uid)
     orders = get_seller_orders(uid)
     if not orders:
-        await call.answer("Bu sellerda zakaz yo'q.", show_alert=True); return
+        await call.answer("Bu sellerda buyurtma yo'q.", show_alert=True); return
     shop = seller["shop_name"] if seller else str(uid)
     data = _build_excel(orders, f"{shop}")
     total = sum(o.get("total", 0) for o in orders)
@@ -842,7 +842,7 @@ async def excel_seller_report(call: CallbackQuery):
         file,
         caption=(
             f"🏪 <b>{shop}</b> — hisobot\n"
-            f"🛒 Zakazlar: {len(orders)} ta\n"
+            f"🛒 Buyurtmalar: {len(orders)} ta\n"
             f"💰 Jami savdo: {total:,} so'm\n"
             f"💵 Sizning komissiyangiz (10%): {comm:,} so'm"
         ),

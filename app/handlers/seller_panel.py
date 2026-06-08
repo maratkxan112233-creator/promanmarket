@@ -41,7 +41,7 @@ def seller_menu_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📦 Mahsulotlarim",    callback_data="seller_products")],
         [InlineKeyboardButton(text="➕ Mahsulot qo'shish", callback_data="seller_add_product")],
-        [InlineKeyboardButton(text="🛒 Zakazlar",          callback_data="seller_orders")],
+        [InlineKeyboardButton(text="🛒 Buyurtmalar",          callback_data="seller_orders")],
         [InlineKeyboardButton(text="🏪 Do'konim",          callback_data="seller_shop_info")],
     ])
 
@@ -168,10 +168,10 @@ async def start_add_product(call: CallbackQuery, state: FSMContext):
 
 
 # ─── Mahsulot qo'shishni bo'lib yuboruvchi tugma/buyruqlarda AVTOMAT to'xtatish ──
-# Foydalanuvchi nom/tavsif/narx/rasm/rang so'ralганда /start yoki menyu tugmasini
+# Foydalanuvchi nom/tavsif/narx/rasm/rang so'ralganda /start yoki menyu tugmasini
 # bossa — uni input deb qabul qilmaymiz, jarayonni to'xtatamiz.
 MENU_BUTTONS = {
-    "🛍 Bozor", "🔍 Qidirish", "🏪 Seller bo'lish", "📦 Zakazlarim",
+    "🛍 Bozor", "🔍 Qidirish", "🏪 Seller bo'lish", "📦 Buyurtmalarim",
     "👤 Profilim", "📞 Aloqa", "🛍 Do'kon (ilova)", "❌ Bekor qilish",
 }
 
@@ -422,14 +422,14 @@ async def product_preview_cancel(call: CallbackQuery, state: FSMContext):
     await call.answer()
 
 
-# ─── Zakazlar (seller) ───────────────────────────────────────────────────────
+# ─── Buyurtmalar (seller) ───────────────────────────────────────────────────────
 @router.callback_query(F.data == "seller_orders")
 async def seller_orders_list(call: CallbackQuery):
     if not is_seller(call.from_user.id):
         await call.answer("Siz seller emassiz."); return
     orders = get_seller_orders(call.from_user.id)
     if not orders:
-        await call.message.edit_text("🛒 Hozircha zakaz yo'q.", reply_markup=InlineKeyboardMarkup(
+        await call.message.edit_text("🛒 Hozircha buyurtma yo'q.", reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[[InlineKeyboardButton(text="🔙 Orqaga", callback_data="seller_back")]]
         ))
         return
@@ -441,7 +441,7 @@ async def seller_orders_list(call: CallbackQuery):
             callback_data=f"sorder_{o['id']}"
         )])
     rows.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="seller_back")])
-    await call.message.edit_text("🛒 <b>Zakazlar:</b>", parse_mode="HTML",
+    await call.message.edit_text("🛒 <b>Buyurtmalar:</b>", parse_mode="HTML",
                                   reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
     await call.answer()
 
@@ -462,7 +462,7 @@ async def seller_order_detail(call: CallbackQuery):
     receipt_line = "🧾 Chek: yuborilgan" if o.get("receipt") else "🧾 Chek: yo'q"
 
     # Xaridor kontakti faqat TAKSI + to'lov tasdiqlangan bo'lsa ko'rinadi.
-    # Pickup (o'zi olib ketadi) — danniylar HECH QACHON ko'rsatilmaydi.
+    # Pickup (o'zi olib ketadi) — ma'lumotlar HECH QACHON ko'rsatilmaydi.
     is_pickup = o.get("delivery") == "pickup"
     paid_ok = o.get("status") in ("paid", "processing", "shipped", "delivered")
     unlocked = (not is_pickup) and paid_ok
@@ -483,7 +483,7 @@ async def seller_order_detail(call: CallbackQuery):
             f"   (platforma to'lovi tasdiqlangach ochiladi)\n"
         )
     text = (
-        f"🛒 <b>Zakaz #{oid}</b>\n\n"
+        f"🛒 <b>Buyurtma #{oid}</b>\n\n"
         f"📦 {o.get('product_name','—')}\n"
         f"💰 {o.get('total',0):,} so'm\n"
         f"{buyer_block}"
@@ -529,7 +529,7 @@ async def seller_view_receipt(call: CallbackQuery):
     if not o.get("receipt"):
         await call.answer("Chek yo'q.", show_alert=True); return
     try:
-        await call.message.answer_photo(o["receipt"], caption=f"🧾 Zakaz #{oid} cheki")
+        await call.message.answer_photo(o["receipt"], caption=f"🧾 Buyurtma #{oid} cheki")
     except Exception:
         await call.answer("Chekni ko'rsatib bo'lmadi.", show_alert=True)
     await call.answer()
@@ -552,7 +552,7 @@ async def update_order(call: CallbackQuery):
     try:
         from app.bot.bot import bot
         msg = (
-            f"📦 <b>Zakaz #{oid} holati yangilandi!</b>\n\n"
+            f"📦 <b>Buyurtma #{oid} holati yangilandi!</b>\n\n"
             f"📌 Yangi holat: {status_label}\n"
             f"📦 {o.get('product_name','—')}"
         )
@@ -613,8 +613,8 @@ async def orders_cmd(message: Message):
         await message.answer("Siz seller emassiz."); return
     orders = get_seller_orders(message.from_user.id)
     if not orders:
-        await message.answer("🛒 Hozircha zakaz yo'q."); return
-    text = "🛒 <b>Zakazlaringiz:</b>\n\n"
+        await message.answer("🛒 Hozircha buyurtma yo'q."); return
+    text = "🛒 <b>Buyurtmalaringiz:</b>\n\n"
     for o in orders[-10:]:
         status = ORDER_STATUSES.get(o.get("status",""), "—")
         text += f"<b>#{o['id']}</b> — {o.get('product_name','—')} | {status}\n"
