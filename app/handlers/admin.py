@@ -13,7 +13,7 @@ from app.storage import (
     get_all_products, admin_delete_product, update_product, get_product_by_id,
     update_seller, delete_seller, delete_user, get_orders, get_seller_reviews,
     get_order_by_id, update_order_status, get_seller_orders, get_seller,
-    get_seller_products, add_product, delete_all_products,
+    get_seller_products, add_product,
     get_admins, add_admin, remove_admin, is_sub_admin,
     add_audit, get_audit,
     get_cities, add_city, remove_city, get_user,
@@ -127,7 +127,6 @@ def admin_menu_kb(uid: int):
             [InlineKeyboardButton(text="🏪 Sellerlar",        callback_data="admin_sellers")],
             [InlineKeyboardButton(text="➕ Mahsulot qo'shish", callback_data="admin_addprod")],
             [InlineKeyboardButton(text="📦 Mahsulotlar",      callback_data="admin_products")],
-            [InlineKeyboardButton(text="🧹 Mahsulotlarni tozalash", callback_data="admin_clearprods")],
             [InlineKeyboardButton(text="👥 Foydalanuvchilar", callback_data="admin_users")],
             [InlineKeyboardButton(text="🏙 Shaharlar",        callback_data="admin_cities")],
             [InlineKeyboardButton(text="📊 Statistika",       callback_data="admin_stats")],
@@ -607,43 +606,6 @@ async def admin_del_product(call: CallbackQuery):
     await call.message.edit_text("🗑 Mahsulot o'chirildi.")
     await call.answer("O'chirildi")
 
-
-# ─── Hamma mahsulotni tozalash (faqat owner) ─────────────────────────────────
-@router.callback_query(F.data == "admin_clearprods")
-async def admin_clear_prods(call: CallbackQuery):
-    if not is_owner(call.from_user.id): return
-    n = len(get_all_products())
-    if n == 0:
-        await call.answer("Mahsulot yo'q.", show_alert=True); return
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"⚠️ Ha, {n} ta mahsulotni o'chir",
-                              callback_data="admin_clearprods_yes")],
-        [InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="admin_back")],
-    ])
-    await _admin_nav(
-        call,
-        f"🧹 <b>Hamma mahsulotni tozalash</b>\n\n"
-        f"Hozir <b>{n} ta</b> mahsulot bor.\n"
-        f"Hammasini o'chirsangiz, do'konlardagi barcha mahsulotlar "
-        f"(rasmlari bilan) yo'qoladi. Buni qaytarib bo'lmaydi.\n\n"
-        f"Davom etasizmi?",
-        kb,
-    )
-    await call.answer()
-
-
-@router.callback_query(F.data == "admin_clearprods_yes")
-async def admin_clear_prods_yes(call: CallbackQuery):
-    if not is_owner(call.from_user.id): return
-    n = delete_all_products()
-    _log(call.from_user, "Hamma mahsulot tozalandi", f"{n} ta")
-    await _admin_nav(
-        call,
-        f"✅ <b>{n} ta</b> mahsulot o'chirildi.\n"
-        f"Endi mahsulotlarni qaytadan qo'shishingiz mumkin.",
-        admin_menu_kb(call.from_user.id),
-    )
-    await call.answer("Tozalandi")
 
 
 # ─── Foydalanuvchilar ────────────────────────────────────────────────────────

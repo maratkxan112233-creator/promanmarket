@@ -170,6 +170,30 @@
     background:rgba(255,255,255,.95);display:flex;align-items:center;justify-content:center;
     font-size:20px;color:#222;box-shadow:0 1px 5px rgba(0,0,0,.18);cursor:pointer;
   }
+
+  /* ── Search bar ── */
+  .searchbar{
+    display:flex;align-items:center;gap:8px;padding:8px 12px 4px;
+  }
+  .searchbar input{
+    flex:1;padding:9px 14px;border-radius:22px;border:1.5px solid var(--line);
+    font-size:14px;font-family:inherit;color:var(--ink);outline:none;
+    background:var(--gray);transition:border-color .2s;
+  }
+  .searchbar input:focus{border-color:var(--purple);background:#fff;}
+  .searchbar input::placeholder{color:var(--muted);}
+
+  /* ── Voice button ── */
+  #voiceBtn{
+    position:fixed;bottom:80px;right:16px;
+    width:52px;height:52px;border-radius:50%;
+    background:var(--purple);color:#fff;border:none;
+    font-size:22px;box-shadow:0 2px 10px rgba(112,0,255,.35);
+    cursor:pointer;z-index:40;transition:background .2s;
+    display:flex;align-items:center;justify-content:center;
+  }
+  #voiceBtn.listening{background:#f44336;animation:pulse 1s infinite;}
+  @keyframes pulse{0%,100%{transform:scale(1);}50%{transform:scale(1.12);}}
 </style>
 </head>
 <body>
@@ -180,6 +204,12 @@
 </div>
 
 <div class="chips" id="chips"></div>
+
+<div class="searchbar">
+  <input id="searchInput" type="search" placeholder="🔍 Mahsulot qidirish...">
+</div>
+
+<button id="voiceBtn" title="Ovozli qidirish">🎤</button>
 
 <div id="content">
   <div class="spinner"></div>
@@ -206,6 +236,7 @@ if (tg){ tg.expand(); tg.ready(); try{ tg.setHeaderColor('#ffffff'); tg.setBackg
 let ALL = [];
 let curTab = 'all';
 let curCity = 'all';
+let searchQuery = '';
 const favs = new Set();
 
 const fmt = n => (n||0).toLocaleString('ru-RU').replace(/,/g,' ').replace(/\u00a0/g,' ');
@@ -242,6 +273,13 @@ function filtered(){
   let list = ALL.slice();
   if (curCity !== 'all') list = list.filter(p => p.city === curCity);
   if (curTab === 'disc') list = list.filter(p => disc(p) > 0);
+  if (searchQuery){
+    const words = searchQuery.split(' ').filter(Boolean);
+    list = list.filter(p => {
+      const t = `${p.name} ${p.description||''} ${p.shop_name||''}`.toLowerCase();
+      return words.some(w => t.includes(w));
+    });
+  }
   return list;
 }
 
@@ -377,6 +415,46 @@ document.querySelectorAll('.tab').forEach(el=>{
     render();
   };
 });
+
+// ── Search input ──
+document.getElementById('searchInput').addEventListener('input', e => {
+  searchQuery = e.target.value.toLowerCase().trim();
+  render();
+});
+
+// ── Voice search ──
+const voiceBtn = document.getElementById('voiceBtn');
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (SR) {
+  const rec = new SR();
+  rec.lang = 'uz-UZ';
+  rec.interimResults = true;
+  rec.maxAlternatives = 1;
+
+  rec.onstart = () => { voiceBtn.classList.add('listening'); voiceBtn.textContent = '⏹'; };
+  rec.onend   = () => { voiceBtn.classList.remove('listening'); voiceBtn.textContent = '🎤'; };
+
+  rec.onresult = e => {
+    const text = e.results[0][0].transcript;
+    const inp = document.getElementById('searchInput');
+    inp.value = text;
+    searchQuery = text.toLowerCase().trim();
+    render();
+  };
+
+  rec.onerror = e => {
+    voiceBtn.classList.remove('listening');
+    voiceBtn.textContent = '🎤';
+    if (e.error !== 'no-speech') alert('Mikrofon xatosi: ' + e.error);
+  };
+
+  voiceBtn.onclick = () => {
+    if (voiceBtn.classList.contains('listening')) rec.stop();
+    else rec.start();
+  };
+} else {
+  voiceBtn.style.display = 'none';
+}
 
 load();
 </script>
