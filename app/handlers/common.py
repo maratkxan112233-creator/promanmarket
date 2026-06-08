@@ -281,6 +281,13 @@ def _product_kb(p: dict, idx: int, total: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+# chat_id -> oxirgi ko'rsatilgan mahsulot RASM xabarining message_id.
+# Yangi mahsulot ochilganda oldingisini o'chiramiz — shunda chatda bir vaqtda
+# faqat bitta mahsulot rasmi turadi va Telegram rasm ko'ruvchisida boshqa
+# mahsulot rasmlari aralashib ketmaydi (qaysi yo'l bilan ochilganidan qat'i nazar).
+_last_product_msg: dict = {}
+
+
 @router.callback_query(F.data.startswith("prod_"))
 async def product_detail(call: CallbackQuery):
     pid = int(call.data.split("_")[1])
@@ -288,26 +295,38 @@ async def product_detail(call: CallbackQuery):
     if not p:
         await call.answer("Topilmadi."); return
 
-    text   = _product_caption(p)
-    photos = product_photos(p)
-    total  = len(photos)
-    kb     = _product_kb(p, 0, total)
+    text    = _product_caption(p)
+    photos  = product_photos(p)
+    total   = len(photos)
+    kb      = _product_kb(p, 0, total)
+    chat_id = call.message.chat.id
 
-    # Oldingi xabarni (do'kon ro'yxati yoki avvalgi mahsulot) o'chiramiz —
-    # chatda bir vaqtda faqat bitta mahsulot rasmi turadi, shunda Telegram
-    # rasm ko'ruvchisida boshqa mahsulot rasmlari aralashib ketmaydi.
+    # 1) Oldin ko'rsatilgan mahsulot rasm xabarini o'chiramiz — "Orqaga", pastki
+    #    menyu yoki qidiruv — qaysi yo'l bilan kelganidan qat'i nazar.
+    prev_id = _last_product_msg.pop(chat_id, None)
+    if prev_id:
+        try:
+            await call.message.bot.delete_message(chat_id, prev_id)
+        except Exception:
+            pass
+    # 2) Hozir bosilgan xabarni (do'kon ro'yxati / qidiruv natijasi) ham o'chiramiz.
     try:
         await call.message.delete()
     except Exception:
         pass
 
+    sent = None
     if total >= 1:
         try:
-            await call.message.answer_photo(photos[0], caption=text, parse_mode="HTML", reply_markup=kb)
+            sent = await call.message.answer_photo(photos[0], caption=text, parse_mode="HTML", reply_markup=kb)
         except Exception:
-            await call.message.answer(text + "\n\n<i>(rasm yuklanmadi)</i>", parse_mode="HTML", reply_markup=kb)
+            sent = await call.message.answer(text + "\n\n<i>(rasm yuklanmadi)</i>", parse_mode="HTML", reply_markup=kb)
     else:
-        await call.message.answer(text, parse_mode="HTML", reply_markup=kb)
+        sent = await call.message.answer(text, parse_mode="HTML", reply_markup=kb)
+
+    # Faqat rasmli xabarni eslab qolamiz (matn xabar surilmaydi — aralashtirmaydi).
+    if sent is not None and total >= 1:
+        _last_product_msg[chat_id] = sent.message_id
     await call.answer()
 
 
