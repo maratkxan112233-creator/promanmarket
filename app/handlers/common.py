@@ -9,7 +9,7 @@ from app.storage import (
     get_sellers, get_seller_rating, get_buyer_orders, get_order_by_id,
     search_products, register_user, get_product_by_id,
     save_order, update_order_fields,
-    get_user, set_user_field, get_cities,
+    get_user, set_user_field, get_cities, product_photos,
 )
 from app.keyboards.seller import main_menu, phone_keyboard, cancel_keyboard
 from app.states.seller_application import SearchState, OrderState
@@ -241,9 +241,18 @@ async def product_detail(call: CallbackQuery):
         [InlineKeyboardButton(text="🛒 Zakaz qilish", callback_data=f"order_{pid}")],
         [InlineKeyboardButton(text="🔙 Orqaga",       callback_data=f"shop_{p['seller_id']}")],
     ])
-    if p.get("photo"):
+    photos = product_photos(p)
+    if len(photos) > 1:
+        from aiogram.types import InputMediaPhoto
+        media = [InputMediaPhoto(media=ph) for ph in photos[:10]]
         try:
-            await call.message.answer_photo(p["photo"], caption=text, parse_mode="HTML", reply_markup=kb)
+            await call.message.answer_media_group(media)
+        except Exception:
+            pass
+        await call.message.answer(text, parse_mode="HTML", reply_markup=kb)
+    elif len(photos) == 1:
+        try:
+            await call.message.answer_photo(photos[0], caption=text, parse_mode="HTML", reply_markup=kb)
         except Exception:
             # file_id eskirgan yoki noto'g'ri bo'lsa — matn bilan ko'rsatamiz
             await call.message.answer(

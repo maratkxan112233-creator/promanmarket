@@ -142,6 +142,16 @@ def get_product_by_id(product_id: int) -> dict | None:
             return p
     return None
 
+def product_photos(p: dict) -> list:
+    """Mahsulot rasmlari ro'yxati (yangi 'photos' yoki eski 'photo' bilan moslik)."""
+    if not p:
+        return []
+    photos = p.get("photos")
+    if isinstance(photos, list) and photos:
+        return [x for x in photos if x]
+    one = p.get("photo")
+    return [one] if one else []
+
 def add_product(product: dict):
     products = get_all_products()
     product["id"] = (max((p["id"] for p in products), default=0) + 1)
@@ -170,6 +180,12 @@ def admin_delete_product(product_id: int) -> bool:
         _write(PRODUCTS_FILE, new)
         return True
     return False
+
+def delete_all_products() -> int:
+    """Hamma mahsulotni o'chiradi. O'chirilgan sonni qaytaradi."""
+    n = len(get_all_products())
+    _write(PRODUCTS_FILE, [])
+    return n
 
 def search_products(query: str) -> list:
     """Fuzzy search: har bir so'z alohida tekshiriladi"""

@@ -11,7 +11,7 @@ from urllib.parse import urlparse, parse_qs
 from app.bot.bot import bot
 from app.bot.dispatcher import dp
 from app.app.config.settings import settings
-from app.storage import get_all_products, get_sellers, get_seller_rating
+from app.storage import get_all_products, get_sellers, get_seller_rating, product_photos
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -31,6 +31,7 @@ def build_products_payload() -> list:
         sid = p.get("seller_id")
         s = sellers.get(str(sid), {})
         rating, cnt = get_seller_rating(int(sid)) if sid is not None else (0.0, 0)
+        photos = product_photos(p)
         out.append({
             "id":          p.get("id"),
             "name":        p.get("name", ""),
@@ -42,7 +43,8 @@ def build_products_payload() -> list:
             "city":        s.get("city", ""),
             "rating":      rating,
             "reviews":     cnt,
-            "has_photo":   bool(p.get("photo")),
+            "has_photo":   bool(photos),
+            "photo_count": len(photos),
         })
     return out
 
@@ -65,10 +67,13 @@ def _tg_file_path(file_id: str):
     return None
 
 
-def _product_photo_id(product_id: int):
+def _product_photo_id(product_id: int, index: int = 0):
     for p in get_all_products():
         if p.get("id") == product_id:
-            return p.get("photo")
+            photos = product_photos(p)
+            if 0 <= index < len(photos):
+                return photos[index]
+            return None
     return None
 
 
@@ -106,9 +111,13 @@ class AppHandler(BaseHTTPRequestHandler):
         if path == "/api/photo":
             pid = qs.get("id", [None])[0]
             file_id = qs.get("file_id", [None])[0]
+            try:
+                idx = int(qs.get("i", ["0"])[0])
+            except Exception:
+                idx = 0
             if not file_id and pid is not None:
                 try:
-                    file_id = _product_photo_id(int(pid))
+                    file_id = _product_photo_id(int(pid), idx)
                 except Exception:
                     file_id = None
             if not file_id:

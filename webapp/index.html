@@ -145,6 +145,9 @@
   @keyframes up{from{opacity:0;transform:translateY(14px);}to{opacity:1;transform:none;}}
   .sheet-img{width:100%;aspect-ratio:1/1;background:var(--gray);object-fit:cover;display:block;}
   .sheet-img.ph{display:flex;align-items:center;justify-content:center;font-size:60px;color:#c9c9cf;}
+  .thumbs{display:flex;gap:8px;padding:10px 14px 0;overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  .thumb{width:58px;height:58px;flex:0 0 auto;object-fit:cover;border-radius:10px;border:2px solid transparent;cursor:pointer;background:var(--gray);}
+  .thumb.active{border-color:#3b82f6;}
   .sheet-body{padding:16px 18px 0;}
   .sheet h2{font-size:18px;font-weight:800;margin:0 0 4px;line-height:1.25;}
   .sheet .shop{font-size:13px;color:var(--muted);margin-bottom:12px;}
@@ -206,7 +209,7 @@ let curCity = 'all';
 const favs = new Set();
 
 const fmt = n => (n||0).toLocaleString('ru-RU').replace(/,/g,' ').replace(/\u00a0/g,' ');
-const img = (p) => p.has_photo ? `/api/photo?id=${p.id}` : null;
+const img = (p, i=0) => p.has_photo ? `/api/photo?id=${p.id}&i=${i}` : null;
 
 function disc(p){
   if (p.old_price && p.old_price > p.price){
@@ -296,12 +299,23 @@ function openSheet(id){
   const p = ALL.find(x=>x.id===id);
   if (!p) return;
   const d = disc(p);
-  const src = img(p);
+  const src = img(p, 0);
   const monthly = p.price ? Math.round(p.price/12) : 0;
+  const count = p.photo_count || (p.has_photo ? 1 : 0);
+  let thumbs = '';
+  if (count > 1){
+    let t = '';
+    for (let i=0;i<count;i++){
+      t += `<img class="thumb ${i===0?'active':''}" data-i="${i}" src="/api/photo?id=${p.id}&i=${i}" onerror="this.style.display='none'">`;
+    }
+    thumbs = `<div class="thumbs" id="thumbs">${t}</div>`;
+  }
+  const gallery = src
+    ? `<img class="sheet-img" id="mainimg" src="${src}" onerror="imgFail(this,true)">${thumbs}`
+    : `<div class="sheet-img ph">📦</div>`;
   document.getElementById('sheet').innerHTML = `
     <div class="closex" id="closex">←</div>
-    ${src ? `<img class="sheet-img" src="${src}" onerror="imgFail(this,true)">`
-          : `<div class="sheet-img ph">📦</div>`}
+    ${gallery}
     <div class="sheet-body">
       <h2>${esc(p.name)}</h2>
       <div class="shop">🏪 ${esc(p.shop_name||'')} ${p.city?('· 📍 '+esc(p.city)):''}</div>
@@ -319,6 +333,17 @@ function openSheet(id){
   document.getElementById('overlay').classList.add('show');
   document.getElementById('closex').onclick = closeSheet;
   document.getElementById('buybtn').onclick = ()=> order(p.id);
+  const tb = document.getElementById('thumbs');
+  if (tb){
+    tb.querySelectorAll('.thumb').forEach(el=>{
+      el.onclick = ()=>{
+        const main = document.getElementById('mainimg');
+        if (main){ main.dataset.tries = 0; main.src = `/api/photo?id=${p.id}&i=${el.dataset.i}`; }
+        tb.querySelectorAll('.thumb').forEach(t=>t.classList.remove('active'));
+        el.classList.add('active');
+      };
+    });
+  }
 }
 
 function closeSheet(){ document.getElementById('overlay').classList.remove('show'); }

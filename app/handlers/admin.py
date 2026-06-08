@@ -13,11 +13,12 @@ from app.storage import (
     get_all_products, admin_delete_product, update_product, get_product_by_id,
     update_seller, delete_seller, delete_user, get_orders, get_seller_reviews,
     get_order_by_id, update_order_status, get_seller_orders, get_seller,
-    get_seller_products, add_product,
+    get_seller_products, add_product, delete_all_products,
     get_admins, add_admin, remove_admin, is_sub_admin,
     add_audit, get_audit,
     get_cities, add_city, remove_city, get_user,
 )
+from app.album import collect
 from app.app.config.settings import settings
 
 router = Router()
@@ -126,6 +127,7 @@ def admin_menu_kb(uid: int):
             [InlineKeyboardButton(text="🏪 Sellerlar",        callback_data="admin_sellers")],
             [InlineKeyboardButton(text="➕ Mahsulot qo'shish", callback_data="admin_addprod")],
             [InlineKeyboardButton(text="📦 Mahsulotlar",      callback_data="admin_products")],
+            [InlineKeyboardButton(text="🧹 Mahsulotlarni tozalash", callback_data="admin_clearprods")],
             [InlineKeyboardButton(text="👥 Foydalanuvchilar", callback_data="admin_users")],
             [InlineKeyboardButton(text="🏙 Shaharlar",        callback_data="admin_cities")],
             [InlineKeyboardButton(text="📊 Statistika",       callback_data="admin_stats")],
@@ -606,6 +608,44 @@ async def admin_del_product(call: CallbackQuery):
     await call.answer("O'chirildi")
 
 
+# ─── Hamma mahsulotni tozalash (faqat owner) ─────────────────────────────────
+@router.callback_query(F.data == "admin_clearprods")
+async def admin_clear_prods(call: CallbackQuery):
+    if not is_owner(call.from_user.id): return
+    n = len(get_all_products())
+    if n == 0:
+        await call.answer("Mahsulot yo'q.", show_alert=True); return
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"⚠️ Ha, {n} ta mahsulotni o'chir",
+                              callback_data="admin_clearprods_yes")],
+        [InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="admin_back")],
+    ])
+    await _admin_nav(
+        call,
+        f"🧹 <b>Hamma mahsulotni tozalash</b>\n\n"
+        f"Hozir <b>{n} ta</b> mahsulot bor.\n"
+        f"Hammasini o'chirsangiz, do'konlardagi barcha mahsulotlar "
+        f"(rasmlari bilan) yo'qoladi. Buni qaytarib bo'lmaydi.\n\n"
+        f"Davom etasizmi?",
+        kb,
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data == "admin_clearprods_yes")
+async def admin_clear_prods_yes(call: CallbackQuery):
+    if not is_owner(call.from_user.id): return
+    n = delete_all_products()
+    _log(call.from_user, "Hamma mahsulot tozalandi", f"{n} ta")
+    await _admin_nav(
+        call,
+        f"✅ <b>{n} ta</b> mahsulot o'chirildi.\n"
+        f"Endi mahsulotlarni qaytadan qo'shishingiz mumkin.",
+        admin_menu_kb(call.from_user.id),
+    )
+    await call.answer("Tozalandi")
+
+
 # ─── Foydalanuvchilar ────────────────────────────────────────────────────────
 @router.callback_query(F.data == "admin_users")
 async def admin_users(call: CallbackQuery):
@@ -871,35 +911,34 @@ async def admin_ap_price(message: Message, state: FSMContext):
         await message.answer("❌ Faqat raqam kiriting:"); return
     await state.update_data(price=int(message.text))
     await state.set_state(AdminAddProduct.photo)
-    await message.answer("📸 Rasm yuboring (yoki /skip):")
+    await message.answer(
+        "📸 Rasm(lar)ni yuboring — bittasini yoki bir nechtasini birga "
+        "(albom) jo'nating.\nRasmsiz qo'shish uchun /skip yozing."
+    )
 
 
-@router.message(AdminAddProduct.photo)
-async def admin_ap_photo(message: Message, state: FSMContext):
-    data = await state.get_data()
-    if message.photo:
-        photo_id = message.photo[-1].file_id
-    elif message.text == "/skip":
-        photo_id = None
-    else:
-        await message.answer("❌ Rasm yuboring yoki /skip yozing:"); return
-    add_product({
+def _admin_build_product(data: dict, photos: list) -> dict:
+    return {
         "seller_id":   data["seller_id"],
         "shop_name":   data["shop_name"],
         "city":        data.get("city", ""),
         "name":        data["name"],
         "description": data["description"],
         "price":       data["price"],
-        "photo":       photo_id,
-    })
+        "photos":      photos,
+    }
+
+
+async def _admin_finish_product(message: Message, state: FSMContext, data: dict, photos: list):
+    add_product(_admin_build_product(data, photos))
     _log(message.from_user, "Mahsulot qo'shildi",
          f"{data['name']} — do'kon: {data['shop_name']} ({data['price']:,} so'm)")
     await state.clear()
     await message.answer(
-        f"✅ <b>{data['name']}</b> «{data['shop_name']}» do'koniga qo'shildi!",
+        f"✅ <b>{data['name']}</b> «{data['shop_name']}» do'koniga qo'shildi!"
+        + (f"\n🖼 {len(photos)} ta rasm" if photos else ""),
         parse_mode="HTML", reply_markup=admin_menu_kb(message.from_user.id)
     )
-    # Sellerni xabardor qilamiz
     try:
         from app.bot.bot import bot
         await bot.send_message(
@@ -909,6 +948,34 @@ async def admin_ap_photo(message: Message, state: FSMContext):
         )
     except Exception:
         pass
+
+
+@router.message(AdminAddProduct.photo, F.media_group_id)
+async def admin_ap_photo_album(message: Message, state: FSMContext):
+    data = await state.get_data()
+    key  = (message.from_user.id, message.media_group_id)
+
+    async def done(photos):
+        await _admin_finish_product(message, state, data, photos)
+
+    collect(key, message.photo[-1].file_id, 1.5, done)
+
+
+@router.message(AdminAddProduct.photo, F.photo)
+async def admin_ap_photo_single(message: Message, state: FSMContext):
+    data = await state.get_data()
+    await _admin_finish_product(message, state, data, [message.photo[-1].file_id])
+
+
+@router.message(AdminAddProduct.photo, F.text == "/skip")
+async def admin_ap_photo_skip(message: Message, state: FSMContext):
+    data = await state.get_data()
+    await _admin_finish_product(message, state, data, [])
+
+
+@router.message(AdminAddProduct.photo)
+async def admin_ap_photo_wrong(message: Message, state: FSMContext):
+    await message.answer("❌ Rasm yuboring yoki /skip yozing:")
 
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -8,6 +8,7 @@ from app.storage import (
     is_seller, get_seller, get_seller_products, add_product,
     delete_product, update_product, get_seller_orders, update_order_status
 )
+from app.album import collect
 from app.keyboards.seller import main_menu, stars_kb
 
 router = Router()
@@ -174,32 +175,70 @@ async def product_price(message: Message, state: FSMContext):
         await message.answer("❌ Faqat raqam kiriting:"); return
     await state.update_data(price=int(message.text))
     await state.set_state(AddProductState.photo)
-    await message.answer("📸 Rasm yuboring (yoki /skip yozing):")
+    await message.answer(
+        "📸 Rasm(lar)ni yuboring — bittasini yoki bir nechtasini birga "
+        "(albom) jo'nating.\nRasmsiz qo'shish uchun /skip yozing."
+    )
 
 
-@router.message(AddProductState.photo)
-async def product_photo(message: Message, state: FSMContext):
-    data   = await state.get_data()
+def _build_product(message: Message, data: dict, photos: list) -> dict:
     seller = get_seller(message.from_user.id)
-    if message.photo:
-        photo_id = message.photo[-1].file_id
-    elif message.text == "/skip":
-        photo_id = None
-    else:
-        await message.answer("❌ Rasm yuboring yoki /skip yozing:"); return
-    add_product({
+    return {
         "seller_id":   message.from_user.id,
         "shop_name":   seller["shop_name"],
         "name":        data["name"],
         "description": data["description"],
         "price":       data["price"],
-        "photo":       photo_id,
-    })
+        "photos":      photos,
+    }
+
+
+# ─── Albom (bir nechta rasm birga) ───────────────────────────────────────────
+@router.message(AddProductState.photo, F.media_group_id)
+async def product_photo_album(message: Message, state: FSMContext):
+    data = await state.get_data()
+    key  = (message.from_user.id, message.media_group_id)
+
+    async def done(photos):
+        add_product(_build_product(message, data, photos))
+        await state.clear()
+        await message.answer(
+            f"✅ <b>{data['name']}</b> qo'shildi!\n"
+            f"💰 {data['price']:,} so'm · 🖼 {len(photos)} ta rasm",
+            parse_mode="HTML", reply_markup=seller_menu_kb()
+        )
+
+    collect(key, message.photo[-1].file_id, 1.5, done)
+
+
+# ─── Bitta rasm ──────────────────────────────────────────────────────────────
+@router.message(AddProductState.photo, F.photo)
+async def product_photo_single(message: Message, state: FSMContext):
+    data = await state.get_data()
+    add_product(_build_product(message, data, [message.photo[-1].file_id]))
+    await state.clear()
+    await message.answer(
+        f"✅ <b>{data['name']}</b> qo'shildi!\n💰 {data['price']:,} so'm · 🖼 1 ta rasm",
+        parse_mode="HTML", reply_markup=seller_menu_kb()
+    )
+
+
+# ─── Rasmsiz (/skip) ─────────────────────────────────────────────────────────
+@router.message(AddProductState.photo, F.text == "/skip")
+async def product_photo_skip(message: Message, state: FSMContext):
+    data = await state.get_data()
+    add_product(_build_product(message, data, []))
     await state.clear()
     await message.answer(
         f"✅ <b>{data['name']}</b> qo'shildi!\n💰 {data['price']:,} so'm",
         parse_mode="HTML", reply_markup=seller_menu_kb()
     )
+
+
+# ─── Noto'g'ri tur ───────────────────────────────────────────────────────────
+@router.message(AddProductState.photo)
+async def product_photo_wrong(message: Message, state: FSMContext):
+    await message.answer("❌ Rasm yuboring yoki /skip yozing:")
 
 
 # ─── Zakazlar (seller) ───────────────────────────────────────────────────────
