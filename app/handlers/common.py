@@ -36,6 +36,14 @@ DELIVERY_LABELS = {
     "uzum": "🍊 Uzum Pochta",
 }
 
+# Shu summa va undan ortiq xaridga shahar ichida yetkazib berish bepul.
+FREE_DELIVERY_MIN = 300_000
+# Xaridorni qiziqtirish uchun har joyda chiqadigan doimiy reklama yozuvi.
+FREE_DELIVERY_BANNER = (
+    f"🚚🎉 <b>{FREE_DELIVERY_MIN:,} so'mdan ortiq xaridga shahar ichida "
+    f"yetkazib berish BEPUL!</b>"
+)
+
 
 # ─── Rasm/matn xabarlar uchun XAVFSIZ navigatsiya ────────────────────────────
 # Rasmli xabarni edit_text qilib bo'lmaydi (TelegramBadRequest).
@@ -153,6 +161,7 @@ async def _show_market(message: Message, city: str):
         )
         return
     await message.answer(
+        f"{FREE_DELIVERY_BANNER}\n\n"
         f"🛍 <b>Do'konlar</b> — 📍 {city}\nBitta do'konni tanlang:",
         parse_mode="HTML",
         reply_markup=_shops_keyboard(city)
@@ -196,6 +205,7 @@ async def show_shop(call: CallbackQuery):
     stars = "⭐" * int(rating) if cnt else "—"
 
     text = (
+        f"{FREE_DELIVERY_BANNER}\n\n"
         f"🏪 <b>{seller['shop_name']}</b>\n"
         f"👤 {seller['full_name']}\n"
         f"⭐ Reyting: {stars} {rating} ({cnt} ta)\n"
@@ -264,6 +274,10 @@ def _product_caption(p: dict) -> str:
         lines.append(f"\n{stars} {rating}  💬 {rev_cnt} ta sharh")
 
     lines.append("\n🚕 Bugun yetkazib beramiz  |  🚶 O'zingiz olib keta olasiz")
+    if price >= FREE_DELIVERY_MIN:
+        lines.append(f"🚚 <b>Shahar ichida BEPUL yetkazib berish!</b> ({FREE_DELIVERY_MIN:,} so'mdan ortiq xarid)")
+    else:
+        lines.append(f"🚚 {FREE_DELIVERY_MIN:,} so'mdan ortiq xaridga shahar ichida yetkazib berish bepul")
     return "\n".join(lines)
 
 
@@ -415,16 +429,30 @@ async def fulfillment_pickup(call: CallbackQuery, state: FSMContext):
 async def fulfillment_delivery(call: CallbackQuery, state: FSMContext):
     await state.update_data(fulfillment="delivery")
     await state.set_state(OrderState.delivery)
+    data = await state.get_data()
+    p = get_product_by_id(data.get("pid"))
+    free = bool(p) and p.get("price", 0) >= FREE_DELIVERY_MIN
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🚕 Taksi pochta (shu bugunoq)", callback_data="dlv_taxi")],
     ])
+    if free:
+        note = (
+            f"✅ <b>Shahar ichida yetkazib berish BEPUL!</b>\n"
+            f"<i>Xaridingiz {FREE_DELIVERY_MIN:,} so'mdan ortiq — shahar ichidagi taksi "
+            f"haqini do'kon o'zi qoplaydi.</i>"
+        )
+    else:
+        note = (
+            f"ℹ️ <i>Eslatma: taksi (yetkazib berish) haqi xaridor tomonidan "
+            f"to'lanadi va masofaga qarab belgilanadi. Mahsulot narxiga "
+            f"kirmaydi — taksi haqini yetkazilganda haydovchiga to'laysiz.\n"
+            f"({FREE_DELIVERY_MIN:,} so'mdan ortiq xaridga shahar ichida yetkazib berish bepul.)</i>"
+        )
     await call.message.answer(
         "🚚 <b>Yetkazib berish usulini tanlang:</b>\n\n"
         "🚕 <b>Taksi pochta</b> — mahsulot shu bugunoq taksi orqali "
         "manzilingizga yetkaziladi.\n\n"
-        "ℹ️ <i>Eslatma: taksi (yetkazib berish) haqi xaridor tomonidan "
-        "to'lanadi va masofaga qarab belgilanadi. Mahsulot narxiga "
-        "kirmaydi — taksi haqini yetkazilganda haydovchiga to'laysiz.</i>",
+        f"{note}",
         parse_mode="HTML", reply_markup=kb
     )
     await call.answer()
@@ -524,12 +552,28 @@ async def order_phone(message: Message, state: FSMContext):
     card_name_line = f"   → Karta egasi: <b>{settings.PLATFORM_CARD_NAME}</b>\n" if settings.PLATFORM_CARD_NAME else ""
     pct = int(settings.COMMISSION_RATE * 100)
     is_pickup = data.get("fulfillment") == "pickup"
+    is_free_delivery = (not is_pickup) and p["price"] >= FREE_DELIVERY_MIN
+    seller_dlv_note = (
+        "\n🚚 <b>Bu zakazda shahar ichida yetkazib berish BEPUL</b> "
+        f"(xarid {FREE_DELIVERY_MIN:,} so'mdan ortiq — taksi haqini do'kon qoplaydi).\n"
+        if is_free_delivery else ""
+    )
 
     # ── Xaridorga: oldi-to'lov PLATFORMA kartasiga ──
     if is_pickup:
         deliver_line = (
             f"🚶 Olish usuli: O'zingiz olib ketasiz\n"
             f"<b>🔵 To'lov tasdiqlangach do'kon bilan bog'lanasiz.</b>\n\n"
+        )
+    elif p["price"] >= FREE_DELIVERY_MIN:
+        deliver_line = (
+            f"🚚 Yetkazib berish: {dlv_label}\n"
+            f"📍 Manzil: {data['address']}\n"
+            f"📱 Tel: {phone}\n"
+            f"<b>🟢 Yetkazib berish: SHU BUGUNOQ (taksi pochta)</b>\n"
+            f"<b>✅ Shahar ichida yetkazib berish — BEPUL!</b>\n"
+            f"<i>(Xaridingiz {FREE_DELIVERY_MIN:,} so'mdan ortiq — shahar ichidagi "
+            f"taksi haqini do'kon qoplaydi.)</i>\n\n"
         )
     else:
         deliver_line = (
@@ -564,7 +608,8 @@ async def order_phone(message: Message, state: FSMContext):
             f"🛒 <b>Yangi zakaz #{order_id}!</b>\n\n"
             f"📦 {p['name']}\n"
             f"💰 {p['price']:,} so'm\n"
-            f"🚚 {dlv_label}\n\n"
+            f"🚚 {dlv_label}\n"
+            f"{seller_dlv_note}\n"
             f"🔒 <b>Xaridor ma'lumotlari (ism, tel, manzil) yashirin.</b>\n"
             f"Platforma to'lovi (oldi-to'lov) tasdiqlangach avtomatik ochiladi.\n\n"
             f"💡 <b>Eslatma:</b> Bot orqali sotilgan har bir zakaz uchun "

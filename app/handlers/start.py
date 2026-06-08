@@ -5,6 +5,7 @@ from aiogram.types import Message
 
 from app.keyboards.seller import main_menu
 from app.storage import register_user
+from app.handlers.common import FREE_DELIVERY_BANNER
 
 router = Router()
 
@@ -18,7 +19,9 @@ async def cmd_start(message: Message, state: FSMContext):
     })
     await message.answer(
         f"Salom, {message.from_user.full_name}! 👋\n\n"
-        "Man Market botiga xush kelibsiz! 🛒\n"
+        "Man Market botiga xush kelibsiz! 🛒\n\n"
+        f"{FREE_DELIVERY_BANNER}\n\n"
         "Quyidagi menyudan tanlang:",
+        parse_mode="HTML",
         reply_markup=main_menu
     )
