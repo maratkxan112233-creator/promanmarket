@@ -91,10 +91,6 @@
   .price{font-size:17px;font-weight:800;color:var(--purple);letter-spacing:-.3px;}
   .disc{font-size:13px;font-weight:800;color:var(--pink);}
   .oldprice{font-size:12px;color:#b5b5bb;text-decoration:line-through;margin-top:1px;}
-  .monthly{
-    display:inline-block;margin-top:6px;background:var(--yellow);
-    color:#5a4a00;font-size:11.5px;font-weight:700;padding:3px 8px;border-radius:6px;
-  }
   .title{
     font-size:13px;font-weight:500;color:#333;line-height:1.3;margin-top:7px;
     display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
@@ -290,7 +286,6 @@ function filtered(){
 function card(p){
   const d = disc(p);
   const src = img(p);
-  const monthly = p.price ? Math.round(p.price/12) : 0;
   return `
   <div class="card" data-id="${p.id}">
     <div class="imgwrap">
@@ -303,7 +298,6 @@ function card(p){
         ${d ? `<span class="disc">↓${d}%</span>` : ``}
       </div>
       ${d ? `<div class="oldprice">${fmt(p.old_price)} so'm</div>` : ``}
-      ${monthly ? `<div class="monthly">${fmt(monthly)} so'm/oy</div>` : ``}
       <div class="title">${esc(p.name)}</div>
       ${(p.colors&&p.colors.length)?`<div class="swatches">${p.colors.map(c=>`<span class="swatch" title="${esc(c)}">${esc(c)}</span>`).join('')}</div>`:``}
       <div class="rate">
@@ -343,7 +337,6 @@ function openSheet(id){
   if (!p) return;
   const d = disc(p);
   const src = img(p, 0);
-  const monthly = p.price ? Math.round(p.price/12) : 0;
   const count = p.photo_count || (p.has_photo ? 1 : 0);
   let thumbs = '';
   if (count > 1){
@@ -366,7 +359,6 @@ function openSheet(id){
         <span class="sp">${fmt(p.price)} so'm</span>
         ${d ? `<span class="so">${fmt(p.old_price)} so'm</span>` : ``}
       </div>
-      ${monthly ? `<div class="monthly" style="margin-top:10px">${fmt(monthly)} so'm/oy</div>` : ``}
       ${(p.colors&&p.colors.length)?`<div class="colors-row"><span class="colors-label">🎨 Ranglar:</span>${p.colors.map(c=>`<span class="swatch">${esc(c)}</span>`).join('')}</div>`:``}
       ${p.description ? `<div class="desc">${esc(p.description)}</div>` : ``}
       <div class="note">⭐ Reyting: ${p.rating||'—'} (${p.reviews||0} ta sharh)<br>

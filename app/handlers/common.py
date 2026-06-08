@@ -237,9 +237,6 @@ def _product_caption(p: dict) -> str:
     if old_price and old_price > price:
         disc_pct = round((old_price - price) / old_price * 100)
 
-    # Oylik to'lov
-    monthly = round(price / 12) if price else 0
-
     # Reyting
     rating, rev_cnt = get_seller_rating(p.get("seller_id", 0))
 
@@ -254,8 +251,6 @@ def _product_caption(p: dict) -> str:
     lines.append(price_line)
     if old_price and disc_pct:
         lines.append(f"<s>{old_price:,} so'm</s>")
-    if monthly:
-        lines.append(f"📅 {monthly:,} so'm/oy")
 
     if desc:
         lines.append(f"\n📝 {desc}")
