@@ -129,8 +129,13 @@ async def seller_edit_product_save(message: Message, state: FSMContext):
         await state.clear()
         await message.answer("❌ Ruxsat yo'q.")
         return
+    txt = (message.text or "").strip()
+    if not txt:
+        await message.answer("❌ Matn ko'rinishida kiriting:"); return
+    if field == "price" and not txt.isdigit():
+        await message.answer("❌ Narx faqat raqam bo'lishi kerak:"); return
     mapping = {"name": "name", "price": "price", "desc": "description"}
-    value = int(message.text) if field == "price" and message.text.isdigit() else message.text
+    value = int(txt) if field == "price" else txt
     update_product(pid, {mapping[field]: value})
     await state.clear()
     await message.answer("✅ Mahsulot yangilandi!", reply_markup=seller_menu_kb())
@@ -158,21 +163,25 @@ async def start_add_product(call: CallbackQuery, state: FSMContext):
 
 @router.message(AddProductState.name)
 async def product_name(message: Message, state: FSMContext):
-    await state.update_data(name=message.text)
+    if not (message.text or "").strip():
+        await message.answer("❌ Mahsulot nomini matn ko'rinishida kiriting:"); return
+    await state.update_data(name=message.text.strip())
     await state.set_state(AddProductState.description)
     await message.answer("📝 Tavsif kiriting:")
 
 
 @router.message(AddProductState.description)
 async def product_description(message: Message, state: FSMContext):
-    await state.update_data(description=message.text)
+    if not (message.text or "").strip():
+        await message.answer("❌ Tavsifni matn ko'rinishida kiriting:"); return
+    await state.update_data(description=message.text.strip())
     await state.set_state(AddProductState.price)
     await message.answer("💰 Narxini kiriting (so'mda, faqat raqam):")
 
 
 @router.message(AddProductState.price)
 async def product_price(message: Message, state: FSMContext):
-    if not message.text.isdigit():
+    if not (message.text or "").isdigit():
         await message.answer("❌ Faqat raqam kiriting:"); return
     await state.update_data(price=int(message.text))
     await state.set_state(AddProductState.photo)
@@ -254,10 +263,16 @@ async def product_colors_skip(message: Message, state: FSMContext):
     )
 
 
+MENU_BUTTONS = {
+    "🛍 Bozor", "🔍 Qidirish", "🏪 Seller bo'lish", "📦 Zakazlarim",
+    "👤 Profilim", "📞 Aloqa", "🛍 Do'kon (ilova)", "❌ Bekor qilish",
+}
+
+
 @router.message(AddProductState.colors, F.text)
 async def product_colors_enter(message: Message, state: FSMContext):
-    text = message.text or ""
-    if text.startswith("/") or text.startswith("🛍") or text.startswith("🏪") or text.startswith("❌"):
+    text = (message.text or "").strip()
+    if text.startswith("/") or text in MENU_BUTTONS:
         await state.clear()
         await message.answer("❌ Mahsulot qo'shish bekor qilindi.", reply_markup=seller_menu_kb())
         return

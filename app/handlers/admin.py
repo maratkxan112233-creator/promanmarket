@@ -596,10 +596,15 @@ async def edit_product_save(message: Message, state: FSMContext):
     data  = await state.get_data()
     field = data["field"]
     pid   = data["pid"]
+    txt = (message.text or "").strip()
+    if field != "colors" and not txt:
+        await message.answer("❌ Matn ko'rinishida kiriting:"); return
+    if field == "price" and not txt.isdigit():
+        await message.answer("❌ Narx faqat raqam bo'lishi kerak:"); return
     mapping = {"name": "name", "price": "price", "desc": "description"}
-    value = int(message.text) if field == "price" and message.text.isdigit() else message.text
+    value = int(txt) if field == "price" else txt
     if field == "colors":
-        colors = [c.strip() for c in message.text.split(",") if c.strip()] if message.text.strip() else []
+        colors = [c.strip() for c in txt.split(",") if c.strip()] if txt else []
         update_product(pid, {"colors": colors})
     else:
         update_product(pid, {mapping[field]: value})
@@ -880,14 +885,18 @@ async def admin_addprod_start(call: CallbackQuery, state: FSMContext):
 
 @router.message(AdminAddProduct.name)
 async def admin_ap_name(message: Message, state: FSMContext):
-    await state.update_data(name=message.text)
+    if not (message.text or "").strip():
+        await message.answer("❌ Mahsulot nomini matn ko'rinishida kiriting:"); return
+    await state.update_data(name=message.text.strip())
     await state.set_state(AdminAddProduct.description)
     await message.answer("📝 Tavsif kiriting:")
 
 
 @router.message(AdminAddProduct.description)
 async def admin_ap_desc(message: Message, state: FSMContext):
-    await state.update_data(description=message.text)
+    if not (message.text or "").strip():
+        await message.answer("❌ Tavsifni matn ko'rinishida kiriting:"); return
+    await state.update_data(description=message.text.strip())
     await state.set_state(AdminAddProduct.price)
     await message.answer("💰 Narxini kiriting (faqat raqam):")
 

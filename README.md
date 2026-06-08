@@ -53,32 +53,26 @@ docker run --env-file .env man-market
 
 ```
 app/
-├── main.py                  # Entry point
+├── main.py                  # Entry point (bot polling + Mini App HTTP server)
+├── storage.py               # JSON fayl asosidagi ma'lumotlar saqlovchi
+├── album.py                 # Albom (media group) rasmlarini yig'uvchi
 ├── bot/
 │   ├── bot.py               # Bot instance
 │   └── dispatcher.py        # Dispatcher + routers
 ├── handlers/
 │   ├── start.py             # /start command
+│   ├── common.py            # Bozor, qidiruv, zakaz oqimi, profil
+│   ├── admin.py             # Admin panel
+│   ├── seller_panel.py      # Seller panel
 │   └── seller/
 │       └── application.py   # Seller application FSM
 ├── keyboards/
 │   └── seller.py            # All keyboards
 ├── states/
 │   └── seller_application.py # FSM states
-├── database/
-│   ├── base.py              # DeclarativeBase
-│   ├── session.py           # Async engine + session
-│   └── models/
-│       ├── user.py
-│       └── seller_application.py
-└── app/                     # Extended modules
-    ├── config/
-    │   └── settings.py
-    ├── repositories/
-    │   └── user_repository.py
-    └── services/
-        └── users/
-            └── user_service.py
+└── app/
+    └── config/
+        └── settings.py      # Pydantic settings (.env)
 ```
 
 ---
