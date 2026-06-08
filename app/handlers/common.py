@@ -354,29 +354,6 @@ async def start_order(call: CallbackQuery, state: FSMContext):
     await call.answer()
 
 
-# ─── Mini App (WebApp) dan kelgan "Buyurtma" — bot ichidagi zakaz oqimini boshlaydi ─
-@router.message(F.web_app_data)
-async def webapp_order(message: Message, state: FSMContext):
-    import json as _json
-    try:
-        data = _json.loads(message.web_app_data.data)
-    except Exception:
-        await message.answer("❌ Ma'lumot o'qilmadi. Qaytadan urinib ko'ring.", reply_markup=main_menu)
-        return
-    if data.get("action") != "order":
-        return
-    register_user(message.from_user.id, {
-        "full_name": message.from_user.full_name,
-        "username":  message.from_user.username,
-    })
-    p = get_product_by_id(int(data.get("id", 0)))
-    if not p:
-        await message.answer("❌ Mahsulot topilmadi.", reply_markup=main_menu)
-        return
-    await state.clear()
-    await _ask_color(message, state, p)
-
-
 # ─── 0a) O'zim olib ketaman → pochta usuli/manzil shart emas, telefon so'raymiz ─
 @router.callback_query(OrderState.fulfillment, F.data == "flf_pickup")
 async def fulfillment_pickup(call: CallbackQuery, state: FSMContext):
