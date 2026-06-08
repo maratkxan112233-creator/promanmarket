@@ -1,5 +1,5 @@
 from aiogram import Router, F
-from aiogram.filters import Command
+from aiogram.filters import Command, StateFilter
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -161,6 +161,38 @@ async def start_add_product(call: CallbackQuery, state: FSMContext):
     await call.answer()
 
 
+# ─── Mahsulot qo'shishni bo'lib yuboruvchi tugma/buyruqlarda AVTOMAT to'xtatish ──
+# Foydalanuvchi nom/tavsif/narx/rasm/rang so'ralганда /start yoki menyu tugmasini
+# bossa — uni input deb qabul qilmaymiz, jarayonni to'xtatamiz.
+MENU_BUTTONS = {
+    "🛍 Bozor", "🔍 Qidirish", "🏪 Seller bo'lish", "📦 Zakazlarim",
+    "👤 Profilim", "📞 Aloqa", "🛍 Do'kon (ilova)", "❌ Bekor qilish",
+}
+
+ADD_PRODUCT_STATES = StateFilter(
+    AddProductState.name, AddProductState.description,
+    AddProductState.price, AddProductState.photo, AddProductState.colors,
+)
+
+
+# /skip — rasm/rang bosqichida atayin ishlatiladi, uni to'xtatmaymiz
+@router.message(ADD_PRODUCT_STATES, F.text.startswith("/"), F.text != "/skip")
+async def addprod_interrupt_command(message: Message, state: FSMContext):
+    # /start bo'lsa — odatdagidek tozalab, salomlashamiz
+    if (message.text or "").startswith("/start"):
+        from app.handlers.start import cmd_start
+        await cmd_start(message, state)
+        return
+    await state.clear()
+    await message.answer("⛔️ Mahsulot qo'shish to'xtatildi.", reply_markup=main_menu)
+
+
+@router.message(ADD_PRODUCT_STATES, F.text.in_(MENU_BUTTONS))
+async def addprod_interrupt_menu(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer("⛔️ Mahsulot qo'shish to'xtatildi.", reply_markup=main_menu)
+
+
 @router.message(AddProductState.name)
 async def product_name(message: Message, state: FSMContext):
     if not (message.text or "").strip():
@@ -261,12 +293,6 @@ async def product_colors_skip(message: Message, state: FSMContext):
         f"✅ <b>{data['name']}</b> qo'shildi!\n💰 {data['price']:,} so'm · {photo_info}🎨 Rangsiz",
         parse_mode="HTML", reply_markup=seller_menu_kb()
     )
-
-
-MENU_BUTTONS = {
-    "🛍 Bozor", "🔍 Qidirish", "🏪 Seller bo'lish", "📦 Zakazlarim",
-    "👤 Profilim", "📞 Aloqa", "🛍 Do'kon (ilova)", "❌ Bekor qilish",
-}
 
 
 @router.message(AddProductState.colors, F.text)

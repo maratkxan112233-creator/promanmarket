@@ -3,7 +3,7 @@ import os
 import zipfile
 from datetime import datetime, timedelta
 from aiogram import Router, F
-from aiogram.filters import Command
+from aiogram.filters import Command, StateFilter
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -19,9 +19,16 @@ from app.storage import (
     get_cities, add_city, remove_city, get_user,
 )
 from app.album import collect
+from app.keyboards.seller import main_menu
 from app.app.config.settings import settings
 
 router = Router()
+
+# Mahsulot qo'shishni bo'lib yuboruvchi menyu tugmalari
+_MENU_BUTTONS = {
+    "🛍 Bozor", "🔍 Qidirish", "🏪 Seller bo'lish", "📦 Zakazlarim",
+    "👤 Profilim", "📞 Aloqa", "🛍 Do'kon (ilova)", "❌ Bekor qilish",
+}
 
 # ─── Robust navigatsiya: eski (48soat+) yoki rasm xabarda edit_text ishlamaydi ──
 async def _admin_nav(call, text, kb):
@@ -881,6 +888,29 @@ async def admin_addprod_start(call: CallbackQuery, state: FSMContext):
     await state.update_data(seller_id=sid, shop_name=seller["shop_name"], city=seller.get("city", ""))
     await call.message.answer(f"🏪 {seller['shop_name']}\n📦 Mahsulot nomini kiriting:")
     await call.answer()
+
+
+# ─── Mahsulot qo'shishni bo'lib yuboruvchi tugma/buyruqlarda AVTOMAT to'xtatish ──
+_ADMIN_ADD_STATES = StateFilter(
+    AdminAddProduct.name, AdminAddProduct.description,
+    AdminAddProduct.price, AdminAddProduct.photo,
+)
+
+
+@router.message(_ADMIN_ADD_STATES, F.text.startswith("/"), F.text != "/skip")
+async def admin_ap_interrupt_command(message: Message, state: FSMContext):
+    if (message.text or "").startswith("/start"):
+        from app.handlers.start import cmd_start
+        await cmd_start(message, state)
+        return
+    await state.clear()
+    await message.answer("⛔️ Mahsulot qo'shish to'xtatildi.", reply_markup=main_menu)
+
+
+@router.message(_ADMIN_ADD_STATES, F.text.in_(_MENU_BUTTONS))
+async def admin_ap_interrupt_menu(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer("⛔️ Mahsulot qo'shish to'xtatildi.", reply_markup=main_menu)
 
 
 @router.message(AdminAddProduct.name)
