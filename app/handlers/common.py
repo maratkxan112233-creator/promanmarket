@@ -189,6 +189,8 @@ async def show_shop(call: CallbackQuery):
     seller = get_seller(uid)
     if not seller:
         await call.answer("Do'kon topilmadi."); return
+    # "Orqaga" mahsulotdan kelganda — uning albom rasmlarini ham tozalaymiz.
+    await _clear_last_product(call.message.bot, call.message.chat.id)
     products = get_seller_products(uid)
     rating, cnt = get_seller_rating(uid)
     stars = "⭐" * int(rating) if cnt else "—"
@@ -265,27 +267,27 @@ def _product_caption(p: dict) -> str:
     return "\n".join(lines)
 
 
-def _product_kb(p: dict, idx: int, total: int) -> InlineKeyboardMarkup:
-    """Mahsulot xabari uchun klaviatura. Bir nechta rasm bo'lsa ◀ raqam ▶ qatori qo'shiladi."""
-    rows = []
-    if total > 1:
-        prev = (idx - 1) % total
-        nxt  = (idx + 1) % total
-        rows.append([
-            InlineKeyboardButton(text="◀",                callback_data=f"pnav_{p['id']}_{prev}"),
-            InlineKeyboardButton(text=f"{idx + 1}/{total}", callback_data="noop"),
-            InlineKeyboardButton(text="▶",                callback_data=f"pnav_{p['id']}_{nxt}"),
-        ])
-    rows.append([InlineKeyboardButton(text="🛒 Zakaz qilish", callback_data=f"order_{p['id']}")])
-    rows.append([InlineKeyboardButton(text="🔙 Orqaga",       callback_data=f"shop_{p['seller_id']}")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
+def _product_kb(p: dict) -> InlineKeyboardMarkup:
+    """Mahsulot xabari uchun tugmalar: buyurtma va orqaga."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🛒 Zakaz qilish", callback_data=f"order_{p['id']}")],
+        [InlineKeyboardButton(text="🔙 Orqaga",       callback_data=f"shop_{p['seller_id']}")],
+    ])
 
 
-# chat_id -> oxirgi ko'rsatilgan mahsulot RASM xabarining message_id.
-# Yangi mahsulot ochilganda oldingisini o'chiramiz — shunda chatda bir vaqtda
-# faqat bitta mahsulot rasmi turadi va Telegram rasm ko'ruvchisida boshqa
+# chat_id -> hozir ko'rsatilgan mahsulotning barcha xabar id'lari (albom rasmlari + tugmalar).
+# Yangi mahsulot ochilganda hammasini o'chiramiz — chatda bir vaqtda faqat bitta
+# mahsulot rasmlari turadi, shunda Telegram rasm ko'ruvchisida (surganda) boshqa
 # mahsulot rasmlari aralashib ketmaydi (qaysi yo'l bilan ochilganidan qat'i nazar).
-_last_product_msg: dict = {}
+_last_product_msgs: dict = {}
+
+
+async def _clear_last_product(bot, chat_id: int):
+    for mid in _last_product_msgs.pop(chat_id, []):
+        try:
+            await bot.delete_message(chat_id, mid)
+        except Exception:
+            pass
 
 
 @router.callback_query(F.data.startswith("prod_"))
@@ -297,57 +299,41 @@ async def product_detail(call: CallbackQuery):
 
     text    = _product_caption(p)
     photos  = product_photos(p)
-    total   = len(photos)
-    kb      = _product_kb(p, 0, total)
+    kb      = _product_kb(p)
     chat_id = call.message.chat.id
 
-    # 1) Oldin ko'rsatilgan mahsulot rasm xabarini o'chiramiz — "Orqaga", pastki
-    #    menyu yoki qidiruv — qaysi yo'l bilan kelganidan qat'i nazar.
-    prev_id = _last_product_msg.pop(chat_id, None)
-    if prev_id:
-        try:
-            await call.message.bot.delete_message(chat_id, prev_id)
-        except Exception:
-            pass
-    # 2) Hozir bosilgan xabarni (do'kon ro'yxati / qidiruv natijasi) ham o'chiramiz.
+    # Oldingi mahsulot xabarlarini (albom + tugmalar) o'chiramiz, keyin bosilgan
+    # xabarni (do'kon ro'yxati / qidiruv natijasi) ham.
+    await _clear_last_product(call.message.bot, chat_id)
     try:
         await call.message.delete()
     except Exception:
         pass
 
-    sent = None
-    if total >= 1:
+    ids = []
+    if len(photos) > 1:
+        media = [InputMediaPhoto(media=ph) for ph in photos[:10]]
+        media[0] = InputMediaPhoto(media=photos[0], caption=text, parse_mode="HTML")
+        try:
+            sent = await call.message.answer_media_group(media)
+            ids.extend(m.message_id for m in sent)
+            btn = await call.message.answer("👆 Mahsulot rasmlari. Buyurtma uchun:", reply_markup=kb)
+            ids.append(btn.message_id)
+        except Exception:
+            btn = await call.message.answer(text, parse_mode="HTML", reply_markup=kb)
+            ids.append(btn.message_id)
+    elif len(photos) == 1:
         try:
             sent = await call.message.answer_photo(photos[0], caption=text, parse_mode="HTML", reply_markup=kb)
+            ids.append(sent.message_id)
         except Exception:
             sent = await call.message.answer(text + "\n\n<i>(rasm yuklanmadi)</i>", parse_mode="HTML", reply_markup=kb)
+            ids.append(sent.message_id)
     else:
         sent = await call.message.answer(text, parse_mode="HTML", reply_markup=kb)
+        ids.append(sent.message_id)
 
-    # Faqat rasmli xabarni eslab qolamiz (matn xabar surilmaydi — aralashtirmaydi).
-    if sent is not None and total >= 1:
-        _last_product_msg[chat_id] = sent.message_id
-    await call.answer()
-
-
-@router.callback_query(F.data.startswith("pnav_"))
-async def product_photo_nav(call: CallbackQuery):
-    """◀ / ▶ — o'sha xabar ichida mahsulot rasmini almashtiradi (yangi xabar yubormaydi)."""
-    _, pid, idx = call.data.split("_")
-    p = get_product_by_id(int(pid))
-    if not p:
-        await call.answer("Topilmadi."); return
-    photos = product_photos(p)
-    idx = int(idx)
-    if not (0 <= idx < len(photos)):
-        await call.answer(); return
-    try:
-        await call.message.edit_media(
-            InputMediaPhoto(media=photos[idx], caption=_product_caption(p), parse_mode="HTML"),
-            reply_markup=_product_kb(p, idx, len(photos)),
-        )
-    except Exception:
-        pass
+    _last_product_msgs[chat_id] = ids
     await call.answer()
 
 
