@@ -1,11 +1,8 @@
-import asyncio
-
 from aiogram import Router, F
 from aiogram.types import (
     Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton,
     InputMediaPhoto,
 )
-from aiogram.exceptions import TelegramRetryAfter
 from aiogram.fsm.context import FSMContext
 
 from app.storage import (
@@ -193,69 +190,25 @@ async def buyer_set_city(call: CallbackQuery):
     await _show_market(call.message, city)
 
 
-def _feed_item_kb(pid: int) -> InlineKeyboardMarkup:
-    """Lentadagi har bir mahsulot ostidagi yagona tugma — to'g'ridan-to'g'ri buyurtma."""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🛒  Buyurtma qilish", callback_data=f"order_{pid}")],
-    ])
+def _shop_menu_kb(products: list) -> InlineKeyboardMarkup:
+    """Do'kon mahsulotlari MENYUSI — har bir mahsulot nomi alohida tugma.
+    Bosilganda o'sha mahsulot ochiladi (prod_<id>)."""
+    rows = []
+    for p in products:
+        name = p.get("name", "—")
+        if len(name) > 30:
+            name = name[:30].rstrip() + "…"
+        rows.append([InlineKeyboardButton(
+            text=f"📦 {name}  ·  {money(p.get('price', 0))}",
+            callback_data=f"prod_{p['id']}"
+        )])
+    rows.append([InlineKeyboardButton(text="‹  Do'konlarga qaytish", callback_data="back_shops")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def _shops_back_kb() -> InlineKeyboardMarkup:
-    """Lenta oxiridagi 'Do'konlarga qaytish' tugmasi."""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="‹  Do'konlarga qaytish", callback_data="back_shops")],
-    ])
-
-
-def _shop_card_caption(p: dict) -> str:
-    """Katalog uchun IXCHAM kartochka matni (baland bo'lmasligi uchun qisqa)."""
-    price = p.get("price", 0)
-    old   = p.get("old_price", 0)
-    name  = p.get("name", "—")
-    shop  = p.get("shop_name", "—")
-    city  = p.get("city", "")
-    cat   = p.get("category", "")
-    desc  = (p.get("description") or "").strip()
-    rating, cnt = get_seller_rating(p.get("seller_id", 0))
-
-    disc = f"   −{round((old - price) / old * 100)}%" if old and old > price else ""
-    price_line = f"💰 <b>{money(price)}</b>{disc}"
-    if cnt:
-        price_line += f"   ⭐ {rating}"
-
-    lines = [title("📦", name), price_line]
-    shop_line = f"🏪 {shop}" + (f"  ·  📍 {city}" if city else "")
-    lines.append(shop_line)
-    if cat:
-        lines.append(f"🗂 {cat}")
-    if desc:
-        short = desc if len(desc) <= 140 else desc[:140].rstrip() + "…"
-        lines.append(f"{divider()}\n📝 {short}")
-    return "\n".join(lines)
-
-
-async def _feed_send_one(message: Message, photos: list, text: str, kb: InlineKeyboardMarkup):
-    """Lentaga bitta mahsulot xabarini yuboradi (rasm bo'lsa rasm bilan).
-    Flood-cheklov (TelegramRetryAfter) bo'lsa kutib qayta urinadi."""
-    for _ in range(2):
-        try:
-            if photos:
-                return await message.answer_photo(photos[0], caption=text, parse_mode="HTML", reply_markup=kb)
-            return await message.answer(text, parse_mode="HTML", reply_markup=kb)
-        except TelegramRetryAfter as e:
-            await asyncio.sleep(e.retry_after)
-        except Exception:
-            # rasm yuklanmasa — matnli ko'rinishda yuboramiz
-            try:
-                return await message.answer(text, parse_mode="HTML", reply_markup=kb)
-            except Exception:
-                return None
-    return None
-
-
-async def _send_shop_feed(call: CallbackQuery, seller_id: int):
-    """Do'kon mahsulotlarini LENTA (feed) ko'rinishida yuboradi: har bir mahsulot
-    alohida xabar, pastga surib ko'riladi, har birida 'Buyurtma' tugmasi."""
+async def _send_shop_menu(call: CallbackQuery, seller_id: int):
+    """Do'konga kirilganda MAHSULOT TANLASH MENYUSINI yuboradi: mahsulot nomlari
+    tugma bo'lib chiqadi. Bittasini bossa — o'sha mahsulot ochiladi (prod_<id>)."""
     chat_id = call.message.chat.id
     await _clear_last_product(call.message.bot, chat_id)
     try:
@@ -270,34 +223,20 @@ async def _send_shop_feed(call: CallbackQuery, seller_id: int):
     stars = f"   ⭐ {rating} ({cnt})" if cnt else ""
 
     if not products:
-        sent = await call.message.answer(
+        await call.message.answer(
             f"{title('🏪', shop_name)}\n{divider()}\n📦 Hozircha mahsulot yo'q.",
-            parse_mode="HTML", reply_markup=_shops_back_kb()
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="‹  Do'konlarga qaytish", callback_data="back_shops")]
+            ])
         )
-        set_view_msgs(chat_id, [sent.message_id])
         return
 
-    ids = []
-    header = await call.message.answer(
+    await call.message.answer(
         f"{title('🏪', shop_name)}{stars}\n{divider()}\n"
-        f"📦 {len(products)} ta mahsulot — pastga suring 👇",
-        parse_mode="HTML",
+        f"📦 {len(products)} ta mahsulot — birini tanlang 👇",
+        parse_mode="HTML", reply_markup=_shop_menu_kb(products)
     )
-    ids.append(header.message_id)
-
-    for p in products:
-        sent = await _feed_send_one(
-            call.message, product_photos(p), _shop_card_caption(p), _feed_item_kb(p["id"])
-        )
-        if sent:
-            ids.append(sent.message_id)
-
-    footer = await call.message.answer(
-        f"{divider()}\n✅ Hammasi shu. Boshqa do'konni ko'rasizmi?",
-        parse_mode="HTML", reply_markup=_shops_back_kb()
-    )
-    ids.append(footer.message_id)
-    set_view_msgs(chat_id, ids)
 
 
 @router.callback_query(F.data.startswith("shop_"))
@@ -305,7 +244,7 @@ async def show_shop(call: CallbackQuery):
     uid = int(call.data.split("_")[1])
     if not get_seller(uid):
         await call.answer("Do'kon topilmadi."); return
-    await _send_shop_feed(call, uid)
+    await _send_shop_menu(call, uid)
     await call.answer()
 
 
