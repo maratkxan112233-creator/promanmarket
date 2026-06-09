@@ -15,6 +15,7 @@ USERS_FILE        = f"{DATA_DIR}/users.json"
 ADMINS_FILE       = f"{DATA_DIR}/admins.json"
 AUDIT_FILE        = f"{DATA_DIR}/audit.json"
 CITIES_FILE       = f"{DATA_DIR}/cities.json"
+VIEW_STATE_FILE   = f"{DATA_DIR}/view_state.json"
 
 DEFAULT_CITIES = ["Olmaliq", "Angren", "Bekobod", "Ohangaron", "Chirchiq", "Yangiyo'l", "Toshkent"]
 
@@ -343,3 +344,30 @@ def add_audit(entry: dict):
     entry["created_at"] = datetime.now().isoformat()
     log.append(entry)
     _write(AUDIT_FILE, log)
+
+
+# ─── Ko'rish holati (chatda hozir ko'rsatilgan mahsulot xabarlari) ────────────
+# chat_id -> [message_id, ...]. Diskda saqlanadi — bot qayta ishga tushganda ham
+# eski mahsulot rasmlarini o'chirib, chatda bir vaqtda faqat bitta mahsulot
+# rasmlari turishini ta'minlash uchun (Telegram rasm ko'ruvchisida aralashmasligi).
+def get_view_msgs(chat_id: int) -> list:
+    data = _read(VIEW_STATE_FILE)
+    if not isinstance(data, dict):
+        return []
+    ids = data.get(str(chat_id))
+    return ids if isinstance(ids, list) else []
+
+def set_view_msgs(chat_id: int, ids: list):
+    data = _read(VIEW_STATE_FILE)
+    if not isinstance(data, dict):
+        data = {}
+    data[str(chat_id)] = list(ids)
+    _write(VIEW_STATE_FILE, data)
+
+def pop_view_msgs(chat_id: int) -> list:
+    data = _read(VIEW_STATE_FILE)
+    if not isinstance(data, dict):
+        return []
+    ids = data.pop(str(chat_id), [])
+    _write(VIEW_STATE_FILE, data)
+    return ids if isinstance(ids, list) else []

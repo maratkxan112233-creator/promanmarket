@@ -11,6 +11,7 @@ from app.storage import (
     search_products, register_user, get_product_by_id,
     save_order, update_order_fields,
     get_user, set_user_field, get_cities, product_photos,
+    set_view_msgs, pop_view_msgs,
 )
 from app.keyboards.seller import main_menu, phone_keyboard, cancel_keyboard
 from app.states.seller_application import SearchState, OrderState
@@ -296,11 +297,12 @@ def _product_kb(p: dict) -> InlineKeyboardMarkup:
 # Yangi mahsulot ochilganda hammasini o'chiramiz — chatda bir vaqtda faqat bitta
 # mahsulot rasmlari turadi, shunda Telegram rasm ko'ruvchisida (surganda) boshqa
 # mahsulot rasmlari aralashib ketmaydi (qaysi yo'l bilan ochilganidan qat'i nazar).
-_last_product_msgs: dict = {}
+# Bu ma'lumot diskda (storage) saqlanadi — bot qayta ishga tushganda ham eski
+# rasmlarni o'chira olishi uchun (set_view_msgs / pop_view_msgs).
 
 
 async def _clear_last_product(bot, chat_id: int):
-    for mid in _last_product_msgs.pop(chat_id, []):
+    for mid in pop_view_msgs(chat_id):
         try:
             await bot.delete_message(chat_id, mid)
         except Exception:
@@ -350,7 +352,7 @@ async def product_detail(call: CallbackQuery):
         sent = await call.message.answer(text, parse_mode="HTML", reply_markup=kb)
         ids.append(sent.message_id)
 
-    _last_product_msgs[chat_id] = ids
+    set_view_msgs(chat_id, ids)
     await call.answer()
 
 
@@ -832,6 +834,8 @@ async def search_start(message: Message, state: FSMContext):
 @router.message(SearchState.query)
 async def do_search(message: Message, state: FSMContext):
     await state.clear()
+    # Oldin ochilgan mahsulot albomini tozalaymiz (chatda rasmlar aralashmasligi uchun).
+    await _clear_last_product(message.bot, message.chat.id)
     results = search_products(message.text or "")
     if not results:
         await message.answer("😔 Hech narsa topilmadi. Boshqa so'z bilan sinab ko'ring.", reply_markup=main_menu)
@@ -842,6 +846,9 @@ async def do_search(message: Message, state: FSMContext):
         parse_mode="HTML"
     )
 
+    # Qidiruvda yuborilgan rasm xabarlarini kuzatamiz — keyin mahsulot/do'kon
+    # ochilganda ular ham o'chiriladi (Telegram ko'ruvchisida aralashmasligi uchun).
+    photo_ids = []
     for p in results[:5]:
         caption = _product_caption(p)
         kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -851,11 +858,15 @@ async def do_search(message: Message, state: FSMContext):
         photos = product_photos(p)
         if photos:
             try:
-                await message.answer_photo(photos[0], caption=caption, parse_mode="HTML", reply_markup=kb)
+                sent = await message.answer_photo(photos[0], caption=caption, parse_mode="HTML", reply_markup=kb)
+                photo_ids.append(sent.message_id)
                 continue
             except Exception:
                 pass
         await message.answer(caption, parse_mode="HTML", reply_markup=kb)
+
+    if photo_ids:
+        set_view_msgs(message.chat.id, photo_ids)
 
     if len(results) > 5:
         rows = []
