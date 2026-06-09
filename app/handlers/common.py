@@ -212,21 +212,43 @@ def _shop_catalog_kb(seller_id: int, idx: int, total: int, pid: int) -> InlineKe
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-async def _show_shop_product(call: CallbackQuery, seller_id: int, idx: int):
-    """Do'kon mahsulotlarini katalog ko'rinishida (bittadan, rasm bilan) ko'rsatadi.
-    ⬅️ ➡️ bilan varaqlanadi; chatda bir vaqtda faqat bitta mahsulot turadi."""
-    bot     = call.message.bot
+def _shop_card_caption(p: dict) -> str:
+    """Katalog uchun IXCHAM kartochka matni (baland bo'lmasligi uchun qisqa)."""
+    price = p.get("price", 0)
+    old   = p.get("old_price", 0)
+    name  = p.get("name", "—")
+    shop  = p.get("shop_name", "—")
+    city  = p.get("city", "")
+    cat   = p.get("category", "")
+    desc  = (p.get("description") or "").strip()
+    rating, cnt = get_seller_rating(p.get("seller_id", 0))
+
+    disc = f"  ↓{round((old - price) / old * 100)}%" if old and old > price else ""
+    price_line = f"💰 <b>{price:,} so'm</b>{disc}"
+    if cnt:
+        price_line += f"   ⭐{rating}"
+
+    lines = [f"📦 <b>{name}</b>", price_line, f"🏪 {shop}" + (f"  ·  📍 {city}" if city else "")]
+    if cat:
+        lines.append(f"🗂 {cat}")
+    if desc:
+        short = desc if len(desc) <= 140 else desc[:140].rstrip() + "…"
+        lines.append(f"\n📝 {short}")
+    return "\n".join(lines)
+
+
+async def _send_shop_card(call: CallbackQuery, seller_id: int, idx: int):
+    """Do'konga KIRGANda: eski xabarni o'chirib, rasmli kartochkani yuboradi."""
     chat_id = call.message.chat.id
-    # Eski mahsulot xabarlarini va joriy xabarni tozalaymiz.
-    await _clear_last_product(bot, chat_id)
+    await _clear_last_product(call.message.bot, chat_id)
     try:
         await call.message.delete()
     except Exception:
         pass
 
+    products  = get_seller_products(seller_id)
     seller    = get_seller(seller_id)
     shop_name = seller["shop_name"] if seller else "Do'kon"
-    products  = get_seller_products(seller_id)
     if not products:
         await call.message.answer(
             f"🏪 <b>{shop_name}</b>\n\n📦 Hozircha mahsulot yo'q.",
@@ -237,14 +259,12 @@ async def _show_shop_product(call: CallbackQuery, seller_id: int, idx: int):
         )
         return
 
-    total = len(products)
-    idx   = idx % total                 # chegaradan chiqsa — aylanib o'tadi
-    p     = products[idx]
-    text  = _product_caption(p)
-    kb    = _shop_catalog_kb(seller_id, idx, total, p["id"])
+    total  = len(products)
+    idx    = idx % total
+    p      = products[idx]
+    text   = _shop_card_caption(p)
+    kb     = _shop_catalog_kb(seller_id, idx, total, p["id"])
     photos = product_photos(p)
-
-    ids = []
     if photos:
         try:
             sent = await call.message.answer_photo(photos[0], caption=text, parse_mode="HTML", reply_markup=kb)
@@ -252,14 +272,45 @@ async def _show_shop_product(call: CallbackQuery, seller_id: int, idx: int):
             sent = await call.message.answer(text, parse_mode="HTML", reply_markup=kb)
     else:
         sent = await call.message.answer(text, parse_mode="HTML", reply_markup=kb)
-    ids.append(sent.message_id)
-    set_view_msgs(chat_id, ids)
+    set_view_msgs(chat_id, [sent.message_id])
+
+
+async def _edit_shop_card(call: CallbackQuery, seller_id: int, idx: int):
+    """⬅️ ➡️ VARAQLAShda: joriy kartochkani JOYIDA yangilaydi — xabar sakramaydi,
+    rasm qaytadan yuklanmaydi. Tur mos kelmasa (rasmli↔rasmsiz) — qayta yuboradi."""
+    products = get_seller_products(seller_id)
+    if not products:
+        await _send_shop_card(call, seller_id, idx)
+        return
+    total  = len(products)
+    idx    = idx % total
+    p      = products[idx]
+    text   = _shop_card_caption(p)
+    kb     = _shop_catalog_kb(seller_id, idx, total, p["id"])
+    photos = product_photos(p)
+    msg    = call.message
+    try:
+        if photos and msg.photo:
+            await msg.edit_media(
+                InputMediaPhoto(media=photos[0], caption=text, parse_mode="HTML"),
+                reply_markup=kb,
+            )
+        elif not photos and not msg.photo:
+            await msg.edit_text(text, parse_mode="HTML", reply_markup=kb)
+        else:
+            # rasmli ↔ rasmsiz almashinuvi — joyida tahrirlab bo'lmaydi
+            await _send_shop_card(call, seller_id, idx)
+            return
+    except Exception:
+        await _send_shop_card(call, seller_id, idx)
+        return
+    set_view_msgs(msg.chat.id, [msg.message_id])
 
 
 @router.callback_query(F.data.startswith("shopv_"))
 async def shop_view_nav(call: CallbackQuery):
     parts = call.data.split("_")
-    await _show_shop_product(call, int(parts[1]), int(parts[2]))
+    await _edit_shop_card(call, int(parts[1]), int(parts[2]))
     await call.answer()
 
 
@@ -268,7 +319,7 @@ async def show_shop(call: CallbackQuery):
     uid = int(call.data.split("_")[1])
     if not get_seller(uid):
         await call.answer("Do'kon topilmadi."); return
-    await _show_shop_product(call, uid, 0)
+    await _send_shop_card(call, uid, 0)
     await call.answer()
 
 
