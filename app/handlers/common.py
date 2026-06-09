@@ -196,51 +196,79 @@ async def buyer_set_city(call: CallbackQuery):
     await _show_market(call.message, city)
 
 
-_NUM_EMOJI = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+def _shop_catalog_kb(seller_id: int, idx: int, total: int, pid: int) -> InlineKeyboardMarkup:
+    """Katalog tugmalari: varaqlash (⬅️ ➡️) + buyurtma + orqaga."""
+    rows = []
+    if total > 1:
+        prev_i = (idx - 1) % total
+        next_i = (idx + 1) % total
+        rows.append([
+            InlineKeyboardButton(text="⬅️",                  callback_data=f"shopv_{seller_id}_{prev_i}"),
+            InlineKeyboardButton(text=f"{idx + 1} / {total}", callback_data="noop"),
+            InlineKeyboardButton(text="➡️",                  callback_data=f"shopv_{seller_id}_{next_i}"),
+        ])
+    rows.append([InlineKeyboardButton(text="🛒 Buyurtma qilish", callback_data=f"order_{pid}")])
+    rows.append([InlineKeyboardButton(text="🔙 Do'konlar",       callback_data="back_shops")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def _num(i: int) -> str:
-    """1-based tartib raqami: 1–10 uchun emoji, undan keyin oddiy raqam."""
-    return _NUM_EMOJI[i - 1] if 1 <= i <= 10 else f"{i}."
+async def _show_shop_product(call: CallbackQuery, seller_id: int, idx: int):
+    """Do'kon mahsulotlarini katalog ko'rinishida (bittadan, rasm bilan) ko'rsatadi.
+    ⬅️ ➡️ bilan varaqlanadi; chatda bir vaqtda faqat bitta mahsulot turadi."""
+    bot     = call.message.bot
+    chat_id = call.message.chat.id
+    # Eski mahsulot xabarlarini va joriy xabarni tozalaymiz.
+    await _clear_last_product(bot, chat_id)
+    try:
+        await call.message.delete()
+    except Exception:
+        pass
+
+    seller    = get_seller(seller_id)
+    shop_name = seller["shop_name"] if seller else "Do'kon"
+    products  = get_seller_products(seller_id)
+    if not products:
+        await call.message.answer(
+            f"🏪 <b>{shop_name}</b>\n\n📦 Hozircha mahsulot yo'q.",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 Do'konlar", callback_data="back_shops")]
+            ])
+        )
+        return
+
+    total = len(products)
+    idx   = idx % total                 # chegaradan chiqsa — aylanib o'tadi
+    p     = products[idx]
+    text  = _product_caption(p)
+    kb    = _shop_catalog_kb(seller_id, idx, total, p["id"])
+    photos = product_photos(p)
+
+    ids = []
+    if photos:
+        try:
+            sent = await call.message.answer_photo(photos[0], caption=text, parse_mode="HTML", reply_markup=kb)
+        except Exception:
+            sent = await call.message.answer(text, parse_mode="HTML", reply_markup=kb)
+    else:
+        sent = await call.message.answer(text, parse_mode="HTML", reply_markup=kb)
+    ids.append(sent.message_id)
+    set_view_msgs(chat_id, ids)
+
+
+@router.callback_query(F.data.startswith("shopv_"))
+async def shop_view_nav(call: CallbackQuery):
+    parts = call.data.split("_")
+    await _show_shop_product(call, int(parts[1]), int(parts[2]))
+    await call.answer()
 
 
 @router.callback_query(F.data.startswith("shop_"))
 async def show_shop(call: CallbackQuery):
     uid = int(call.data.split("_")[1])
-    seller = get_seller(uid)
-    if not seller:
+    if not get_seller(uid):
         await call.answer("Do'kon topilmadi."); return
-    # "Orqaga" mahsulotdan kelganda — uning albom rasmlarini ham tozalaymiz.
-    await _clear_last_product(call.message.bot, call.message.chat.id)
-    products = get_seller_products(uid)
-    rating, cnt = get_seller_rating(uid)
-    stars = "⭐" * int(rating) if cnt else "—"
-
-    text = (
-        f"{FREE_DELIVERY_BANNER}\n\n"
-        f"🏪 <b>{seller['shop_name']}</b>\n"
-        f"👤 {seller['full_name']}\n"
-        f"⭐ Reyting: {stars} {rating} ({cnt} ta)\n"
-        f"📦 Mahsulotlar: {len(products)} ta\n"
-    )
-    rows = []
-    if products:
-        text += "\n──────────\n"
-        for i, p in enumerate(products, 1):
-            price = p.get("price", 0)
-            old   = p.get("old_price", 0)
-            disc  = f"  ↓{round((old-price)/old*100)}%" if old and old > price else ""
-            # Nom — 1-qator, narx — 2-qator (tugmada ikki qator bo'lmaydi, shuning
-            # uchun ro'yxatni xabar matnida ko'rsatamiz).
-            text += f"\n{_num(i)} 📦 <b>{p['name']}</b>\n      💰 {price:,} so'm{disc}\n"
-            label = f"{_num(i)} {p['name']}"
-            if len(label) > 32:
-                label = label[:31] + "…"
-            rows.append([InlineKeyboardButton(text=label, callback_data=f"prod_{p['id']}")])
-    else:
-        text += "\nHozircha mahsulot yo'q."
-    rows.append([InlineKeyboardButton(text="🔙 Do'konlar", callback_data="back_shops")])
-    await _safe_nav(call, text, InlineKeyboardMarkup(inline_keyboard=rows))
+    await _show_shop_product(call, uid, 0)
     await call.answer()
 
 
