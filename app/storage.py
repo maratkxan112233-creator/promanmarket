@@ -20,12 +20,25 @@ VIEW_STATE_FILE   = f"{DATA_DIR}/view_state.json"
 DEFAULT_CITIES = ["Olmaliq", "Angren", "Bekobod", "Ohangaron", "Chirchiq", "Yangiyo'l", "Toshkent"]
 
 
+# Xotira keshi: har bir o'qishda diskdan JSON parse qilmaslik uchun.
+# path -> (mtime_ns, data). Fayl mtime o'zgargandagina qayta o'qiymiz, shuning
+# uchun boshqa thread/process (HTTP server) fayl yozsa ham eskirgan ma'lumot
+# qaytmaydi. Bu bot javobini sezilarli tezlashtiradi (N+1 takroriy o'qishlar).
+_CACHE: dict[str, tuple[int, Any]] = {}
+
+
 def _read(path: str) -> Any:
     if not os.path.exists(path):
         return {}
     try:
+        mtime = os.stat(path).st_mtime_ns
+        cached = _CACHE.get(path)
+        if cached is not None and cached[0] == mtime:
+            return cached[1]
         with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+        _CACHE[path] = (mtime, data)
+        return data
     except (json.JSONDecodeError, OSError):
         # Fayl buzilgan yoki bir vaqtda yozilayotgan bo'lsa — bo'sh qiymat qaytaramiz
         return {}
@@ -37,6 +50,11 @@ def _write(path: str, data: Any):
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
     os.replace(tmp, path)
+    # Keshni yangi ma'lumot va yangi mtime bilan yangilaymiz (keyingi o'qish tez bo'lsin).
+    try:
+        _CACHE[path] = (os.stat(path).st_mtime_ns, data)
+    except OSError:
+        _CACHE.pop(path, None)
 
 
 # ─── Applications ────────────────────────────────────────────────────────────
