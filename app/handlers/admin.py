@@ -11,6 +11,7 @@ from aiogram.fsm.state import State, StatesGroup
 from app.storage import (
     get_applications, update_application_status, add_seller, get_sellers,
     get_all_products, admin_delete_product, update_product, get_product_by_id,
+    product_photos,
     update_seller, delete_seller, delete_user, get_orders, get_seller_reviews,
     get_order_by_id, update_order_status, get_seller_orders, get_seller,
     get_seller_products, add_product,
@@ -546,21 +547,17 @@ async def admin_products(call: CallbackQuery):
             callback_data=f"aprod_{p['id']}"
         )])
     rows.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_back")])
-    await call.message.edit_text("📦 <b>Barcha mahsulotlar:</b>", parse_mode="HTML",
-                                  reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+    await _admin_nav(call, "📦 <b>Barcha mahsulotlar:</b>",
+                     InlineKeyboardMarkup(inline_keyboard=rows))
     await call.answer()
 
 
-@router.callback_query(F.data.startswith("aprod_"))
-async def admin_product_detail(call: CallbackQuery):
-    if not is_owner(call.from_user.id): return
-    pid = int(call.data.split("_")[1])
-    p = get_product_by_id(pid)
-    if not p:
-        await call.answer("Topilmadi.", show_alert=True); return
+def _admin_product_card(p: dict, pid: int):
+    """Admin uchun mahsulot kartochkasi matni va tugmalari."""
     colors_line = f"\n🎨 Ranglar: {', '.join(p['colors'])}" if p.get("colors") else ""
+    cat_line    = f"\n🗂 {p['category']}" if p.get("category") else ""
     text = (
-        f"📦 <b>{p['name']}</b>\n"
+        f"📦 <b>{p['name']}</b>{cat_line}\n"
         f"🏪 {p.get('shop_name','—')}\n"
         f"📝 {p.get('description','—')}\n"
         f"💰 {p['price']:,} so'm"
@@ -574,7 +571,35 @@ async def admin_product_detail(call: CallbackQuery):
         [InlineKeyboardButton(text="🗑 O'chirish",               callback_data=f"dprod_{pid}")],
         [InlineKeyboardButton(text="🔙 Orqaga",                  callback_data="admin_products")],
     ])
-    await _admin_nav(call, text, kb)
+    return text, kb
+
+
+async def _admin_send_product(message, p: dict, pid: int):
+    """Mahsulot kartochkasini rasm bilan yuboradi (rasm bo'lsa caption sifatida)."""
+    text, kb = _admin_product_card(p, pid)
+    photos = product_photos(p)
+    if photos:
+        try:
+            await message.answer_photo(photos[0], caption=text, parse_mode="HTML", reply_markup=kb)
+            return
+        except Exception:
+            pass
+    await message.answer(text, parse_mode="HTML", reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("aprod_"))
+async def admin_product_detail(call: CallbackQuery):
+    if not is_owner(call.from_user.id): return
+    pid = int(call.data.split("_")[1])
+    p = get_product_by_id(pid)
+    if not p:
+        await call.answer("Topilmadi.", show_alert=True); return
+    # Ro'yxat (matn) xabarini o'chirib, rasmli kartochkani yuboramiz.
+    try:
+        await call.message.delete()
+    except Exception:
+        pass
+    await _admin_send_product(call.message, p, pid)
     await call.answer()
 
 
@@ -619,6 +644,9 @@ async def edit_product_save(message: Message, state: FSMContext):
     p = get_product_by_id(pid)
     name = p["name"] if p else f"#{pid}"
     await message.answer(f"✅ <b>{name}</b> yangilandi!", parse_mode="HTML")
+    # Yangilangan mahsulotni rasm bilan qayta ko'rsatamiz.
+    if p:
+        await _admin_send_product(message, p, pid)
 
 
 @router.callback_query(F.data.startswith("dprod_"))

@@ -19,6 +19,23 @@ VIEW_STATE_FILE   = f"{DATA_DIR}/view_state.json"
 
 DEFAULT_CITIES = ["Olmaliq", "Angren", "Bekobod", "Ohangaron", "Chirchiq", "Yangiyo'l", "Toshkent"]
 
+# Mahsulot kategoriyalari (kodda qat'iy). Sotuvchi mahsulot qo'shganda shulardan
+# tanlaydi. Tartibni o'zgartirsangiz ham mahsulotlarga matn (emoji bilan) saqlanadi.
+PRODUCT_CATEGORIES = [
+    "📱 Telefon va aksessuarlar",
+    "💻 Kompyuter va texnika",
+    "🏠 Uy-ro'zg'or buyumlari",
+    "🪑 Mebel",
+    "👟 Oyoq kiyim",
+    "💄 Kosmetika va parfyumeriya",
+    "🚗 Avto ehtiyot qismlar",
+    "⚽ Sport va dam olish",
+    "🎁 Sovg'a va bezaklar",
+    "🌷 Gullar",
+    "🧸 O'yinchoqlar",
+    "📦 Boshqa",
+]
+
 
 # Xotira keshi: har bir o'qishda diskdan JSON parse qilmaslik uchun.
 # path -> (mtime_ns, data). Fayl mtime o'zgargandagina qayta o'qiymiz, shuning

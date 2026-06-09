@@ -196,6 +196,14 @@ async def buyer_set_city(call: CallbackQuery):
     await _show_market(call.message, city)
 
 
+_NUM_EMOJI = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+
+
+def _num(i: int) -> str:
+    """1-based tartib raqami: 1–10 uchun emoji, undan keyin oddiy raqam."""
+    return _NUM_EMOJI[i - 1] if 1 <= i <= 10 else f"{i}."
+
+
 @router.callback_query(F.data.startswith("shop_"))
 async def show_shop(call: CallbackQuery):
     uid = int(call.data.split("_")[1])
@@ -216,12 +224,21 @@ async def show_shop(call: CallbackQuery):
         f"📦 Mahsulotlar: {len(products)} ta\n"
     )
     rows = []
-    for p in products:
-        price = p.get("price", 0)
-        old   = p.get("old_price", 0)
-        disc  = f" ↓{round((old-price)/old*100)}%" if old and old > price else ""
-        label = f"📦 {p['name']} — {price:,} so'm{disc}"
-        rows.append([InlineKeyboardButton(text=label, callback_data=f"prod_{p['id']}")])
+    if products:
+        text += "\n──────────\n"
+        for i, p in enumerate(products, 1):
+            price = p.get("price", 0)
+            old   = p.get("old_price", 0)
+            disc  = f"  ↓{round((old-price)/old*100)}%" if old and old > price else ""
+            # Nom — 1-qator, narx — 2-qator (tugmada ikki qator bo'lmaydi, shuning
+            # uchun ro'yxatni xabar matnida ko'rsatamiz).
+            text += f"\n{_num(i)} 📦 <b>{p['name']}</b>\n      💰 {price:,} so'm{disc}\n"
+            label = f"{_num(i)} {p['name']}"
+            if len(label) > 32:
+                label = label[:31] + "…"
+            rows.append([InlineKeyboardButton(text=label, callback_data=f"prod_{p['id']}")])
+    else:
+        text += "\nHozircha mahsulot yo'q."
     rows.append([InlineKeyboardButton(text="🔙 Do'konlar", callback_data="back_shops")])
     await _safe_nav(call, text, InlineKeyboardMarkup(inline_keyboard=rows))
     await call.answer()
@@ -248,6 +265,7 @@ def _product_caption(p: dict) -> str:
     shop      = p.get("shop_name", "—")
     desc      = p.get("description", "")
     city      = p.get("city", "")
+    category  = p.get("category", "")
 
     # Chegirma hisoblash
     disc_pct = 0
@@ -260,6 +278,8 @@ def _product_caption(p: dict) -> str:
     lines = []
     lines.append(f"📦 <b>{name}</b>")
     lines.append(f"🏪 {shop}" + (f"  ·  📍 {city}" if city else ""))
+    if category:
+        lines.append(f"🗂 {category}")
 
     # Narx qatori
     price_line = f"💰 <b>{price:,} so'm</b>"
