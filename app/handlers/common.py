@@ -1,8 +1,11 @@
+import asyncio
+
 from aiogram import Router, F
 from aiogram.types import (
     Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton,
     InputMediaPhoto,
 )
+from aiogram.exceptions import TelegramRetryAfter
 from aiogram.fsm.context import FSMContext
 
 from app.storage import (
@@ -16,6 +19,7 @@ from app.storage import (
 from app.keyboards.seller import main_menu, phone_keyboard, cancel_keyboard
 from app.states.seller_application import SearchState, OrderState
 from app.app.config.settings import settings
+from app.ui import money, divider, title
 
 router = Router()
 
@@ -44,31 +48,9 @@ FREE_DELIVERY_MIN = 300_000
 DELIVERY_REFUND_RATE = 0.05
 # Xaridorni qiziqtirish uchun har joyda chiqadigan doimiy reklama yozuvi.
 FREE_DELIVERY_BANNER = (
-    f"🚚🎉 <b>{FREE_DELIVERY_MIN:,} so'mdan ortiq xaridga shahar ichida "
-    f"yetkazib berish BEPUL!</b>"
+    f"🚚 <b>{money(FREE_DELIVERY_MIN)}dan ortiq xaridga — "
+    f"shahar ichida yetkazish BEPUL!</b>"
 )
-
-
-# ─── Rasm/matn xabarlar uchun XAVFSIZ navigatsiya ────────────────────────────
-# Rasmli xabarni edit_text qilib bo'lmaydi (TelegramBadRequest).
-# Shuning uchun rasm bo'lsa — eski xabarni o'chirib, yangisini yuboramiz.
-# Aynan shu "Orqaga" tugmasi yo'qolib qolishi muammosini hal qiladi.
-async def _safe_nav(call: CallbackQuery, text: str, kb: InlineKeyboardMarkup):
-    msg = call.message
-    try:
-        if msg.photo or msg.video or msg.document:
-            try:
-                await msg.delete()
-            except Exception:
-                pass
-            await msg.answer(text, parse_mode="HTML", reply_markup=kb)
-        else:
-            await msg.edit_text(text, parse_mode="HTML", reply_markup=kb)
-    except Exception:
-        try:
-            await msg.answer(text, parse_mode="HTML", reply_markup=kb)
-        except Exception:
-            pass
 
 
 def _shops_keyboard(city: str) -> InlineKeyboardMarkup:
@@ -80,8 +62,9 @@ def _shops_keyboard(city: str) -> InlineKeyboardMarkup:
         rating, cnt = get_seller_rating(int(uid))
         stars = f"⭐{rating}" if cnt else ""
         prods = get_seller_products(int(uid))
+        suffix = f"  {stars}" if stars else ""
         rows.append([InlineKeyboardButton(
-            text=f"🏪 {s['shop_name']} {stars} ({len(prods)} ta mahsulot)",
+            text=f"🏪 {s['shop_name']}{suffix}  ·  {len(prods)} ta mahsulot",
             callback_data=f"shop_{uid}"
         )])
     rows.append([InlineKeyboardButton(text="📍 Shaharni o'zgartirish", callback_data="changecity")])
@@ -103,13 +86,17 @@ def _city_picker() -> InlineKeyboardMarkup:
 @router.message(F.text == "📞 Aloqa")
 async def contact_handler(message: Message):
     await message.answer(
-        "📞 <b>Aloqa</b>\n\nSavol va takliflar: @promanmarketbot\nAdmin: @Marufzxon\nIsh vaqti: 09:00–18:00",
+        f"{title('📞', 'Aloqa')}\n"
+        f"{divider()}\n"
+        "💬 Savol va takliflar:  @promanmarketbot\n"
+        "👤 Admin:  @Marufzxon\n"
+        "🕘 Ish vaqti:  09:00 – 18:00",
         parse_mode="HTML"
     )
 
 
 # ─── Profil ──────────────────────────────────────────────────────────────────
-@router.message(F.text == "👤 Profilim")
+@router.message(F.text == "👤 Profil")
 async def profile_handler(message: Message):
     user = message.from_user
     seller = get_seller(user.id)
@@ -118,24 +105,32 @@ async def profile_handler(message: Message):
         stars = "⭐" * int(rating) if rating else "—"
         products = get_seller_products(user.id)
         extra = (
-            f"\n🏪 Do'kon: {seller['shop_name']}\n"
-            f"📦 Mahsulotlar: {len(products)} ta\n"
-            f"⭐ Reyting: {stars} {rating} ({cnt} ta baho)\n\n"
-            "/seller — seller panel"
+            f"{divider()}\n"
+            f"🏪 Do'kon:  {seller['shop_name']}\n"
+            f"📦 Mahsulotlar:  {len(products)} ta\n"
+            f"⭐ Reyting:  {stars} {rating}  ({cnt} ta baho)\n"
+            f"{divider()}\n"
+            "/seller — sotuvchi paneli"
         )
-        role = "🏪 Seller"
+        role = "🏪 Sotuvchi"
     else:
         role  = "🛍 Xaridor"
         u = get_user(user.id)
         city = (u.get("city") if u else None) or "tanlanmagan"
-        extra = f"\n📍 Shahar: {city}\n\nSeller bo'lish: 🏪 Seller bo'lish"
+        extra = (
+            f"{divider()}\n"
+            f"📍 Shahar:  {city}\n"
+            f"{divider()}\n"
+            "🏪 Sotuvchi bo'lish uchun menyudan tanlang."
+        )
 
     await message.answer(
-        f"👤 <b>Profilingiz</b>\n\n"
-        f"Ism: {user.full_name}\n"
-        f"Username: @{user.username or 'yoq'}\n"
-        f"ID: {user.id}\n"
-        f"Rol: {role}{extra}",
+        f"{title('👤', 'Profilingiz')}\n"
+        f"{divider()}\n"
+        f"🙍 Ism:  {user.full_name}\n"
+        f"🔗 Username:  @{user.username or 'yoq'}\n"
+        f"🆔 ID:  {user.id}\n"
+        f"🎭 Rol:  {role}\n{extra}",
         parse_mode="HTML", reply_markup=main_menu
     )
 
@@ -147,7 +142,7 @@ async def market_handler(message: Message):
     city = u.get("city") if u else None
     if not city:
         await message.answer(
-            "📍 <b>Avval shahringizni tanlang</b>\n"
+            f"{title('📍', 'Avval shahringizni tanlang')}\n"
             "Sizga shu shahardagi do'konlar ko'rsatiladi:",
             parse_mode="HTML", reply_markup=_city_picker()
         )
@@ -165,8 +160,10 @@ async def _show_market(message: Message, city: str):
         )
         return
     await message.answer(
-        f"{FREE_DELIVERY_BANNER}\n\n"
-        f"🛍 <b>Do'konlar</b> — 📍 {city}\nBitta do'konni tanlang:",
+        f"{FREE_DELIVERY_BANNER}\n"
+        f"{divider()}\n"
+        f"🛍 <b>Do'konlar</b>   📍 {city}\n"
+        "Bitta do'konni tanlang:",
         parse_mode="HTML",
         reply_markup=_shops_keyboard(city)
     )
@@ -196,20 +193,18 @@ async def buyer_set_city(call: CallbackQuery):
     await _show_market(call.message, city)
 
 
-def _shop_catalog_kb(seller_id: int, idx: int, total: int, pid: int) -> InlineKeyboardMarkup:
-    """Katalog tugmalari: varaqlash (⬅️ ➡️) + buyurtma + orqaga."""
-    rows = []
-    if total > 1:
-        prev_i = (idx - 1) % total
-        next_i = (idx + 1) % total
-        rows.append([
-            InlineKeyboardButton(text="⬅️",                  callback_data=f"shopv_{seller_id}_{prev_i}"),
-            InlineKeyboardButton(text=f"{idx + 1} / {total}", callback_data="noop"),
-            InlineKeyboardButton(text="➡️",                  callback_data=f"shopv_{seller_id}_{next_i}"),
-        ])
-    rows.append([InlineKeyboardButton(text="🛒 Buyurtma qilish", callback_data=f"order_{pid}")])
-    rows.append([InlineKeyboardButton(text="🔙 Do'konlar",       callback_data="back_shops")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
+def _feed_item_kb(pid: int) -> InlineKeyboardMarkup:
+    """Lentadagi har bir mahsulot ostidagi yagona tugma — to'g'ridan-to'g'ri buyurtma."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🛒  Buyurtma qilish", callback_data=f"order_{pid}")],
+    ])
+
+
+def _shops_back_kb() -> InlineKeyboardMarkup:
+    """Lenta oxiridagi 'Do'konlarga qaytish' tugmasi."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="‹  Do'konlarga qaytish", callback_data="back_shops")],
+    ])
 
 
 def _shop_card_caption(p: dict) -> str:
@@ -223,22 +218,44 @@ def _shop_card_caption(p: dict) -> str:
     desc  = (p.get("description") or "").strip()
     rating, cnt = get_seller_rating(p.get("seller_id", 0))
 
-    disc = f"  ↓{round((old - price) / old * 100)}%" if old and old > price else ""
-    price_line = f"💰 <b>{price:,} so'm</b>{disc}"
+    disc = f"   −{round((old - price) / old * 100)}%" if old and old > price else ""
+    price_line = f"💰 <b>{money(price)}</b>{disc}"
     if cnt:
-        price_line += f"   ⭐{rating}"
+        price_line += f"   ⭐ {rating}"
 
-    lines = [f"📦 <b>{name}</b>", price_line, f"🏪 {shop}" + (f"  ·  📍 {city}" if city else "")]
+    lines = [title("📦", name), price_line]
+    shop_line = f"🏪 {shop}" + (f"  ·  📍 {city}" if city else "")
+    lines.append(shop_line)
     if cat:
         lines.append(f"🗂 {cat}")
     if desc:
         short = desc if len(desc) <= 140 else desc[:140].rstrip() + "…"
-        lines.append(f"\n📝 {short}")
+        lines.append(f"{divider()}\n📝 {short}")
     return "\n".join(lines)
 
 
-async def _send_shop_card(call: CallbackQuery, seller_id: int, idx: int):
-    """Do'konga KIRGANda: eski xabarni o'chirib, rasmli kartochkani yuboradi."""
+async def _feed_send_one(message: Message, photos: list, text: str, kb: InlineKeyboardMarkup):
+    """Lentaga bitta mahsulot xabarini yuboradi (rasm bo'lsa rasm bilan).
+    Flood-cheklov (TelegramRetryAfter) bo'lsa kutib qayta urinadi."""
+    for _ in range(2):
+        try:
+            if photos:
+                return await message.answer_photo(photos[0], caption=text, parse_mode="HTML", reply_markup=kb)
+            return await message.answer(text, parse_mode="HTML", reply_markup=kb)
+        except TelegramRetryAfter as e:
+            await asyncio.sleep(e.retry_after)
+        except Exception:
+            # rasm yuklanmasa — matnli ko'rinishda yuboramiz
+            try:
+                return await message.answer(text, parse_mode="HTML", reply_markup=kb)
+            except Exception:
+                return None
+    return None
+
+
+async def _send_shop_feed(call: CallbackQuery, seller_id: int):
+    """Do'kon mahsulotlarini LENTA (feed) ko'rinishida yuboradi: har bir mahsulot
+    alohida xabar, pastga surib ko'riladi, har birida 'Buyurtma' tugmasi."""
     chat_id = call.message.chat.id
     await _clear_last_product(call.message.bot, chat_id)
     try:
@@ -249,69 +266,38 @@ async def _send_shop_card(call: CallbackQuery, seller_id: int, idx: int):
     products  = get_seller_products(seller_id)
     seller    = get_seller(seller_id)
     shop_name = seller["shop_name"] if seller else "Do'kon"
+    rating, cnt = get_seller_rating(seller_id)
+    stars = f"   ⭐ {rating} ({cnt})" if cnt else ""
+
     if not products:
-        await call.message.answer(
-            f"🏪 <b>{shop_name}</b>\n\n📦 Hozircha mahsulot yo'q.",
-            parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🔙 Do'konlar", callback_data="back_shops")]
-            ])
+        sent = await call.message.answer(
+            f"{title('🏪', shop_name)}\n{divider()}\n📦 Hozircha mahsulot yo'q.",
+            parse_mode="HTML", reply_markup=_shops_back_kb()
         )
+        set_view_msgs(chat_id, [sent.message_id])
         return
 
-    total  = len(products)
-    idx    = idx % total
-    p      = products[idx]
-    text   = _shop_card_caption(p)
-    kb     = _shop_catalog_kb(seller_id, idx, total, p["id"])
-    photos = product_photos(p)
-    if photos:
-        try:
-            sent = await call.message.answer_photo(photos[0], caption=text, parse_mode="HTML", reply_markup=kb)
-        except Exception:
-            sent = await call.message.answer(text, parse_mode="HTML", reply_markup=kb)
-    else:
-        sent = await call.message.answer(text, parse_mode="HTML", reply_markup=kb)
-    set_view_msgs(chat_id, [sent.message_id])
+    ids = []
+    header = await call.message.answer(
+        f"{title('🏪', shop_name)}{stars}\n{divider()}\n"
+        f"📦 {len(products)} ta mahsulot — pastga suring 👇",
+        parse_mode="HTML",
+    )
+    ids.append(header.message_id)
 
+    for p in products:
+        sent = await _feed_send_one(
+            call.message, product_photos(p), _shop_card_caption(p), _feed_item_kb(p["id"])
+        )
+        if sent:
+            ids.append(sent.message_id)
 
-async def _edit_shop_card(call: CallbackQuery, seller_id: int, idx: int):
-    """⬅️ ➡️ VARAQLAShda: joriy kartochkani JOYIDA yangilaydi — xabar sakramaydi,
-    rasm qaytadan yuklanmaydi. Tur mos kelmasa (rasmli↔rasmsiz) — qayta yuboradi."""
-    products = get_seller_products(seller_id)
-    if not products:
-        await _send_shop_card(call, seller_id, idx)
-        return
-    total  = len(products)
-    idx    = idx % total
-    p      = products[idx]
-    text   = _shop_card_caption(p)
-    kb     = _shop_catalog_kb(seller_id, idx, total, p["id"])
-    photos = product_photos(p)
-    msg    = call.message
-    try:
-        if photos and msg.photo:
-            await msg.edit_media(
-                InputMediaPhoto(media=photos[0], caption=text, parse_mode="HTML"),
-                reply_markup=kb,
-            )
-        elif not photos and not msg.photo:
-            await msg.edit_text(text, parse_mode="HTML", reply_markup=kb)
-        else:
-            # rasmli ↔ rasmsiz almashinuvi — joyida tahrirlab bo'lmaydi
-            await _send_shop_card(call, seller_id, idx)
-            return
-    except Exception:
-        await _send_shop_card(call, seller_id, idx)
-        return
-    set_view_msgs(msg.chat.id, [msg.message_id])
-
-
-@router.callback_query(F.data.startswith("shopv_"))
-async def shop_view_nav(call: CallbackQuery):
-    parts = call.data.split("_")
-    await _edit_shop_card(call, int(parts[1]), int(parts[2]))
-    await call.answer()
+    footer = await call.message.answer(
+        f"{divider()}\n✅ Hammasi shu. Boshqa do'konni ko'rasizmi?",
+        parse_mode="HTML", reply_markup=_shops_back_kb()
+    )
+    ids.append(footer.message_id)
+    set_view_msgs(chat_id, ids)
 
 
 @router.callback_query(F.data.startswith("shop_"))
@@ -319,19 +305,28 @@ async def show_shop(call: CallbackQuery):
     uid = int(call.data.split("_")[1])
     if not get_seller(uid):
         await call.answer("Do'kon topilmadi."); return
-    await _send_shop_card(call, uid, 0)
+    await _send_shop_feed(call, uid)
     await call.answer()
 
 
 @router.callback_query(F.data == "back_shops")
 async def back_to_shops(call: CallbackQuery):
+    # Lentadagi barcha mahsulot xabarlarini tozalab, do'konlar ro'yxatini qaytaramiz.
+    chat_id = call.message.chat.id
+    await _clear_last_product(call.message.bot, chat_id)
+    try:
+        await call.message.delete()
+    except Exception:
+        pass
     u = get_user(call.from_user.id)
     city = (u.get("city") if u else None)
     if not city:
-        await _safe_nav(call, "📍 Shaharingizni tanlang:", _city_picker())
+        await call.message.answer("📍 Shaharingizni tanlang:", reply_markup=_city_picker())
         await call.answer(); return
-    await _safe_nav(call, f"🛍 <b>Do'konlar</b> — 📍 {city}\nBitta do'konni tanlang:",
-                    _shops_keyboard(city))
+    await call.message.answer(
+        f"🛍 <b>Do'konlar</b>   📍 {city}\nBitta do'konni tanlang:",
+        parse_mode="HTML", reply_markup=_shops_keyboard(city)
+    )
     await call.answer()
 
 
@@ -355,40 +350,41 @@ def _product_caption(p: dict) -> str:
     rating, rev_cnt = get_seller_rating(p.get("seller_id", 0))
 
     lines = []
-    lines.append(f"📦 <b>{name}</b>")
+    lines.append(title("📦", name))
     lines.append(f"🏪 {shop}" + (f"  ·  📍 {city}" if city else ""))
     if category:
         lines.append(f"🗂 {category}")
 
     # Narx qatori
-    price_line = f"💰 <b>{price:,} so'm</b>"
+    price_line = f"💰 <b>{money(price)}</b>"
     if disc_pct:
-        price_line += f"  <b>↓{disc_pct}%</b>"
-    lines.append(price_line)
+        price_line += f"   <b>−{disc_pct}%</b>"
     if old_price and disc_pct:
-        lines.append(f"<s>{old_price:,} so'm</s>")
+        price_line += f"   <s>{money(old_price)}</s>"
+    lines.append(price_line)
 
     if desc:
-        lines.append(f"\n📝 {desc}")
+        lines.append(f"{divider()}\n📝 {desc}")
 
     # Reyting
     if rev_cnt:
         stars = "⭐" * min(int(rating), 5)
-        lines.append(f"\n{stars} {rating}  💬 {rev_cnt} ta sharh")
+        lines.append(f"{divider()}\n{stars} {rating}  ·  💬 {rev_cnt} ta sharh")
 
-    lines.append("\n🚕 Bugun yetkazib beramiz  |  🚶 O'zingiz olib keta olasiz")
+    lines.append(divider())
     if price >= FREE_DELIVERY_MIN:
-        lines.append(f"🚚 <b>Shahar ichida BEPUL yetkazib berish!</b> ({FREE_DELIVERY_MIN:,} so'mdan ortiq xarid)")
+        lines.append("🚚 <b>Shahar ichida BEPUL yetkazib berish!</b>")
     else:
-        lines.append(f"🚚 {FREE_DELIVERY_MIN:,} so'mdan ortiq xaridga shahar ichida yetkazib berish bepul")
+        lines.append(f"🚚 {money(FREE_DELIVERY_MIN)}dan ortiq xaridga yetkazish bepul")
+    lines.append("🚕 Bugun yetkazamiz  ·  🚶 O'zingiz olib ketishingiz mumkin")
     return "\n".join(lines)
 
 
 def _product_kb(p: dict) -> InlineKeyboardMarkup:
     """Mahsulot xabari uchun tugmalar: buyurtma va orqaga."""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🛒 Buyurtma qilish", callback_data=f"order_{p['id']}")],
-        [InlineKeyboardButton(text="🔙 Orqaga",       callback_data=f"shop_{p['seller_id']}")],
+        [InlineKeyboardButton(text="🛒  Buyurtma qilish", callback_data=f"order_{p['id']}")],
+        [InlineKeyboardButton(text="‹  Orqaga",           callback_data=f"shop_{p['seller_id']}")],
     ])
 
 
@@ -924,7 +920,7 @@ async def resend_receipt(call: CallbackQuery, state: FSMContext):
 
 
 # ─── Qidirish ────────────────────────────────────────────────────────────────
-@router.message(F.text == "🔍 Qidirish")
+@router.message(F.text == "🔎 Qidirish")
 async def search_start(message: Message, state: FSMContext):
     await state.set_state(SearchState.query)
     await message.answer("🔍 Mahsulot nomini kiriting:")

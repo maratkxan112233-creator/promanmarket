@@ -51,7 +51,7 @@ def seller_menu_kb():
 @router.message(Command("seller"))
 async def seller_panel(message: Message):
     if not is_seller(message.from_user.id):
-        await message.answer("❌ Siz seller emassiz. Ariza bering: 🏪 Seller bo'lish")
+        await message.answer("❌ Siz sotuvchi emassiz. Ariza bering: 🏪 Sotuvchi bo'lish")
         return
     seller = get_seller(message.from_user.id)
     await message.answer(
@@ -202,8 +202,8 @@ async def product_category(call: CallbackQuery, state: FSMContext):
 # Foydalanuvchi nom/tavsif/narx/rasm/rang so'ralganda /start yoki menyu tugmasini
 # bossa — uni input deb qabul qilmaymiz, jarayonni to'xtatamiz.
 MENU_BUTTONS = {
-    "🛍 Bozor", "🔍 Qidirish", "🏪 Seller bo'lish", "📦 Buyurtmalarim",
-    "👤 Profilim", "📞 Aloqa", "🛍 Do'kon (ilova)", "❌ Bekor qilish",
+    "🛍 Bozor", "🔎 Qidirish", "🏪 Sotuvchi bo'lish", "📦 Buyurtmalarim",
+    "👤 Profil", "📞 Aloqa", "🛍 Do'kon (ilova)", "❌ Bekor qilish",
 }
 
 ADD_PRODUCT_STATES = StateFilter(

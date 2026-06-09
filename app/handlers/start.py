@@ -18,10 +18,11 @@ async def cmd_start(message: Message, state: FSMContext):
         "username":  message.from_user.username,
     })
     await message.answer(
-        f"Salom, {message.from_user.full_name}! 👋\n\n"
-        "Man Market botiga xush kelibsiz! 🛒\n\n"
+        f"👋 Salom, <b>{message.from_user.full_name}</b>!\n\n"
+        "🛒 <b>Man Market</b> — xush kelibsiz!\n"
+        "Bu yerda turli do'konlardan xarid qilasiz.\n\n"
         f"{FREE_DELIVERY_BANNER}\n\n"
-        "Quyidagi menyudan tanlang:",
+        "👇 Quyidagi menyudan tanlang:",
         parse_mode="HTML",
         reply_markup=main_menu
     )

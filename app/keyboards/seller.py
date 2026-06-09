@@ -6,9 +6,9 @@ from aiogram.types import (
 
 def _build_main_menu() -> ReplyKeyboardMarkup:
     rows = [
-        [KeyboardButton(text="🛍 Bozor"),         KeyboardButton(text="🔍 Qidirish")],
-        [KeyboardButton(text="🏪 Seller bo'lish"), KeyboardButton(text="📦 Buyurtmalarim")],
-        [KeyboardButton(text="👤 Profilim"),       KeyboardButton(text="📞 Aloqa")],
+        [KeyboardButton(text="🛍 Bozor"),           KeyboardButton(text="🔎 Qidirish")],
+        [KeyboardButton(text="📦 Buyurtmalarim"),   KeyboardButton(text="👤 Profil")],
+        [KeyboardButton(text="🏪 Sotuvchi bo'lish"), KeyboardButton(text="📞 Aloqa")],
     ]
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
 

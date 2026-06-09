@@ -45,13 +45,13 @@ async def cancel_app_on_command(message: Message, state: FSMContext):
     await state.clear()
     await message.answer(
         "⚠️ Ariza to'ldirish bekor qilindi.\n"
-        "Qaytadan boshlash uchun: 🏪 Seller bo'lish",
+        "Qaytadan boshlash uchun: 🏪 Sotuvchi bo'lish",
         reply_markup=main_menu
     )
 
 
 # ─── Seller bo'lish ───────────────────────────────────────────────────────────
-@router.message(F.text == "🏪 Seller bo'lish")
+@router.message(F.text == "🏪 Sotuvchi bo'lish")
 async def seller_application_start(message: Message, state: FSMContext):
     if is_seller(message.from_user.id):
         await message.answer(

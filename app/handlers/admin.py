@@ -27,8 +27,8 @@ router = Router()
 
 # Mahsulot qo'shishni bo'lib yuboruvchi menyu tugmalari
 _MENU_BUTTONS = {
-    "🛍 Bozor", "🔍 Qidirish", "🏪 Seller bo'lish", "📦 Buyurtmalarim",
-    "👤 Profilim", "📞 Aloqa", "🛍 Do'kon (ilova)", "❌ Bekor qilish",
+    "🛍 Bozor", "🔎 Qidirish", "🏪 Sotuvchi bo'lish", "📦 Buyurtmalarim",
+    "👤 Profil", "📞 Aloqa", "🛍 Do'kon (ilova)", "❌ Bekor qilish",
 }
 
 # ─── Robust navigatsiya: eski (48soat+) yoki rasm xabarda edit_text ishlamaydi ──
@@ -1062,7 +1062,7 @@ async def add_admin_start(call: CallbackQuery, state: FSMContext):
     await call.message.answer(
         "➕ Yangi adminning <b>Telegram ID</b> raqamini yuboring.\n"
         "(Foydalanuvchi avval botga /start bosgan bo'lishi kerak. "
-        "ID'ni u 👤 Profilim bo'limida ko'radi.)",
+        "ID'ni u 👤 Profil bo'limida ko'radi.)",
         parse_mode="HTML"
     )
     await call.answer()
