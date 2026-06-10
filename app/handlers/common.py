@@ -231,10 +231,6 @@ def _shop_categories(seller_id: int) -> list:
     return [(code, label, counts[code]) for code, label in CATEGORIES if code in counts]
 
 
-# Raqamli belgilar — albomdagi rasm bilan tugmani bog'lash uchun.
-_NUM_EMOJI = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
-
-
 async def _send_shop_menu(call: CallbackQuery, seller_id: int):
     """Do'konga kirilganda BO'LIMLAR menyusini yuboradi (rasmdagidek):
     📺 Televizorlar, 🧊 Muzlatgichlar... Bittasini bossa — bo'lim mahsulotlari
@@ -281,12 +277,9 @@ async def _send_shop_menu(call: CallbackQuery, seller_id: int):
 
 
 async def _send_category_products(message: Message, seller_id: int, code: str):
-    """Bo'lim mahsulotlarini yuboradi: rasmlar bitta albom + raqamlangan tugmalar.
-    Albomdagi N-rasm — N-tugmadagi mahsulot."""
-    products = [p for p in get_seller_products(seller_id) if product_category(p) == code][:10]
-    # Rasmli mahsulotlar oldinda — shunda albomdagi N-rasm caption va
-    # tugmalardagi N-raqamga aniq mos keladi (rasmsizlar ro'yxat oxirida).
-    products.sort(key=lambda p: 0 if product_photos(p) else 1)
+    """Bo'lim mahsulotlarini AVVALGIDEK oddiy ro'yxat qilib yuboradi:
+    har bir mahsulot nomi + narxi alohida tugma (prod_<id>)."""
+    products  = [p for p in get_seller_products(seller_id) if product_category(p) == code]
     seller    = get_seller(seller_id)
     shop_name = seller["shop_name"] if seller else "Do'kon"
     label     = category_label(code)
@@ -301,46 +294,23 @@ async def _send_category_products(message: Message, seller_id: int, code: str):
         )
         return
 
-    ids = []
-
-    # Rasmli mahsulotlarning birinchi rasmlari — bitta albom.
-    caption_lines = [f"{title('🛍', label)}   🏪 {shop_name}", divider()]
-    media = []
-    for i, p in enumerate(products):
-        num = _NUM_EMOJI[i] if i < len(_NUM_EMOJI) else f"{i + 1}."
-        caption_lines.append(f"{num} {p.get('name', '—')} — {money(p.get('price', 0))}")
-        photos = product_photos(p)
-        if photos and len(media) < 10:
-            media.append(InputMediaPhoto(media=photos[0]))
-    if media:
-        media[0] = InputMediaPhoto(
-            media=media[0].media,
-            caption="\n".join(caption_lines), parse_mode="HTML",
-        )
-        try:
-            sent = await message.answer_media_group(media)
-            ids.extend(m.message_id for m in sent)
-        except Exception:
-            pass
-
-    # Tugmalar: raqam + nom + narx → mahsulot kartochkasi (prod_<id>).
     rows = []
-    for i, p in enumerate(products):
-        num  = _NUM_EMOJI[i] if i < len(_NUM_EMOJI) else f"{i + 1}."
+    for p in products:
         name = p.get("name", "—")
-        if len(name) > 25:
-            name = name[:25].rstrip() + "…"
+        if len(name) > 30:
+            name = name[:30].rstrip() + "…"
         rows.append([InlineKeyboardButton(
-            text=f"{num} {name}  ·  {money(p.get('price', 0))}",
+            text=f"📦 {name}  ·  {money(p.get('price', 0))}",
             callback_data=f"prod_{p['id']}"
         )])
     rows.append([InlineKeyboardButton(text="‹  Orqaga", callback_data=f"shop_{seller_id}")])
-    btn = await message.answer(
-        "👆 Rasmlarini ko'rib chiqing. Birini tanlang:" if media else "Birini tanlang:",
+
+    await message.answer(
+        f"{title('🏪', shop_name)}   {label}\n{divider()}\n"
+        f"📦 {len(products)} ta mahsulot — birini tanlang 👇",
+        parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=rows)
     )
-    ids.append(btn.message_id)
-    set_view_msgs(message.chat.id, ids)
 
 
 @router.callback_query(F.data.startswith("cat_"))
