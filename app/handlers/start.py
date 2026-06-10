@@ -3,7 +3,7 @@ from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
-from app.keyboards.seller import main_menu
+from app.keyboards.seller import menu_for
 from app.storage import register_user
 from app.handlers.common import FREE_DELIVERY_BANNER
 
@@ -24,5 +24,5 @@ async def cmd_start(message: Message, state: FSMContext):
         f"{FREE_DELIVERY_BANNER}\n\n"
         "👇 Quyidagi menyudan tanlang:",
         parse_mode="HTML",
-        reply_markup=main_menu
+        reply_markup=menu_for(message.from_user.id)
     )

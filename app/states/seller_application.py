@@ -5,10 +5,7 @@ class SellerApplicationState(StatesGroup):
     full_name = State()
     phone = State()
     city = State()
-    shop_name = State()
     card_number = State()
-    passport_photo = State()
-    selfie_photo = State()
 
 
 class EditShopState(StatesGroup):

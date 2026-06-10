@@ -5,12 +5,12 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 from app.storage import (
-    is_seller, get_seller, get_seller_products, add_product,
-    delete_product, update_product, get_seller_orders, update_order_status,
+    is_seller, get_seller, get_sellers, get_seller_products, add_product,
+    delete_product, update_product, update_seller, get_seller_orders, update_order_status,
     to_int,
 )
 from app.album import collect
-from app.keyboards.seller import main_menu, stars_kb
+from app.keyboards.seller import main_menu, seller_main_menu, stars_kb
 
 router = Router()
 
@@ -37,6 +37,10 @@ class EditProductState(StatesGroup):
     waiting_value = State()
 
 
+class EditCardState(StatesGroup):
+    waiting_value = State()
+
+
 def seller_menu_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📦 Mahsulotlarim",    callback_data="seller_products")],
@@ -48,6 +52,7 @@ def seller_menu_kb():
 
 # ─── /seller ─────────────────────────────────────────────────────────────────
 @router.message(Command("seller"))
+@router.message(F.text == "🛒 Sotuvchi paneli")
 async def seller_panel(message: Message):
     if not is_seller(message.from_user.id):
         await message.answer("❌ Siz sotuvchi emassiz. Ariza bering: 🏪 Sotuvchi bo'lish")
@@ -57,6 +62,39 @@ async def seller_panel(message: Message):
         f"🏪 <b>{seller['shop_name']}</b> — Seller Panel",
         reply_markup=seller_menu_kb(), parse_mode="HTML"
     )
+
+
+# ─── Shahrim sellerlari (shahar bo'yicha sellerlar ro'yxati) ─────────────────
+@router.message(F.text == "👥 Shahrim sellerlari")
+async def my_city_sellers(message: Message):
+    if not is_seller(message.from_user.id):
+        await message.answer("❌ Siz sotuvchi emassiz.")
+        return
+    me = get_seller(message.from_user.id)
+    city = (me.get("city") or "").strip()
+    if not city:
+        await message.answer(
+            "🏙 Shahringiz aniqlanmadi. Admin bilan bog'laning.",
+            reply_markup=seller_main_menu
+        )
+        return
+
+    peers = [s for s in get_sellers().values() if (s.get("city") or "").strip() == city]
+    if not peers:
+        await message.answer(
+            f"🏙 <b>{city}</b> shahrida hozircha boshqa sotuvchi yo'q.",
+            parse_mode="HTML", reply_markup=seller_main_menu
+        )
+        return
+
+    text = f"👥 <b>{city}</b> shahridagi sotuvchilar ({len(peers)} ta):\n\n"
+    for s in peers:
+        text += (
+            f"🏪 {s.get('shop_name','—')}\n"
+            f"   👤 {s.get('full_name','—')}\n"
+            f"   📞 {s.get('phone','—')}\n\n"
+        )
+    await message.answer(text, parse_mode="HTML", reply_markup=seller_main_menu)
 
 
 # ─── Mahsulotlar ─────────────────────────────────────────────────────────────
@@ -589,9 +627,46 @@ async def seller_shop_info(call: CallbackQuery):
         f"⭐ Reyting: {rating} ({cnt} ta baho)"
     )
     await call.message.edit_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="🔙 Orqaga", callback_data="seller_back")]]
+        inline_keyboard=[
+            [InlineKeyboardButton(text="✏️ Karta raqamini o'zgartirish", callback_data="seller_edit_card")],
+            [InlineKeyboardButton(text="🔙 Orqaga", callback_data="seller_back")],
+        ]
     ))
     await call.answer()
+
+
+# ─── Karta raqamini o'zgartirish (seller o'zi) ───────────────────────────────
+@router.callback_query(F.data == "seller_edit_card")
+async def seller_edit_card_start(call: CallbackQuery, state: FSMContext):
+    if not is_seller(call.from_user.id):
+        await call.answer("Siz seller emassiz."); return
+    await state.set_state(EditCardState.waiting_value)
+    await call.message.answer(
+        "💳 Yangi karta raqamingizni kiriting (16 raqam):\n"
+        "Masalan: 8600 1234 5678 9012"
+    )
+    await call.answer()
+
+
+@router.message(EditCardState.waiting_value)
+async def seller_edit_card_save(message: Message, state: FSMContext):
+    if not is_seller(message.from_user.id):
+        await state.clear()
+        await message.answer("❌ Ruxsat yo'q.")
+        return
+    card = (message.text or "").replace(" ", "").replace("-", "")
+    if not card.isdigit() or len(card) != 16:
+        await message.answer(
+            "❌ Noto'g'ri karta raqami.\n"
+            "16 ta raqam kiriting (masalan: 8600 1234 5678 9012):"
+        )
+        return
+    update_seller(message.from_user.id, {"card_number": card})
+    await state.clear()
+    await message.answer(
+        f"✅ Karta raqami yangilandi: **** **** **** {card[-4:]}",
+        reply_markup=seller_main_menu
+    )
 
 
 @router.callback_query(F.data == "seller_back")

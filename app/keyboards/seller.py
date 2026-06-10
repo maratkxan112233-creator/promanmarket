@@ -15,6 +15,24 @@ def _build_main_menu() -> ReplyKeyboardMarkup:
 
 main_menu = _build_main_menu()
 
+
+def _build_seller_main_menu() -> ReplyKeyboardMarkup:
+    rows = [
+        [KeyboardButton(text="🛒 Sotuvchi paneli"), KeyboardButton(text="👥 Shahrim sellerlari")],
+        [KeyboardButton(text="👤 Profil"),          KeyboardButton(text="📞 Aloqa")],
+    ]
+    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
+
+
+seller_main_menu = _build_seller_main_menu()
+
+
+def menu_for(user_id: int) -> ReplyKeyboardMarkup:
+    """Seller bo'lsa seller menyusi, aks holda xaridor menyusi."""
+    from app.storage import is_seller
+    return seller_main_menu if is_seller(user_id) else main_menu
+
+
 cancel_keyboard = ReplyKeyboardMarkup(
     keyboard=[[KeyboardButton(text="❌ Bekor qilish")]],
     resize_keyboard=True

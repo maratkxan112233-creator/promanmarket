@@ -13,7 +13,7 @@ from app.storage import (
     get_user, set_user_field, get_cities, product_photos,
     set_view_msgs, pop_view_msgs,
 )
-from app.keyboards.seller import main_menu, phone_keyboard, cancel_keyboard
+from app.keyboards.seller import main_menu, seller_main_menu, menu_for, phone_keyboard, cancel_keyboard
 from app.states.seller_application import SearchState, OrderState
 from app.app.config.settings import settings
 from app.ui import money, divider, title
@@ -88,7 +88,8 @@ async def contact_handler(message: Message):
         "💬 Savol va takliflar:  @promanmarketbot\n"
         "👤 Admin:  @Marufzxon\n"
         "🕘 Ish vaqti:  09:00 – 18:00",
-        parse_mode="HTML"
+        parse_mode="HTML",
+        reply_markup=menu_for(message.from_user.id)
     )
 
 
@@ -128,13 +129,19 @@ async def profile_handler(message: Message):
         f"🔗 Username:  @{user.username or 'yoq'}\n"
         f"🆔 ID:  {user.id}\n"
         f"🎭 Rol:  {role}\n{extra}",
-        parse_mode="HTML", reply_markup=main_menu
+        parse_mode="HTML", reply_markup=menu_for(user.id)
     )
 
 
 # ─── Bozor — do'konlar ro'yxati ──────────────────────────────────────────────
 @router.message(F.text == "🛍 Bozor")
 async def market_handler(message: Message):
+    if is_seller(message.from_user.id):
+        await message.answer(
+            "🛒 Siz sotuvchisiz. Quyidagi menyudan foydalaning:",
+            reply_markup=seller_main_menu
+        )
+        return
     u = get_user(message.from_user.id)
     city = u.get("city") if u else None
     if not city:
@@ -809,6 +816,12 @@ async def order_receipt_invalid(message: Message):
 # ─── Buyurtmalarim ──────────────────────────────────────────────────────────────
 @router.message(F.text == "📦 Buyurtmalarim")
 async def my_orders(message: Message):
+    if is_seller(message.from_user.id):
+        await message.answer(
+            "🛒 Siz sotuvchisiz. Buyurtmalarni 🛒 Sotuvchi paneli orqali ko'ring:",
+            reply_markup=seller_main_menu
+        )
+        return
     orders = get_buyer_orders(message.from_user.id)
     if not orders:
         await message.answer("📦 Hozircha buyurtma yo'q.")
@@ -858,6 +871,12 @@ async def resend_receipt(call: CallbackQuery, state: FSMContext):
 # ─── Qidirish ────────────────────────────────────────────────────────────────
 @router.message(F.text == "🔎 Qidirish")
 async def search_start(message: Message, state: FSMContext):
+    if is_seller(message.from_user.id):
+        await message.answer(
+            "🛒 Siz sotuvchisiz. Quyidagi menyudan foydalaning:",
+            reply_markup=seller_main_menu
+        )
+        return
     await state.set_state(SearchState.query)
     await message.answer("🔍 Mahsulot nomini kiriting:")
 

@@ -133,6 +133,7 @@ def admin_menu_kb(uid: int):
         return InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📋 Arizalar",        callback_data="admin_applications")],
             [InlineKeyboardButton(text="🏪 Sellerlar",        callback_data="admin_sellers")],
+            [InlineKeyboardButton(text="📄 Sellerlar (Word)", callback_data="admin_sellers_word")],
             [InlineKeyboardButton(text="➕ Mahsulot qo'shish", callback_data="admin_addprod")],
             [InlineKeyboardButton(text="📦 Mahsulotlar",      callback_data="admin_products")],
             [InlineKeyboardButton(text="👥 Foydalanuvchilar", callback_data="admin_users")],
@@ -215,19 +216,15 @@ async def show_applications(call: CallbackQuery):
             InlineKeyboardButton(text="✅ Tasdiqlash", callback_data=f"approve_{uid}"),
             InlineKeyboardButton(text="❌ Rad etish",  callback_data=f"reject_{uid}"),
         ]])
+        card = app.get('card_number', '')
         text = (
             f"📋 <b>Ariza #{uid}</b>\n\n"
             f"👤 {app.get('full_name')}\n"
             f"📱 {app.get('phone')}\n"
             f"🏙 Shahar: {app.get('city','—')}\n"
-            f"🏪 {app.get('shop_name')}\n"
-            f"💳 **** {app.get('card_number','')[-4:]}"
+            f"💳 **** {card[-4:] if card else '—'}"
         )
         await call.message.answer(text, reply_markup=kb, parse_mode="HTML")
-        if app.get("passport_photo"):
-            await call.message.answer_photo(app["passport_photo"], caption="📄 Pasport")
-        if app.get("selfie_photo"):
-            await call.message.answer_photo(app["selfie_photo"], caption="🤳 Selfi")
     await call.answer()
 
 
@@ -241,8 +238,8 @@ async def approve_seller(call: CallbackQuery):
     update_application_status(uid, "approved")
     add_seller(uid, {
         "user_id": uid, "full_name": app["full_name"],
-        "shop_name": app["shop_name"], "phone": app["phone"],
-        "card_number": app["card_number"], "city": app.get("city", ""),
+        "shop_name": app.get("shop_name") or app["full_name"], "phone": app["phone"],
+        "card_number": app.get("card_number", ""), "city": app.get("city", ""),
     })
     _log(call.from_user, "Seller qo'shildi",
          f"{app['full_name']} — do'kon: {app['shop_name']} (ID:{uid}, {app.get('city','—')})")
@@ -1209,6 +1206,53 @@ async def admin_log_word(call: CallbackQuery):
     fname = f"jurnal_{datetime.now().strftime('%Y%m%d_%H%M')}.docx"
     file = BufferedInputFile(data, filename=fname)
     await call.message.answer_document(file, caption=f"📜 Amallar jurnali — {len(log)} ta yozuv")
+    await call.answer("Tayyor!")
+
+
+def _build_sellers_docx(sellers: list) -> bytes:
+    from docx import Document
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    doc = Document()
+    h = doc.add_heading("ProMan Market — Sellerlar ro'yxati", level=1)
+    h.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p = doc.add_paragraph(f"Yuklab olingan sana: {datetime.now().strftime('%d.%m.%Y %H:%M')}")
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    table = doc.add_table(rows=1, cols=6)
+    table.style = "Light Grid Accent 1"
+    hdr = table.rows[0].cells
+    for i, t in enumerate(["#", "Ism-familiya", "Telefon", "Shahar", "Do'kon", "ID"]):
+        hdr[i].text = t
+        for r in hdr[i].paragraphs[0].runs:
+            r.font.bold = True
+
+    for idx, s in enumerate(sellers, 1):
+        c = table.add_row().cells
+        c[0].text = str(idx)
+        c[1].text = str(s.get("full_name", "—"))
+        c[2].text = str(s.get("phone", "—"))
+        c[3].text = str(s.get("city", "—"))
+        c[4].text = str(s.get("shop_name", "—"))
+        c[5].text = str(s.get("user_id", "—"))
+
+    doc.add_paragraph()
+    doc.add_paragraph(f"Jami sellerlar: {len(sellers)} ta")
+    import io as _io
+    buf = _io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
+@router.callback_query(F.data == "admin_sellers_word")
+async def admin_sellers_word(call: CallbackQuery):
+    if not is_owner(call.from_user.id): return
+    sellers = list(get_sellers().values())
+    if not sellers:
+        await call.answer("Sellerlar yo'q.", show_alert=True); return
+    data = _build_sellers_docx(sellers)
+    fname = f"sellerlar_{datetime.now().strftime('%Y%m%d_%H%M')}.docx"
+    file = BufferedInputFile(data, filename=fname)
+    await call.message.answer_document(file, caption=f"📄 Sellerlar ro'yxati — {len(sellers)} ta")
     await call.answer("Tayyor!")
 
 
