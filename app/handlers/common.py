@@ -278,7 +278,6 @@ def _product_caption(p: dict) -> str:
     shop      = p.get("shop_name", "—")
     desc      = p.get("description", "")
     city      = p.get("city", "")
-    category  = p.get("category", "")
 
     # Chegirma hisoblash
     disc_pct = 0
@@ -291,8 +290,6 @@ def _product_caption(p: dict) -> str:
     lines = []
     lines.append(title("📦", name))
     lines.append(f"🏪 {shop}" + (f"  ·  📍 {city}" if city else ""))
-    if category:
-        lines.append(f"🗂 {category}")
 
     # Narx qatori
     price_line = f"💰 <b>{money(price)}</b>"

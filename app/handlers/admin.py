@@ -555,9 +555,8 @@ async def admin_products(call: CallbackQuery):
 def _admin_product_card(p: dict, pid: int):
     """Admin uchun mahsulot kartochkasi matni va tugmalari."""
     colors_line = f"\n🎨 Ranglar: {', '.join(p['colors'])}" if p.get("colors") else ""
-    cat_line    = f"\n🗂 {p['category']}" if p.get("category") else ""
     text = (
-        f"📦 <b>{p['name']}</b>{cat_line}\n"
+        f"📦 <b>{p['name']}</b>\n"
         f"🏪 {p.get('shop_name','—')}\n"
         f"📝 {p.get('description','—')}\n"
         f"💰 {p['price']:,} so'm"

@@ -7,7 +7,7 @@ from aiogram.fsm.state import State, StatesGroup
 from app.storage import (
     is_seller, get_seller, get_seller_products, add_product,
     delete_product, update_product, get_seller_orders, update_order_status,
-    to_int, PRODUCT_CATEGORIES,
+    to_int,
 )
 from app.album import collect
 from app.keyboards.seller import main_menu, stars_kb
@@ -25,7 +25,6 @@ ORDER_STATUSES = {
 
 
 class AddProductState(StatesGroup):
-    category    = State()   # birinchi qadam: kategoriya tanlash
     name        = State()
     description = State()
     price       = State()
@@ -94,10 +93,8 @@ async def seller_product_detail(call: CallbackQuery):
     p = get_product_by_id(pid)
     if not p or p["seller_id"] != call.from_user.id:
         await call.answer("Topilmadi."); return
-    cat_line = f"🗂 {p['category']}\n" if p.get("category") else ""
     text = (
         f"📦 <b>{p['name']}</b>\n"
-        f"{cat_line}"
         f"📝 {p.get('description','—')}\n"
         f"💰 {p['price']:,} so'm"
     )
@@ -161,39 +158,11 @@ async def delete_product_handler(call: CallbackQuery):
 
 
 # ─── Mahsulot qo'shish ───────────────────────────────────────────────────────
-def _category_kb() -> InlineKeyboardMarkup:
-    """Kategoriya tanlash tugmalari (har qatorda 2 ta)."""
-    rows = []
-    for i in range(0, len(PRODUCT_CATEGORIES), 2):
-        row = [
-            InlineKeyboardButton(text=PRODUCT_CATEGORIES[j], callback_data=f"apcat_{j}")
-            for j in range(i, min(i + 2, len(PRODUCT_CATEGORIES)))
-        ]
-        rows.append(row)
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
 @router.callback_query(F.data == "seller_add_product")
 async def start_add_product(call: CallbackQuery, state: FSMContext):
     if not is_seller(call.from_user.id):
         await call.answer("Siz seller emassiz."); return
-    await state.set_state(AddProductState.category)
-    await call.message.answer("🗂 Mahsulot kategoriyasini tanlang:", reply_markup=_category_kb())
-    await call.answer()
-
-
-@router.callback_query(AddProductState.category, F.data.startswith("apcat_"))
-async def product_category(call: CallbackQuery, state: FSMContext):
-    idx = int(call.data.split("_")[1])
-    if not (0 <= idx < len(PRODUCT_CATEGORIES)):
-        await call.answer("Noto'g'ri kategoriya."); return
-    category = PRODUCT_CATEGORIES[idx]
-    await state.update_data(category=category)
     await state.set_state(AddProductState.name)
-    try:
-        await call.message.edit_text(f"🗂 Kategoriya: <b>{category}</b>", parse_mode="HTML")
-    except Exception:
-        pass
     await call.message.answer("📦 Mahsulot nomini kiriting:")
     await call.answer()
 
@@ -207,7 +176,7 @@ MENU_BUTTONS = {
 }
 
 ADD_PRODUCT_STATES = StateFilter(
-    AddProductState.category, AddProductState.name, AddProductState.description,
+    AddProductState.name, AddProductState.description,
     AddProductState.price, AddProductState.old_price,
     AddProductState.photo, AddProductState.colors,
     AddProductState.preview,
@@ -308,7 +277,6 @@ def _build_product(user_id: int, data: dict, photos: list) -> dict:
     return {
         "seller_id":   user_id,
         "shop_name":   seller["shop_name"],
-        "category":    data.get("category", ""),
         "name":        data["name"],
         "description": data.get("description", ""),
         "price":       data["price"],
@@ -383,8 +351,6 @@ def _preview_text(data: dict) -> str:
     price = data.get("price", 0)
     old   = data.get("old_price")
     lines = ["👀 <b>Mahsulot shunday chiqadi:</b>\n", f"📦 <b>{data.get('name','')}</b>"]
-    if data.get("category"):
-        lines.append(f"🗂 {data['category']}")
     price_line = f"💰 <b>{price:,} so'm</b>"
     if old and old > price:
         pct = round((old - price) / old * 100)
