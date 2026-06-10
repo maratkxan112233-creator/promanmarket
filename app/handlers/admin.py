@@ -51,6 +51,10 @@ class AdminSellerSearch(StatesGroup):
     query = State()
 
 
+class AdminMsgSeller(StatesGroup):
+    text = State()
+
+
 def _sellers_keyboard(items):
     rows = []
     for uid, s in items:
@@ -479,6 +483,7 @@ async def seller_detail(call: CallbackQuery):
         f"⭐ Reyting: {stars} {rating} ({cnt} ta baho)"
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✉️ Sellerga yozish (lichka)", callback_data=f"msg_seller_{uid}")],
         [InlineKeyboardButton(text="✏️ Do'kon nomini o'zgartirish", callback_data=f"edit_shop_name_{uid}")],
         [InlineKeyboardButton(text="✏️ Karta raqamini o'zgartirish", callback_data=f"edit_shop_card_{uid}")],
         [InlineKeyboardButton(text="✏️ Telefon raqamini o'zgartirish", callback_data=f"edit_shop_phone_{uid}")],
@@ -513,6 +518,62 @@ async def edit_shop_save(message: Message, state: FSMContext):
     update_seller(uid, {mapping[field]: message.text})
     await state.clear()
     await message.answer(f"✅ Seller ma'lumoti yangilandi!")
+
+
+# ─── Sellerga to'g'ridan to'g'ri xabar yuborish (lichkasiga) ─────────────────
+@router.callback_query(F.data.startswith("msg_seller_"))
+async def msg_seller_start(call: CallbackQuery, state: FSMContext):
+    if not is_owner(call.from_user.id): return
+    uid = call.data.split("_")[2]
+    s = get_sellers().get(uid)
+    if not s:
+        await call.answer("Seller topilmadi."); return
+    u = get_user(int(uid)) or {}
+    uname = f"@{u['username']}" if u.get("username") else "—"
+    await state.set_state(AdminMsgSeller.text)
+    await state.update_data(target_uid=int(uid), shop_name=s["shop_name"])
+    await call.message.answer(
+        f"✉️ <b>{s['shop_name']}</b> ({s['full_name']}) selleriga xabar yozing.\n"
+        f"👤 Username: {uname}\n\n"
+        f"Matn, rasm yoki istalgan xabarni yuboring — bot uni sellerning "
+        f"lichkasiga yetkazadi.\n"
+        f"Bekor qilish: /cancel",
+        parse_mode="HTML"
+    )
+    await call.answer()
+
+
+@router.message(AdminMsgSeller.text)
+async def msg_seller_send(message: Message, state: FSMContext):
+    if not is_owner(message.from_user.id):
+        await state.clear(); return
+    if (message.text or "").startswith("/"):
+        await state.clear()
+        await message.answer("⛔️ Xabar yuborish bekor qilindi.",
+                             reply_markup=admin_menu_kb(message.from_user.id))
+        return
+    data = await state.get_data()
+    uid  = data["target_uid"]
+    shop = data.get("shop_name", "—")
+    await state.clear()
+    from app.bot.bot import bot
+    try:
+        await bot.send_message(uid, "📩 <b>Admindan xabar:</b>", parse_mode="HTML")
+        await message.send_copy(chat_id=uid)
+    except Exception:
+        await message.answer(
+            "❌ Xabar yetib bormadi. Seller botni bloklagan yoki "
+            "hali /start bosmagan bo'lishi mumkin."
+        )
+        return
+    _log(message.from_user, "Sellerga xabar yuborildi", f"{shop} (ID:{uid})")
+    await message.answer(
+        f"✅ Xabar <b>{shop}</b> selleriga yuborildi!", parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✉️ Yana yozish", callback_data=f"msg_seller_{uid}")],
+            [InlineKeyboardButton(text="🔙 Sellerlar", callback_data="admin_sellers")],
+        ])
+    )
 
 
 @router.callback_query(F.data.startswith("del_seller_"))
