@@ -16,7 +16,10 @@ from app.storage import (
 from app.keyboards.seller import main_menu, seller_main_menu, menu_for, phone_keyboard, cancel_keyboard
 from app.states.seller_application import SearchState, OrderState
 from app.app.config.settings import settings
-from app.ui import money, divider, title, CATEGORIES, category_label, product_category
+from app.ui import (
+    money, divider, title, CATEGORIES, category_label, product_category,
+    product_emoji,
+)
 
 router = Router()
 
@@ -300,7 +303,7 @@ async def _send_category_products(message: Message, seller_id: int, code: str):
         if len(name) > 30:
             name = name[:30].rstrip() + "…"
         rows.append([InlineKeyboardButton(
-            text=f"📦 {name}  ·  {money(p.get('price', 0))}",
+            text=f"{product_emoji(p)} {name}  ·  {money(p.get('price', 0))}",
             callback_data=f"prod_{p['id']}"
         )])
     rows.append([InlineKeyboardButton(text="‹  Orqaga", callback_data=f"shop_{seller_id}")])
@@ -379,7 +382,7 @@ def _product_caption(p: dict) -> str:
     rating, rev_cnt = get_seller_rating(p.get("seller_id", 0))
 
     lines = []
-    lines.append(title("📦", name))
+    lines.append(title(product_emoji(p), name))
     lines.append(f"🏪 {shop}" + (f"  ·  📍 {city}" if city else ""))
 
     # Narx qatori
@@ -1017,7 +1020,7 @@ async def do_search(message: Message, state: FSMContext):
             old   = p.get("old_price", 0)
             disc  = f" ↓{round((old-price)/old*100)}%" if old and old > price else ""
             rows.append([InlineKeyboardButton(
-                text=f"📦 {p['name']} — {price:,} so'm{disc}",
+                text=f"{product_emoji(p)} {p['name']} — {price:,} so'm{disc}",
                 callback_data=f"prod_{p['id']}"
             )])
         await message.answer(

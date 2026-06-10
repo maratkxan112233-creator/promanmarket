@@ -11,7 +11,7 @@ from app.storage import (
 )
 from app.album import collect
 from app.keyboards.seller import main_menu, seller_main_menu, stars_kb
-from app.ui import CATEGORIES, category_label, money, divider
+from app.ui import CATEGORIES, category_label, money, divider, product_emoji
 
 router = Router()
 
@@ -117,7 +117,7 @@ async def seller_products(call: CallbackQuery):
     rows = []
     for p in products:
         rows.append([
-            InlineKeyboardButton(text=f"📦 {p['name']} — {p['price']:,} so'm",
+            InlineKeyboardButton(text=f"{product_emoji(p)} {p['name']} — {p['price']:,} so'm",
                                  callback_data=f"sprod_{p['id']}"),
         ])
     rows.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="seller_back")])
