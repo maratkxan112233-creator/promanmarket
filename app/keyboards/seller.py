@@ -6,9 +6,9 @@ from aiogram.types import (
 
 def _build_main_menu() -> ReplyKeyboardMarkup:
     rows = [
-        [KeyboardButton(text="🛍 Bozor"),           KeyboardButton(text="🔎 Qidirish")],
+        [KeyboardButton(text="🛒 Market"),           KeyboardButton(text="🔎 Qidirish")],
         [KeyboardButton(text="📦 Buyurtmalarim"),   KeyboardButton(text="👤 Profil")],
-        [KeyboardButton(text="🏪 Sotuvchi bo'lish"), KeyboardButton(text="📞 Aloqa")],
+        [KeyboardButton(text="🏪 Sotuvchi bo'lish"), KeyboardButton(text="ℹ️ Ma'lumot")],
     ]
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
 
@@ -19,7 +19,7 @@ main_menu = _build_main_menu()
 def _build_seller_main_menu() -> ReplyKeyboardMarkup:
     rows = [
         [KeyboardButton(text="🛒 Sotuvchi paneli"), KeyboardButton(text="👥 Shahrim sellerlari")],
-        [KeyboardButton(text="👤 Profil"),          KeyboardButton(text="📞 Aloqa")],
+        [KeyboardButton(text="👤 Profil"),          KeyboardButton(text="ℹ️ Ma'lumot")],
     ]
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
 

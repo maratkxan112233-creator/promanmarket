@@ -11,6 +11,7 @@ from app.storage import (
 )
 from app.album import collect
 from app.keyboards.seller import main_menu, seller_main_menu, stars_kb
+from app.ui import CATEGORIES, category_label, money, divider
 
 router = Router()
 
@@ -26,6 +27,7 @@ ORDER_STATUSES = {
 
 class AddProductState(StatesGroup):
     name        = State()
+    category    = State()   # bo'lim tanlash (inline tugmalar)
     description = State()
     price       = State()
     old_price   = State()   # ixtiyoriy chegirma (eski narx)
@@ -209,12 +211,12 @@ async def start_add_product(call: CallbackQuery, state: FSMContext):
 # Foydalanuvchi nom/tavsif/narx/rasm/rang so'ralganda /start yoki menyu tugmasini
 # bossa — uni input deb qabul qilmaymiz, jarayonni to'xtatamiz.
 MENU_BUTTONS = {
-    "🛍 Bozor", "🔎 Qidirish", "🏪 Sotuvchi bo'lish", "📦 Buyurtmalarim",
-    "👤 Profil", "📞 Aloqa", "🛍 Do'kon (ilova)", "❌ Bekor qilish",
+    "🛒 Market", "🛍 Bozor", "🔎 Qidirish", "🏪 Sotuvchi bo'lish", "📦 Buyurtmalarim",
+    "👤 Profil", "ℹ️ Ma'lumot", "📞 Aloqa", "🛍 Do'kon (ilova)", "❌ Bekor qilish",
 }
 
 ADD_PRODUCT_STATES = StateFilter(
-    AddProductState.name, AddProductState.description,
+    AddProductState.name, AddProductState.category, AddProductState.description,
     AddProductState.price, AddProductState.old_price,
     AddProductState.photo, AddProductState.colors,
     AddProductState.preview,
@@ -245,13 +247,41 @@ async def addprod_interrupt_menu(message: Message, state: FSMContext):
     await message.answer("⛔️ Mahsulot qo'shish to'xtatildi.", reply_markup=main_menu)
 
 
+def _category_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=label, callback_data=f"apcat_{code}")]
+        for code, label in CATEGORIES
+    ])
+
+
 @router.message(AddProductState.name)
 async def product_name(message: Message, state: FSMContext):
     if not (message.text or "").strip():
         await message.answer("❌ Mahsulot nomini matn ko'rinishida kiriting:"); return
     await state.update_data(name=message.text.strip())
+    await state.set_state(AddProductState.category)
+    await message.answer(
+        "🗂 Mahsulot qaysi bo'limga kiradi? Tanlang:",
+        reply_markup=_category_kb()
+    )
+
+
+@router.callback_query(AddProductState.category, F.data.startswith("apcat_"))
+async def product_category_chosen(call: CallbackQuery, state: FSMContext):
+    code = call.data.split("_", 1)[1]
+    await state.update_data(category=code)
     await state.set_state(AddProductState.description)
-    await message.answer("📝 Tavsif kiriting (yoki /skip — tavsifsiz davom etish):")
+    try:
+        await call.message.edit_text(f"🗂 Bo'lim: {category_label(code)}")
+    except Exception:
+        pass
+    await call.message.answer("📝 Tavsif kiriting (yoki /skip — tavsifsiz davom etish):")
+    await call.answer()
+
+
+@router.message(AddProductState.category)
+async def product_category_wrong(message: Message):
+    await message.answer("❌ Yuqoridagi tugmalardan bo'limni tanlang:", reply_markup=_category_kb())
 
 
 @router.message(AddProductState.description, F.text == "/skip")
@@ -316,6 +346,7 @@ def _build_product(user_id: int, data: dict, photos: list) -> dict:
         "seller_id":   user_id,
         "shop_name":   seller["shop_name"],
         "name":        data["name"],
+        "category":    data.get("category", "other"),
         "description": data.get("description", ""),
         "price":       data["price"],
         "old_price":   data.get("old_price"),
@@ -389,6 +420,7 @@ def _preview_text(data: dict) -> str:
     price = data.get("price", 0)
     old   = data.get("old_price")
     lines = ["👀 <b>Mahsulot shunday chiqadi:</b>\n", f"📦 <b>{data.get('name','')}</b>"]
+    lines.append(f"🗂 Bo'lim: {category_label(data.get('category'))}")
     price_line = f"💰 <b>{price:,} so'm</b>"
     if old and old > price:
         pct = round((old - price) / old * 100)
@@ -595,9 +627,25 @@ async def update_order(call: CallbackQuery):
             f"📦 {o.get('product_name','—')}"
         )
         if status == "delivered":
-            # Baholash tugmasini qo'shish
+            # Qolgan to'lov (90%) haqida toza xabar + baholash tugmalari.
+            total   = o.get("total", 0)
+            prepay  = o.get("prepay", 0)
+            remain  = max(total - prepay, 0)
+            remain_pct = round(remain / total * 100) if total else 0
+            remain_line = (
+                f"\n{divider()}\n"
+                f"💰 Qolgan to'lov:  <b>{money(remain)}</b>  ({remain_pct}%)\n"
+                "Mahsulotni tekshirib, qolgan summani do'konga to'lang "
+                "(naqd yoki karta).\n"
+                if remain else "\n"
+            )
             await bot.send_message(
-                o["buyer_id"], msg + "\n\n⭐ Sellerni baholang:",
+                o["buyer_id"],
+                f"📦 <b>Buyurtmangiz yetkazildi!</b>  (#{oid})\n"
+                f"{divider()}\n"
+                f"📦 {o.get('product_name', '—')}"
+                f"{remain_line}\n"
+                "⭐ Sellerni baholang:",
                 parse_mode="HTML",
                 reply_markup=stars_kb(o["seller_id"], oid)
             )

@@ -7,6 +7,32 @@ shu yerda jamlangan. Bu yerni o'zgartirsangiz — hamma joyda bir vaqtda o'zgara
 # Ingichka ajratgich (xabar bo'limlarini toza ajratish uchun).
 DIVIDER = "──────────────"
 
+# Mahsulot bo'limlari (kategoriyalari): (kod, ko'rinadigan nom).
+# Kod — diskda (products.json) saqlanadi, nom — foydalanuvchiga ko'rinadi.
+# Eski (bo'limsiz) mahsulotlar avtomatik "other" hisoblanadi.
+CATEGORIES = [
+    ("tv",      "📺 Televizorlar"),
+    ("washer",  "🧺 Kir yuvish mashinalari"),
+    ("fridge",  "🧊 Muzlatgichlar"),
+    ("stove",   "🍳 Pishirish texnikasi"),
+    ("aircon",  "❄️ Konditsionerlar"),
+    ("phone",   "📱 Telefonlar"),
+    ("other",   "📦 Boshqa"),
+]
+
+_CATEGORY_MAP = dict(CATEGORIES)
+
+
+def category_label(code) -> str:
+    """Bo'lim kodi bo'yicha ko'rinadigan nomni qaytaradi."""
+    return _CATEGORY_MAP.get(code or "other", _CATEGORY_MAP["other"])
+
+
+def product_category(p: dict) -> str:
+    """Mahsulotning bo'lim kodi (eski mahsulotlarda — 'other')."""
+    code = (p or {}).get("category")
+    return code if code in _CATEGORY_MAP else "other"
+
 
 def money(value) -> str:
     """Narxni bir xil ko'rinishda formatlash: 150 000 so'm (probel bilan).

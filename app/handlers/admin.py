@@ -27,8 +27,8 @@ router = Router()
 
 # Mahsulot qo'shishni bo'lib yuboruvchi menyu tugmalari
 _MENU_BUTTONS = {
-    "🛍 Bozor", "🔎 Qidirish", "🏪 Sotuvchi bo'lish", "📦 Buyurtmalarim",
-    "👤 Profil", "📞 Aloqa", "🛍 Do'kon (ilova)", "❌ Bekor qilish",
+    "🛒 Market", "🛍 Bozor", "🔎 Qidirish", "🏪 Sotuvchi bo'lish", "📦 Buyurtmalarim",
+    "👤 Profil", "ℹ️ Ma'lumot", "📞 Aloqa", "🛍 Do'kon (ilova)", "❌ Bekor qilish",
 }
 
 # ─── Robust navigatsiya: eski (48soat+) yoki rasm xabarda edit_text ishlamaydi ──

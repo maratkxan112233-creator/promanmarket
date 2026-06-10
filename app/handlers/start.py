@@ -1,7 +1,7 @@
 from aiogram import Router
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 
 from app.keyboards.seller import menu_for
 from app.storage import register_user
@@ -17,12 +17,19 @@ async def cmd_start(message: Message, state: FSMContext):
         "full_name": message.from_user.full_name,
         "username":  message.from_user.username,
     })
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🚀 Start", callback_data="go_start")],
+    ])
     await message.answer(
-        f"👋 Salom, <b>{message.from_user.full_name}</b>!\n\n"
-        "🛒 <b>Man Market</b> — xush kelibsiz!\n"
-        "Bu yerda turli do'konlardan xarid qilasiz.\n\n"
+        "👋 Salom!\n"
+        "<b>Proman Market</b> botiga xush kelibsiz!\n\n"
         f"{FREE_DELIVERY_BANNER}\n\n"
-        "👇 Quyidagi menyudan tanlang:",
+        "Xarid qilishni boshlash uchun <b>Start</b> tugmasini bosing 👇",
         parse_mode="HTML",
-        reply_markup=menu_for(message.from_user.id)
+        reply_markup=kb,
+    )
+    # Pastdagi doimiy menyuni ham qoldiramiz (Buyurtmalarim, Profil va h.k.)
+    await message.answer(
+        "👇 Yoki quyidagi menyudan tanlang:",
+        reply_markup=menu_for(message.from_user.id),
     )
