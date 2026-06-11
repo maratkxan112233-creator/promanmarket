@@ -1,6 +1,6 @@
 from aiogram import Router, F
 from aiogram.filters import StateFilter
-from aiogram.types import Message, ContentType, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import Message, CallbackQuery, ContentType, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.fsm.context import FSMContext
 
 from app.states.seller_application import SellerApplicationState
@@ -50,21 +50,21 @@ async def cancel_app_on_command(message: Message, state: FSMContext):
 
 
 # ─── Seller bo'lish ───────────────────────────────────────────────────────────
-@router.message(F.text == "🏪 Sotuvchi bo'lish")
-async def seller_application_start(message: Message, state: FSMContext):
-    if is_seller(message.from_user.id):
+async def _start_application(message: Message, user_id: int, state: FSMContext):
+    """Ariza jarayonini boshlaydi (menyu tugmasi ham, inline tugma ham shuni chaqiradi)."""
+    if is_seller(user_id):
         await message.answer(
             "✅ Siz allaqachon sellersiz!\n"
             "Seller panelini ochish uchun: /seller",
-            reply_markup=menu_for(message.from_user.id)
+            reply_markup=menu_for(user_id)
         )
         return
 
-    existing = get_application(message.from_user.id)
+    existing = get_application(user_id)
     if existing and existing.get("status") == "pending":
         await message.answer(
             "⏳ Arizangiz ko'rib chiqilmoqda. Iltimos kuting.",
-            reply_markup=menu_for(message.from_user.id)
+            reply_markup=menu_for(user_id)
         )
         return
 
@@ -74,6 +74,17 @@ async def seller_application_start(message: Message, state: FSMContext):
         "1/5 — To'liq ismingizni kiriting (F.I.Sh):",
         reply_markup=cancel_keyboard
     )
+
+
+@router.message(F.text == "🏪 Sotuvchi bo'lish")
+async def seller_application_start(message: Message, state: FSMContext):
+    await _start_application(message, message.from_user.id, state)
+
+
+@router.callback_query(F.data == "become_seller")
+async def seller_application_start_cb(call: CallbackQuery, state: FSMContext):
+    await call.answer()
+    await _start_application(call.message, call.from_user.id, state)
 
 
 # ─── 1: Ism ──────────────────────────────────────────────────────────────────

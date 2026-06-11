@@ -19,7 +19,7 @@ async def cmd_start(message: Message, state: FSMContext):
         "username":  message.from_user.username,
     })
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🚀 Start", callback_data="go_start")],
+        [InlineKeyboardButton(text="🏪 Seller bo'lish", callback_data="become_seller")],
         [InlineKeyboardButton(text="💬 Adminga yozish",
                               url=f"https://t.me/{settings.ADMIN_USERNAME}")],
     ])
@@ -27,8 +27,7 @@ async def cmd_start(message: Message, state: FSMContext):
         "👋 Salom!\n"
         "<b>Proman Market</b> botiga xush kelibsiz!\n\n"
         f"{FREE_DELIVERY_BANNER}\n"
-        f"{SELLER_INVITE_BANNER}\n\n"
-        "Xarid qilishni boshlash uchun <b>Start</b> tugmasini bosing 👇",
+        f"{SELLER_INVITE_BANNER}",
         parse_mode="HTML",
         reply_markup=kb,
     )
