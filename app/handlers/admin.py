@@ -19,10 +19,10 @@ from app.storage import (
     get_admins, add_admin, remove_admin, is_sub_admin,
     get_couriers, add_courier, remove_courier, is_courier,
     add_audit, get_audit,
-    get_cities, add_city, remove_city, get_user,
+    get_cities, add_city, remove_city, get_user, get_users, set_user_field,
 )
 from app.album import collect
-from app.keyboards.seller import main_menu, stars_kb
+from app.keyboards.seller import main_menu, stars_kb, menu_for, MENU_VERSION
 from app.app.config.settings import settings
 
 router = Router()
@@ -178,6 +178,7 @@ def admin_menu_kb(uid: int):
             [InlineKeyboardButton(text="🚚 Kurierlar",        callback_data="admin_couriers")],
             [InlineKeyboardButton(text="💾 Zaxira (backup)",  callback_data="admin_backup")],
             [InlineKeyboardButton(text="📜 Jurnal (Word)",    callback_data="admin_log")],
+            [InlineKeyboardButton(text="🔄 Restart (hammaga yangi menyu)", callback_data="admin_restart_menu")],
         ])
     # Sub-admin: faqat seller qo'shish (arizalar) + mahsulot qo'shish
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -622,6 +623,73 @@ async def msg_seller_send(message: Message, state: FSMContext):
             [InlineKeyboardButton(text="🔙 Sellerlar", callback_data="admin_sellers")],
         ])
     )
+
+
+# ─── 🔄 Restart: hammaga yangi menyuni majburan yuborish ─────────────────────
+# Foydalanuvchilar /start bosmasdan yoki tarixini tozalamasdan ham darhol
+# yangi klaviaturani oladi.
+@router.callback_query(F.data == "admin_restart_menu")
+async def admin_restart_menu_confirm(call: CallbackQuery):
+    if not is_owner(call.from_user.id): return
+    targets = set(get_users().keys()) | set(get_sellers().keys())
+    if not targets:
+        await call.answer("Foydalanuvchilar yo'q.", show_alert=True); return
+    await call.message.answer(
+        f"🔄 <b>Restart</b>\n\n"
+        f"<b>{len(targets)}</b> ta foydalanuvchining har biriga yangi menyu "
+        f"yuboriladi (xuddi /start bosgandek).\n\n"
+        f"Tasdiqlaysizmi?",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Ha, hammaga yuborish", callback_data="admin_restart_go")],
+            [InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_back")],
+        ])
+    )
+    await _ack(call)
+
+
+@router.callback_query(F.data == "admin_restart_go")
+async def admin_restart_menu_go(call: CallbackQuery):
+    if not is_owner(call.from_user.id): return
+    await _ack(call)
+    targets = sorted(set(get_users().keys()) | set(get_sellers().keys()))
+    status = await call.message.answer(f"🔄 Yuborilmoqda...  0/{len(targets)}")
+    from app.bot.bot import bot
+    sent, failed = 0, 0
+    for i, uid in enumerate(targets, 1):
+        try:
+            await bot.send_message(
+                int(uid),
+                "🔄 <b>Bot yangilandi!</b>\nYangi menyudan foydalaning 👇",
+                parse_mode="HTML",
+                reply_markup=menu_for(int(uid)),
+            )
+            set_user_field(int(uid), "menu_ver", MENU_VERSION)
+            sent += 1
+        except Exception:
+            failed += 1
+        # Telegram flood limitiga tushib qolmaslik uchun kichik pauza
+        await asyncio.sleep(0.1)
+        if i % 25 == 0:
+            try:
+                await status.edit_text(f"🔄 Yuborilmoqda...  {i}/{len(targets)}")
+            except Exception:
+                pass
+    _log(call.from_user, "Restart: hammaga yangi menyu",
+         f"yetdi: {sent}, yetmadi: {failed}")
+    result = (
+        f"🔄 <b>Restart yakunlandi!</b>\n"
+        f"✅ Yangi menyu yetib bordi: <b>{sent}</b> ta\n"
+    )
+    if failed:
+        result += (
+            f"❌ Yetib bormadi: <b>{failed}</b> ta "
+            f"(botni bloklagan yoki hali /start bosmagan)\n"
+        )
+    try:
+        await status.edit_text(result, parse_mode="HTML")
+    except Exception:
+        await call.message.answer(result, parse_mode="HTML")
 
 
 # ─── Hamma sellerlarga birdaniga xabar yuborish ──────────────────────────────
