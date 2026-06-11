@@ -6,9 +6,8 @@ from aiogram.types import (
 
 def _build_main_menu() -> ReplyKeyboardMarkup:
     rows = [
-        [KeyboardButton(text="🛒 Market"),           KeyboardButton(text="🔎 Qidirish")],
-        [KeyboardButton(text="📦 Buyurtmalarim"),   KeyboardButton(text="👤 Profil")],
-        [KeyboardButton(text="🏪 Sotuvchi bo'lish"), KeyboardButton(text="ℹ️ Ma'lumot")],
+        [KeyboardButton(text="🛒 Market"),         KeyboardButton(text="🔎 Qidirish")],
+        [KeyboardButton(text="📦 Buyurtmalarim"), KeyboardButton(text="👤 Profil")],
     ]
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
 
@@ -19,7 +18,7 @@ main_menu = _build_main_menu()
 def _build_seller_main_menu() -> ReplyKeyboardMarkup:
     rows = [
         [KeyboardButton(text="🛒 Sotuvchi paneli"), KeyboardButton(text="👥 Shahrim sellerlari")],
-        [KeyboardButton(text="👤 Profil"),          KeyboardButton(text="ℹ️ Ma'lumot")],
+        [KeyboardButton(text="👤 Profil")],
     ]
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
 
@@ -45,6 +44,15 @@ phone_keyboard = ReplyKeyboardMarkup(
     ],
     resize_keyboard=True
 )
+
+def admin_contact_kb() -> InlineKeyboardMarkup:
+    """Bir bosishda admin chatini ochadigan kompakt tugma."""
+    from app.app.config.settings import settings
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💬 Adminga yozish",
+                              url=f"https://t.me/{settings.ADMIN_USERNAME}")]
+    ])
+
 
 def stars_kb(seller_id: int, order_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[

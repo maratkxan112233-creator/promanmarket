@@ -1,3 +1,4 @@
+import asyncio
 import io
 import os
 import zipfile
@@ -63,6 +64,10 @@ class AdminSellerSearch(StatesGroup):
 
 
 class AdminMsgSeller(StatesGroup):
+    text = State()
+
+
+class AdminMsgAllSellers(StatesGroup):
     text = State()
 
 
@@ -160,6 +165,7 @@ def admin_menu_kb(uid: int):
         return InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📋 Arizalar",        callback_data="admin_applications")],
             [InlineKeyboardButton(text="🏪 Sellerlar",        callback_data="admin_sellers")],
+            [InlineKeyboardButton(text="📢 Hamma sellerlarga xabar", callback_data="admin_msg_all")],
             [InlineKeyboardButton(text="📄 Sellerlar (Word)", callback_data="admin_sellers_word")],
             [InlineKeyboardButton(text="➕ Mahsulot qo'shish", callback_data="admin_addprod")],
             [InlineKeyboardButton(text="📦 Mahsulotlar",      callback_data="admin_products")],
@@ -615,6 +621,61 @@ async def msg_seller_send(message: Message, state: FSMContext):
             [InlineKeyboardButton(text="🔙 Sellerlar", callback_data="admin_sellers")],
         ])
     )
+
+
+# ─── Hamma sellerlarga birdaniga xabar yuborish ──────────────────────────────
+@router.callback_query(F.data == "admin_msg_all")
+async def msg_all_sellers_start(call: CallbackQuery, state: FSMContext):
+    if not is_owner(call.from_user.id): return
+    sellers = get_sellers()
+    if not sellers:
+        await call.answer("Hozircha sellerlar yo'q.", show_alert=True); return
+    await state.set_state(AdminMsgAllSellers.text)
+    await call.message.answer(
+        f"📢 <b>Hamma sellerlarga xabar</b>  (jami {len(sellers)} ta)\n\n"
+        f"Matn, rasm yoki istalgan xabarni yuboring — bot uni BARCHA "
+        f"sellerlarning lichkasiga yetkazadi.\n"
+        f"Bekor qilish: /cancel",
+        parse_mode="HTML"
+    )
+    await call.answer()
+
+
+@router.message(AdminMsgAllSellers.text)
+async def msg_all_sellers_send(message: Message, state: FSMContext):
+    if not is_owner(message.from_user.id):
+        await state.clear(); return
+    if (message.text or "").startswith("/"):
+        await state.clear()
+        await message.answer("⛔️ Xabar yuborish bekor qilindi.",
+                             reply_markup=admin_menu_kb(message.from_user.id))
+        return
+    await state.clear()
+    from app.bot.bot import bot
+    sellers = get_sellers()
+    sent, failed = 0, 0
+    for uid in sellers:
+        try:
+            await bot.send_message(int(uid), "📩 <b>Admindan xabar:</b>", parse_mode="HTML")
+            await message.send_copy(chat_id=int(uid))
+            sent += 1
+        except Exception:
+            failed += 1
+        # Telegram flood limitiga tushib qolmaslik uchun kichik pauza
+        await asyncio.sleep(0.1)
+    _log(message.from_user, "Hamma sellerlarga xabar",
+         f"yetdi: {sent}, yetmadi: {failed}")
+    result = (
+        f"📢 <b>Yuborish yakunlandi!</b>\n"
+        f"✅ Yetib bordi: <b>{sent}</b> ta seller\n"
+    )
+    if failed:
+        result += (
+            f"❌ Yetib bormadi: <b>{failed}</b> ta "
+            f"(botni bloklagan yoki /start bosmagan)\n"
+        )
+    await message.answer(result, parse_mode="HTML",
+                         reply_markup=admin_menu_kb(message.from_user.id))
 
 
 @router.callback_query(F.data.startswith("del_seller_"))

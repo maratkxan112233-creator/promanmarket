@@ -15,7 +15,10 @@ from app.storage import (
     get_user, set_user_field, get_cities, product_photos,
     set_view_msgs, pop_view_msgs, get_view_msgs,
 )
-from app.keyboards.seller import main_menu, seller_main_menu, menu_for, phone_keyboard, cancel_keyboard
+from app.keyboards.seller import (
+    main_menu, seller_main_menu, menu_for, phone_keyboard, cancel_keyboard,
+    admin_contact_kb,
+)
 from app.states.seller_application import SearchState, OrderState
 from app.app.config.settings import settings
 from app.ui import (
@@ -52,6 +55,11 @@ DELIVERY_REFUND_RATE = 0.05
 FREE_DELIVERY_BANNER = (
     f"🚚 <b>{money(FREE_DELIVERY_MIN)}dan ortiq xaridga — "
     f"shahar ichida yetkazish BEPUL!</b>"
+)
+# Sellerlarni jalb qilish uchun doimiy ko'rinib turadigan taklif yozuvi.
+SELLER_INVITE_BANNER = (
+    "🤝 <b>Sellerlarni hamkorlikka taklif qilamiz!</b>\n"
+    f"Murojaat: @{settings.ADMIN_USERNAME}"
 )
 
 
@@ -115,10 +123,10 @@ async def contact_handler(message: Message):
         f"{info_title}\n"
         f"{divider()}\n"
         "💬 Savol va takliflar:  @promanmarketbot\n"
-        "👤 Admin:  @Marufzxon\n"
+        f"👤 Admin:  @{settings.ADMIN_USERNAME}\n"
         "🕘 Ish vaqti:  09:00 – 18:00",
         parse_mode="HTML",
-        reply_markup=menu_for(message.from_user.id)
+        reply_markup=admin_contact_kb()
     )
 
 
@@ -148,7 +156,7 @@ async def profile_handler(message: Message):
             f"{divider()}\n"
             f"📍 Shahar:  {city}\n"
             f"{divider()}\n"
-            "🏪 Sotuvchi bo'lish uchun menyudan tanlang."
+            f"🤝 Sotuvchi bo'lib hamkorlik qilish uchun adminga yozing: @{settings.ADMIN_USERNAME}"
         )
 
     await message.answer(
@@ -158,7 +166,7 @@ async def profile_handler(message: Message):
         f"🔗 Username:  @{user.username or 'yoq'}\n"
         f"🆔 ID:  {user.id}\n"
         f"🎭 Rol:  {role}\n{extra}",
-        parse_mode="HTML", reply_markup=menu_for(user.id)
+        parse_mode="HTML", reply_markup=admin_contact_kb()
     )
 
 
@@ -195,6 +203,7 @@ async def _show_market(message: Message, city: str):
         return
     await message.answer(
         f"{FREE_DELIVERY_BANNER}\n"
+        f"{SELLER_INVITE_BANNER}\n"
         f"{divider()}\n"
         f"🛍 <b>Do'konlar</b>   📍 {city}\n"
         "Bitta do'konni tanlang:",
@@ -795,7 +804,8 @@ async def order_phone(message: Message, state: FSMContext):
         f"{divider()}\n"
         f"{deliver_line}"
         f"🧾 <b>To'lov chekining rasmini (skrinshot) shu yerga yuboring.</b>\n"
-        f"Chek tasdiqlangach buyurtmangiz tayyorlanadi.",
+        f"Chek tasdiqlangach buyurtmangiz tayyorlanadi.\n"
+        f"❓ Muammo bo'lsa — admin: @{settings.ADMIN_USERNAME}",
         parse_mode="HTML", reply_markup=cancel_keyboard
     )
 

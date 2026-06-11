@@ -5,7 +5,8 @@ from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 
 from app.keyboards.seller import menu_for
 from app.storage import register_user
-from app.handlers.common import FREE_DELIVERY_BANNER
+from app.handlers.common import FREE_DELIVERY_BANNER, SELLER_INVITE_BANNER
+from app.app.config.settings import settings
 
 router = Router()
 
@@ -19,11 +20,14 @@ async def cmd_start(message: Message, state: FSMContext):
     })
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🚀 Start", callback_data="go_start")],
+        [InlineKeyboardButton(text="💬 Adminga yozish",
+                              url=f"https://t.me/{settings.ADMIN_USERNAME}")],
     ])
     await message.answer(
         "👋 Salom!\n"
         "<b>Proman Market</b> botiga xush kelibsiz!\n\n"
-        f"{FREE_DELIVERY_BANNER}\n\n"
+        f"{FREE_DELIVERY_BANNER}\n"
+        f"{SELLER_INVITE_BANNER}\n\n"
         "Xarid qilishni boshlash uchun <b>Start</b> tugmasini bosing 👇",
         parse_mode="HTML",
         reply_markup=kb,

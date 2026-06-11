@@ -6,6 +6,7 @@ from aiogram.fsm.context import FSMContext
 from app.states.seller_application import SellerApplicationState
 from app.keyboards.seller import cancel_keyboard, phone_keyboard, menu_for
 from app.storage import save_application, get_application, is_seller, get_cities
+from app.app.config.settings import settings
 
 router = Router()
 
@@ -163,7 +164,8 @@ async def process_card_number(message: Message, state: FSMContext):
         f"📱 Telefon: {data['phone']}\n"
         f"🏙 Shahar: {data.get('city','—')}\n"
         f"💳 Karta: **** **** **** {data['card_number'][-4:]}\n\n"
-        "⏳ Arizangiz ko'rib chiqiladi va natija sizga xabar qilinadi.",
+        "⏳ Arizangiz ko'rib chiqiladi va natija sizga xabar qilinadi.\n"
+        f"❓ Savol bo'lsa — admin: @{settings.ADMIN_USERNAME}",
         reply_markup=menu_for(message.from_user.id)
     )
 

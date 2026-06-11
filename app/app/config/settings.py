@@ -5,6 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     BOT_TOKEN: str
     OWNER_ID: int
+    ADMIN_USERNAME: str = "Marufzxon"  # @siz, t.me/ havolasi uchun
     PLATFORM_CARD: str = ""          # 10% oldi-to'lov tushadigan platforma kartasi
     PLATFORM_CARD_NAME: str = ""     # platforma kartasi egasining ismi
     COMMISSION_RATE: float = 0.10     # platforma komissiyasi (0.10 = 10%)
