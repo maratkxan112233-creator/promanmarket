@@ -16,12 +16,12 @@ from app.storage import (
     get_order_by_id, update_order_status, get_seller_orders, get_seller,
     get_seller_products, add_product,
     get_admins, add_admin, remove_admin, is_sub_admin,
-    get_couriers, add_courier, remove_courier,
+    get_couriers, add_courier, remove_courier, is_courier,
     add_audit, get_audit,
     get_cities, add_city, remove_city, get_user,
 )
 from app.album import collect
-from app.keyboards.seller import main_menu
+from app.keyboards.seller import main_menu, stars_kb
 from app.app.config.settings import settings
 
 router = Router()
@@ -412,26 +412,11 @@ async def confirm_payment(call: CallbackQuery):
             pass
 
         # ── KURIERLARGA — yangi zakaz (10% to'lov tasdiqlanishi bilanoq) ──
-        shop = get_seller(o["seller_id"]) or {}
-        total  = o.get("total", 0)
-        prepay = o.get("prepay", 0)
-        remain = max(total - prepay, 0)
-        courier_text = (
-            f"🚚 <b>YANGI ZAKAZ!</b>\n\n"
-            f"🆔 Zakaz raqami: <b>#{oid}</b>\n"
-            f"🏪 Do'kon: <b>{shop.get('shop_name','—')}</b>\n"
-            f"📱 Do'kon tel: {shop.get('phone','—')}\n"
-            f"🏙 Shahar: {shop.get('city','—')}\n"
-            f"📦 Mahsulot: {o.get('product_name','—')}\n"
-            f"💰 Qoldiq summa: <b>{remain:,} so'm</b>"
-            f"  (jami: {total:,}, oldindan to'langan: {prepay:,})\n\n"
-            f"📍 Yetkazish manzili: {o.get('address','—')}\n"
-            f"👤 Xaridor: {o.get('buyer_name','—')} — {o.get('phone','—')}\n\n"
-            f"Do'kondan mahsulotni olib, xaridorga yetkazing."
-        )
         for cid in get_couriers():
             try:
-                await bot.send_message(int(cid), courier_text, parse_mode="HTML")
+                await bot.send_message(int(cid), _courier_order_text(oid, o),
+                                       parse_mode="HTML",
+                                       reply_markup=_courier_done_kb(oid))
             except Exception:
                 # Kurier botga /start bosmagan yoki bloklagan bo'lsa — o'tkazib yuboramiz
                 pass
@@ -1341,6 +1326,118 @@ async def del_courier_cb(call: CallbackQuery):
     else:
         await call.answer("Topilmadi.")
     await couriers_list(call)
+
+
+def _courier_order_text(oid: int, o: dict) -> str:
+    """Kurierga yuboriladigan zakaz kartochkasi (yangi zakaz xabari va /kurier
+    panelida bir xil ishlatiladi)."""
+    shop = get_seller(o["seller_id"]) or {}
+    total  = o.get("total", 0)
+    prepay = o.get("prepay", 0)
+    remain = max(total - prepay, 0)
+    return (
+        f"🚚 <b>ZAKAZ</b>\n\n"
+        f"🆔 Zakaz raqami: <b>#{oid}</b>\n"
+        f"🏪 Do'kon: <b>{shop.get('shop_name','—')}</b>\n"
+        f"📱 Do'kon tel: {shop.get('phone','—')}\n"
+        f"🏙 Shahar: {shop.get('city','—')}\n"
+        f"📦 Mahsulot: {o.get('product_name','—')}\n"
+        f"💰 Qoldiq summa: <b>{remain:,} so'm</b>"
+        f"  (jami: {total:,}, oldindan to'langan: {prepay:,})\n\n"
+        f"📍 Yetkazish manzili: {o.get('address','—')}\n"
+        f"👤 Xaridor: {o.get('buyer_name','—')} — {o.get('phone','—')}\n\n"
+        f"Do'kondan mahsulotni olib, xaridorga yetkazing."
+    )
+
+
+def _courier_done_kb(oid: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Yetkazib berildi", callback_data=f"cdone_{oid}")]
+    ])
+
+
+# ─── Kurier paneli: faol zakazlar ro'yxati ───────────────────────────────────
+@router.message(Command("kurier"))
+async def courier_panel(message: Message):
+    if not (is_courier(message.from_user.id) or is_owner(message.from_user.id)):
+        await message.answer("❌ Siz kurier emassiz.")
+        return
+    active = [
+        o for o in get_orders()
+        if o.get("delivery") != "pickup"
+        and o.get("status") in ("paid", "processing", "shipped")
+    ]
+    if not active:
+        await message.answer("🚚 Hozircha faol zakaz yo'q.")
+        return
+    await message.answer(f"🚚 <b>Faol zakazlar:</b> {len(active)} ta", parse_mode="HTML")
+    for o in active[-10:]:
+        await message.answer(_courier_order_text(o["id"], o), parse_mode="HTML",
+                             reply_markup=_courier_done_kb(o["id"]))
+
+
+# ─── Kurier "Yetkazib berildi" tugmasi ───────────────────────────────────────
+@router.callback_query(F.data.startswith("cdone_"))
+async def courier_delivered(call: CallbackQuery):
+    if not (is_courier(call.from_user.id) or is_owner(call.from_user.id)):
+        await call.answer("Ruxsat yo'q.", show_alert=True); return
+    oid = int(call.data.split("_")[1])
+    o = get_order_by_id(oid)
+    if not o:
+        await call.answer("Buyurtma topilmadi.", show_alert=True); return
+    if o.get("status") == "delivered":
+        await call.answer("Bu zakaz allaqachon yetkazilgan.", show_alert=True); return
+    await call.answer("✅ Yetkazib berildi!")
+
+    update_order_status(oid, "delivered")
+    courier = get_couriers().get(str(call.from_user.id), {})
+    _log(call.from_user, "Zakaz yetkazildi (kurier)",
+         f"Buyurtma #{oid} — kurier: {courier.get('name', call.from_user.full_name)}")
+
+    # Kurier xabarini belgilab, tugmani olib tashlaymiz
+    try:
+        await call.message.edit_text(
+            call.message.html_text + "\n\n✅ <b>YETKAZIB BERILDI</b>",
+            parse_mode="HTML",
+        )
+    except Exception:
+        pass
+
+    from app.bot.bot import bot
+    # Xaridorga — yetkazildi + qolgan to'lov + baholash tugmalari
+    total  = o.get("total", 0)
+    prepay = o.get("prepay", 0)
+    remain = max(total - prepay, 0)
+    remain_pct = round(remain / total * 100) if total else 0
+    remain_line = (
+        f"\n💰 Qolgan to'lov:  <b>{remain:,} so'm</b>  ({remain_pct}%)\n"
+        "Mahsulotni tekshirib, qolgan summani to'lang (naqd yoki karta).\n"
+        if remain else "\n"
+    )
+    try:
+        await bot.send_message(
+            o["buyer_id"],
+            f"📦 <b>Buyurtmangiz yetkazildi!</b>  (#{oid})\n"
+            f"📦 {o.get('product_name', '—')}"
+            f"{remain_line}\n"
+            "⭐ Sellerni baholang:",
+            parse_mode="HTML",
+            reply_markup=stars_kb(o["seller_id"], oid)
+        )
+    except Exception:
+        pass
+
+    # Sellerga — kurier yetkazgani haqida
+    try:
+        await bot.send_message(
+            o["seller_id"],
+            f"✅ <b>Buyurtma #{oid} kurier tomonidan yetkazildi!</b>\n"
+            f"📦 {o.get('product_name','—')}\n"
+            f"💰 Qolgan to'lov ({remain:,} so'm) xaridordan olinadi.",
+            parse_mode="HTML"
+        )
+    except Exception:
+        pass
 
 
 # ═══════════════════════════════════════════════════════════════════════════

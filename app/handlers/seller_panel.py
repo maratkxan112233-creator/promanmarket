@@ -11,7 +11,7 @@ from app.storage import (
 )
 from app.album import collect
 from app.keyboards.seller import main_menu, seller_main_menu, stars_kb
-from app.ui import CATEGORIES, category_label, money, divider, product_emoji
+from app.ui import money, divider, product_emoji
 
 router = Router()
 
@@ -38,10 +38,8 @@ ORDER_STATUSES = {
 
 class AddProductState(StatesGroup):
     name        = State()
-    category    = State()   # bo'lim tanlash (inline tugmalar)
     description = State()
     price       = State()
-    old_price   = State()   # ixtiyoriy chegirma (eski narx)
     photo       = State()
     colors      = State()
     preview     = State()   # saqlashdan oldin ko'rib chiqish/tasdiq
@@ -227,8 +225,8 @@ MENU_BUTTONS = {
 }
 
 ADD_PRODUCT_STATES = StateFilter(
-    AddProductState.name, AddProductState.category, AddProductState.description,
-    AddProductState.price, AddProductState.old_price,
+    AddProductState.name, AddProductState.description,
+    AddProductState.price,
     AddProductState.photo, AddProductState.colors,
     AddProductState.preview,
 )
@@ -258,41 +256,13 @@ async def addprod_interrupt_menu(message: Message, state: FSMContext):
     await message.answer("⛔️ Mahsulot qo'shish to'xtatildi.", reply_markup=main_menu)
 
 
-def _category_kb() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=label, callback_data=f"apcat_{code}")]
-        for code, label in CATEGORIES
-    ])
-
-
 @router.message(AddProductState.name)
 async def product_name(message: Message, state: FSMContext):
     if not (message.text or "").strip():
         await message.answer("❌ Mahsulot nomini matn ko'rinishida kiriting:"); return
     await state.update_data(name=message.text.strip())
-    await state.set_state(AddProductState.category)
-    await message.answer(
-        "🗂 Mahsulot qaysi bo'limga kiradi? Tanlang:",
-        reply_markup=_category_kb()
-    )
-
-
-@router.callback_query(AddProductState.category, F.data.startswith("apcat_"))
-async def product_category_chosen(call: CallbackQuery, state: FSMContext):
-    code = call.data.split("_", 1)[1]
-    await _ack(call)
-    await state.update_data(category=code)
     await state.set_state(AddProductState.description)
-    try:
-        await call.message.edit_text(f"🗂 Bo'lim: {category_label(code)}")
-    except Exception:
-        pass
-    await call.message.answer("📝 Tavsif kiriting (yoki /skip — tavsifsiz davom etish):")
-
-
-@router.message(AddProductState.category)
-async def product_category_wrong(message: Message):
-    await message.answer("❌ Yuqoridagi tugmalardan bo'limni tanlang:", reply_markup=_category_kb())
+    await message.answer("📝 Tavsif kiriting (yoki /skip — tavsifsiz davom etish):")
 
 
 @router.message(AddProductState.description, F.text == "/skip")
@@ -317,36 +287,6 @@ async def product_price(message: Message, state: FSMContext):
     if price <= 0:
         await message.answer("❌ Narxni to'g'ri kiriting (masalan: 150000 yoki 150 000):"); return
     await state.update_data(price=price)
-    await state.set_state(AddProductState.old_price)
-    await message.answer(
-        "🏷 <b>Chegirma (ixtiyoriy)</b>\n"
-        "Chegirma ko'rsatmoqchi bo'lsangiz — <b>eski (chegirmasiz) narxni</b> kiriting.\n"
-        f"U hozirgi narxdan ({price:,} so'm) yuqori bo'lishi kerak.\n\n"
-        "Chegirmasiz davom etish uchun /skip yozing.",
-        parse_mode="HTML"
-    )
-
-
-@router.message(AddProductState.old_price, F.text == "/skip")
-async def product_old_price_skip(message: Message, state: FSMContext):
-    await state.update_data(old_price=None)
-    await state.set_state(AddProductState.photo)
-    await message.answer(_PHOTO_PROMPT)
-
-
-@router.message(AddProductState.old_price)
-async def product_old_price(message: Message, state: FSMContext):
-    data  = await state.get_data()
-    price = data.get("price", 0)
-    old   = to_int(message.text, -1)
-    if old <= 0:
-        await message.answer("❌ Eski narxni to'g'ri kiriting yoki /skip yozing:"); return
-    if old <= price:
-        await message.answer(
-            f"❌ Eski narx hozirgi narxdan ({price:,} so'm) yuqori bo'lishi kerak. "
-            "Qayta kiriting yoki /skip yozing:"
-        ); return
-    await state.update_data(old_price=old)
     await state.set_state(AddProductState.photo)
     await message.answer(_PHOTO_PROMPT)
 
@@ -429,16 +369,8 @@ async def product_colors_enter(message: Message, state: FSMContext):
 # ─── Saqlashdan oldin ko'rib chiqish (preview) ───────────────────────────────
 def _preview_text(data: dict) -> str:
     price = data.get("price", 0)
-    old   = data.get("old_price")
     lines = ["👀 <b>Mahsulot shunday chiqadi:</b>\n", f"📦 <b>{data.get('name','')}</b>"]
-    lines.append(f"🗂 Bo'lim: {category_label(data.get('category'))}")
-    price_line = f"💰 <b>{price:,} so'm</b>"
-    if old and old > price:
-        pct = round((old - price) / old * 100)
-        price_line += f"  <b>↓{pct}%</b>"
-    lines.append(price_line)
-    if old and old > price:
-        lines.append(f"<s>{old:,} so'm</s>")
+    lines.append(f"💰 <b>{price:,} so'm</b>")
     desc = data.get("description")
     if desc:
         lines.append(f"\n📝 {desc}")
@@ -480,17 +412,13 @@ async def product_preview_save(call: CallbackQuery, state: FSMContext):
     photo_info = f"🖼 {len(photos)} ta rasm · " if photos else ""
     colors     = data.get("colors") or []
     colors_str = ", ".join(colors) if colors else "Rangsiz"
-    disc_line  = ""
-    old = data.get("old_price")
-    if old and old > data.get("price", 0):
-        disc_line = f"\n🏷 Chegirma: <s>{old:,}</s> → {data['price']:,} so'm"
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="➕ Yana mahsulot qo'shish", callback_data="seller_add_product")],
         [InlineKeyboardButton(text="📦 Mahsulotlarim",          callback_data="seller_products")],
     ])
     await call.message.answer(
         f"✅ <b>{data['name']}</b> qo'shildi!\n"
-        f"💰 {data['price']:,} so'm · {photo_info}🎨 {colors_str}{disc_line}",
+        f"💰 {data['price']:,} so'm · {photo_info}🎨 {colors_str}",
         parse_mode="HTML", reply_markup=kb
     )
     await call.answer("Saqlandi ✅")
