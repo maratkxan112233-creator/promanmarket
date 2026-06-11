@@ -249,6 +249,7 @@ async def show_applications(call: CallbackQuery):
         text = (
             f"📋 <b>Ariza #{uid}</b>\n\n"
             f"👤 {app.get('full_name')}\n"
+            f"🏪 Do'kon: {app.get('shop_name','—')}\n"
             f"📱 {app.get('phone')}\n"
             f"🏙 Shahar: {app.get('city','—')}\n"
             f"💳 **** {card[-4:] if card else '—'}"
@@ -272,11 +273,17 @@ async def approve_seller(call: CallbackQuery):
         "card_number": app.get("card_number", ""), "city": app.get("city", ""),
     })
     _log(call.from_user, "Seller qo'shildi",
-         f"{app['full_name']} — do'kon: {app['shop_name']} (ID:{uid}, {app.get('city','—')})")
+         f"{app['full_name']} — do'kon: {app.get('shop_name','—')} (ID:{uid}, {app.get('city','—')})")
     await call.message.edit_text(f"✅ {app['full_name']} seller sifatida tasdiqlandi!")
     try:
         from app.bot.bot import bot
-        await bot.send_message(uid, "🎉 Seller arizangiz tasdiqlandi!\n/seller buyrug'i orqali panel oching.")
+        await bot.send_message(
+            uid,
+            "🎉 <b>Tabriklaymiz — siz endi sellersiz!</b>\n\n"
+            "Arizangiz tasdiqlandi. Seller panelini ochish uchun /seller "
+            "buyrug'ini bosing va mahsulot qo'shishni boshlang.",
+            parse_mode="HTML"
+        )
     except Exception: pass
 
 

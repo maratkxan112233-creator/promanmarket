@@ -3,6 +3,7 @@ from aiogram.fsm.state import State, StatesGroup
 
 class SellerApplicationState(StatesGroup):
     full_name = State()
+    shop_name = State()
     phone = State()
     city = State()
     card_number = State()
