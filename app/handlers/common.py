@@ -19,7 +19,7 @@ from app.keyboards.seller import main_menu, seller_main_menu, menu_for, phone_ke
 from app.states.seller_application import SearchState, OrderState
 from app.app.config.settings import settings
 from app.ui import (
-    money, divider, title, CATEGORIES, category_label, product_category,
+    money, divider, title, category_label, product_category,
     product_emoji,
 )
 
@@ -227,19 +227,10 @@ async def buyer_set_city(call: CallbackQuery):
     await _show_market(call.message, city)
 
 
-def _shop_categories(seller_id: int) -> list:
-    """Do'konda mahsuloti BOR bo'limlar: [(kod, nom, soni), ...] CATEGORIES tartibida."""
-    counts: dict = {}
-    for p in get_seller_products(seller_id):
-        code = product_category(p)
-        counts[code] = counts.get(code, 0) + 1
-    return [(code, label, counts[code]) for code, label in CATEGORIES if code in counts]
-
-
 async def _send_shop_menu(call: CallbackQuery, seller_id: int):
-    """Do'konga kirilganda BO'LIMLAR menyusini yuboradi (rasmdagidek):
-    📺 Televizorlar, 🧊 Muzlatgichlar... Bittasini bossa — bo'lim mahsulotlari
-    albom bo'lib ochiladi (cat_<seller_id>_<kod>)."""
+    """Do'konga kirilganda TO'G'RIDAN-TO'G'RI barcha mahsulotlar ro'yxatini
+    yuboradi (bo'limlar menyusisiz): har bir mahsulot nomi + narxi alohida
+    tugma (prod_<id>)."""
     chat_id = call.message.chat.id
     await _clear_last_product(call.message.bot, chat_id, [call.message.message_id])
 
@@ -248,8 +239,8 @@ async def _send_shop_menu(call: CallbackQuery, seller_id: int):
     rating, cnt = get_seller_rating(seller_id)
     stars = f"   ⭐ {rating} ({cnt})" if cnt else ""
 
-    cats = _shop_categories(seller_id)
-    if not cats:
+    products = get_seller_products(seller_id)
+    if not products:
         await call.message.answer(
             f"{title('🏪', shop_name)}\n{divider()}\n📦 Hozircha mahsulot yo'q.",
             parse_mode="HTML",
@@ -259,19 +250,20 @@ async def _send_shop_menu(call: CallbackQuery, seller_id: int):
         )
         return
 
-    # Bitta bo'lim bo'lsa — bo'lim tanlash bosqichini tashlab ketamiz.
-    if len(cats) == 1:
-        await _send_category_products(call.message, seller_id, cats[0][0])
-        return
-
-    rows = [
-        [InlineKeyboardButton(text=f"{label}  ·  {n} ta", callback_data=f"cat_{seller_id}_{code}")]
-        for code, label, n in cats
-    ]
+    rows = []
+    for p in products:
+        name = p.get("name", "—")
+        if len(name) > 30:
+            name = name[:30].rstrip() + "…"
+        rows.append([InlineKeyboardButton(
+            text=f"{product_emoji(p)} {name}  ·  {money(p.get('price', 0))}",
+            callback_data=f"prod_{p['id']}"
+        )])
     rows.append([InlineKeyboardButton(text="‹  Orqaga", callback_data="back_shops")])
+
     await call.message.answer(
         f"{title('🏪', shop_name)}{stars}\n{divider()}\n"
-        "Bo'limlarni tanlang:",
+        f"📦 {len(products)} ta mahsulot — birini tanlang 👇",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=rows)
     )
@@ -402,12 +394,12 @@ def _product_caption(p: dict) -> str:
 
 
 def _product_kb(p: dict) -> InlineKeyboardMarkup:
-    """Mahsulot xabari uchun tugmalar: buyurtma va orqaga (o'z bo'limiga)."""
+    """Mahsulot xabari uchun tugmalar: buyurtma va orqaga (do'kon ro'yxatiga)."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🛒  Buyurtma berish", callback_data=f"order_{p['id']}")],
         [InlineKeyboardButton(
             text="‹  Orqaga",
-            callback_data=f"cat_{p['seller_id']}_{product_category(p)}",
+            callback_data=f"shop_{p['seller_id']}",
         )],
     ])
 
