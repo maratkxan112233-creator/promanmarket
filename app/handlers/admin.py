@@ -16,6 +16,7 @@ from app.storage import (
     get_order_by_id, update_order_status, get_seller_orders, get_seller,
     get_seller_products, add_product,
     get_admins, add_admin, remove_admin, is_sub_admin,
+    get_couriers, add_courier, remove_courier,
     add_audit, get_audit,
     get_cities, add_city, remove_city, get_user,
 )
@@ -30,6 +31,16 @@ _MENU_BUTTONS = {
     "🛒 Market", "🛍 Bozor", "🔎 Qidirish", "🏪 Sotuvchi bo'lish", "📦 Buyurtmalarim",
     "👤 Profil", "ℹ️ Ma'lumot", "📞 Aloqa", "🛍 Do'kon (ilova)", "❌ Bekor qilish",
 }
+
+async def _ack(call):
+    """Tugma spinnerini DARHOL o'chiradi — og'ir ishlar tugashini kutmasdan.
+    Handler boshqa handlerdan qayta chaqirilganda callback allaqachon
+    javoblangan bo'lishi mumkin — shunda xato bermaydi."""
+    try:
+        await call.answer()
+    except Exception:
+        pass
+
 
 # ─── Robust navigatsiya: eski (48soat+) yoki rasm xabarda edit_text ishlamaydi ──
 async def _admin_nav(call, text, kb):
@@ -68,11 +79,23 @@ def _sellers_keyboard(items):
 
 
 def _sellers_text(items):
-    from app.storage import get_seller_rating, get_seller_orders
+    from app.storage import get_reviews, get_orders
+    # Reyting va buyurtma sonini har seller uchun alohida emas, bitta o'tishda
+    # yig'amiz (N+1 takroriy aylanishlar ro'yxat katta bo'lganda sekinlashtirardi).
+    stars_by_seller: dict = {}
+    for r in get_reviews():
+        stars_by_seller.setdefault(r.get("seller_id"), []).append(r.get("stars", 0))
+    orders_by_seller: dict = {}
+    for o in get_orders():
+        sid = o.get("seller_id")
+        orders_by_seller[sid] = orders_by_seller.get(sid, 0) + 1
+
     lines = ["🏪 <b>Sellerlar</b> — jami " + str(len(items)) + " ta\n"]
     for i, (uid, s) in enumerate(items, 1):
-        rating, cnt = get_seller_rating(int(uid))
-        ordc = len(get_seller_orders(int(uid)))
+        stars = stars_by_seller.get(int(uid), [])
+        rating = round(sum(stars) / len(stars), 1) if stars else 0.0
+        cnt = len(stars)
+        ordc = orders_by_seller.get(int(uid), 0)
         card = s.get("card_number", "")
         last4 = card[-4:] if card else "—"
         lines.append(
@@ -145,6 +168,7 @@ def admin_menu_kb(uid: int):
             [InlineKeyboardButton(text="📊 Statistika",       callback_data="admin_stats")],
             [InlineKeyboardButton(text="📈 Excel hisobot",    callback_data="admin_excel_menu")],
             [InlineKeyboardButton(text="👮 Adminlar",         callback_data="admin_admins")],
+            [InlineKeyboardButton(text="🚚 Kurierlar",        callback_data="admin_couriers")],
             [InlineKeyboardButton(text="💾 Zaxira (backup)",  callback_data="admin_backup")],
             [InlineKeyboardButton(text="📜 Jurnal (Word)",    callback_data="admin_log")],
         ])
@@ -183,6 +207,7 @@ async def admin_panel(message: Message):
 @router.callback_query(F.data == "admin_back")
 async def admin_back(call: CallbackQuery):
     if not is_admin(call.from_user.id): return
+    await _ack(call)
     if is_owner(call.from_user.id):
         apps = get_applications()
         pending = [a for a in apps.values() if a.get("status") == "pending"]
@@ -199,13 +224,13 @@ async def admin_back(call: CallbackQuery):
             "• Mahsulot qo'shish"
         )
     await _admin_nav(call, text, admin_menu_kb(call.from_user.id))
-    await call.answer()
 
 
 # ─── Arizalar ────────────────────────────────────────────────────────────────
 @router.callback_query(F.data == "admin_applications")
 async def show_applications(call: CallbackQuery):
     if not is_admin(call.from_user.id): return
+    await _ack(call)
     pending = {uid: a for uid, a in get_applications().items() if a.get("status") == "pending"}
     if not is_owner(call.from_user.id):
         mycity = _admin_city(call.from_user.id)
@@ -229,7 +254,6 @@ async def show_applications(call: CallbackQuery):
             f"💳 **** {card[-4:] if card else '—'}"
         )
         await call.message.answer(text, reply_markup=kb, parse_mode="HTML")
-    await call.answer()
 
 
 @router.callback_query(F.data.startswith("approve_"))
@@ -239,6 +263,8 @@ async def approve_seller(call: CallbackQuery):
     app = get_applications().get(str(uid))
     if not app:
         await call.answer("Ariza topilmadi."); return
+    # Spinnerni DARHOL to'xtatamiz — yozish va xabarlar keyin davom etadi.
+    await call.answer("✅ Tasdiqlandi!")
     update_application_status(uid, "approved")
     add_seller(uid, {
         "user_id": uid, "full_name": app["full_name"],
@@ -252,7 +278,6 @@ async def approve_seller(call: CallbackQuery):
         from app.bot.bot import bot
         await bot.send_message(uid, "🎉 Seller arizangiz tasdiqlandi!\n/seller buyrug'i orqali panel oching.")
     except Exception: pass
-    await call.answer("✅ Tasdiqlandi!")
 
 
 @router.callback_query(F.data.startswith("reject_"))
@@ -262,6 +287,7 @@ async def reject_seller_cb(call: CallbackQuery):
     app = get_applications().get(str(uid))
     if not app:
         await call.answer("Ariza topilmadi."); return
+    await call.answer("❌ Rad etildi!")
     update_application_status(uid, "rejected")
     _log(call.from_user, "Ariza rad etildi", f"{app['full_name']} (ID:{uid})")
     await call.message.edit_text(f"❌ {app['full_name']} arizasi rad etildi.")
@@ -269,7 +295,6 @@ async def reject_seller_cb(call: CallbackQuery):
         from app.bot.bot import bot
         await bot.send_message(uid, "❌ Seller arizangiz rad etildi.")
     except Exception: pass
-    await call.answer("❌ Rad etildi!")
 
 
 # ─── To'lov chekini tasdiqlash / rad etish ───────────────────────────────────
@@ -386,6 +411,31 @@ async def confirm_payment(call: CallbackQuery):
         except Exception:
             pass
 
+        # ── KURIERLARGA — yangi zakaz (10% to'lov tasdiqlanishi bilanoq) ──
+        shop = get_seller(o["seller_id"]) or {}
+        total  = o.get("total", 0)
+        prepay = o.get("prepay", 0)
+        remain = max(total - prepay, 0)
+        courier_text = (
+            f"🚚 <b>YANGI ZAKAZ!</b>\n\n"
+            f"🆔 Zakaz raqami: <b>#{oid}</b>\n"
+            f"🏪 Do'kon: <b>{shop.get('shop_name','—')}</b>\n"
+            f"📱 Do'kon tel: {shop.get('phone','—')}\n"
+            f"🏙 Shahar: {shop.get('city','—')}\n"
+            f"📦 Mahsulot: {o.get('product_name','—')}\n"
+            f"💰 Qoldiq summa: <b>{remain:,} so'm</b>"
+            f"  (jami: {total:,}, oldindan to'langan: {prepay:,})\n\n"
+            f"📍 Yetkazish manzili: {o.get('address','—')}\n"
+            f"👤 Xaridor: {o.get('buyer_name','—')} — {o.get('phone','—')}\n\n"
+            f"Do'kondan mahsulotni olib, xaridorga yetkazing."
+        )
+        for cid in get_couriers():
+            try:
+                await bot.send_message(int(cid), courier_text, parse_mode="HTML")
+            except Exception:
+                # Kurier botga /start bosmagan yoki bloklagan bo'lsa — o'tkazib yuboramiz
+                pass
+
 
 @router.callback_query(F.data.startswith("payrej_"))
 async def reject_payment(call: CallbackQuery):
@@ -394,6 +444,7 @@ async def reject_payment(call: CallbackQuery):
     o = get_order_by_id(oid)
     if not o:
         await call.answer("Buyurtma topilmadi.", show_alert=True); return
+    await call.answer("❌ Rad etildi.")
     try:
         await call.message.edit_caption(
             caption=(call.message.caption or "") + "\n\n❌ CHEK RAD ETILDI",
@@ -411,23 +462,21 @@ async def reject_payment(call: CallbackQuery):
         )
     except Exception:
         pass
-    await call.answer("❌ Rad etildi.")
 
 
 # ─── Sellerlar (ko'rish + tahrirlash + o'chirish) ────────────────────────────
 @router.callback_query(F.data == "admin_sellers")
 async def show_sellers(call: CallbackQuery):
     if not is_owner(call.from_user.id): return
+    await _ack(call)
     sellers = get_sellers()
     if not sellers:
         await _admin_nav(call, "Hozircha seller yo'q.", InlineKeyboardMarkup(
             inline_keyboard=[[InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_back")]]
         ))
-        await call.answer()
         return
     items = list(sellers.items())
     await _admin_nav(call, _sellers_text(items), _sellers_keyboard(items))
-    await call.answer()
 
 
 # ─── Seller qidirish ─────────────────────────────────────────────────────────
@@ -468,6 +517,7 @@ async def seller_detail(call: CallbackQuery):
     s = get_sellers().get(uid)
     if not s:
         await call.answer("Seller topilmadi."); return
+    await _ack(call)
     from app.storage import get_seller_rating, get_seller_products
     rating, cnt = get_seller_rating(int(uid))
     stars = "⭐" * int(rating) if rating else "—"
@@ -491,7 +541,6 @@ async def seller_detail(call: CallbackQuery):
         [InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_sellers")],
     ])
     await _admin_nav(call, text, kb)
-    await call.answer()
 
 
 @router.callback_query(F.data.startswith("edit_shop_"))
@@ -592,6 +641,7 @@ async def del_seller_cb(call: CallbackQuery):
 @router.callback_query(F.data == "admin_products")
 async def admin_products(call: CallbackQuery):
     if not is_owner(call.from_user.id): return
+    await _ack(call)
     products = get_all_products()
     if not products:
         await call.message.edit_text("Mahsulot yo'q.", reply_markup=InlineKeyboardMarkup(
@@ -607,7 +657,6 @@ async def admin_products(call: CallbackQuery):
     rows.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_back")])
     await _admin_nav(call, "📦 <b>Barcha mahsulotlar:</b>",
                      InlineKeyboardMarkup(inline_keyboard=rows))
-    await call.answer()
 
 
 def _admin_product_card(p: dict, pid: int):
@@ -734,6 +783,7 @@ async def admin_del_product(call: CallbackQuery):
 @router.callback_query(F.data == "admin_users")
 async def admin_users(call: CallbackQuery):
     if not is_owner(call.from_user.id): return
+    await _ack(call)
     from app.storage import get_users
     users = get_users()
     sellers = get_sellers()
@@ -748,7 +798,6 @@ async def admin_users(call: CallbackQuery):
     rows.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_back")])
     await call.message.edit_text(text, parse_mode="HTML",
                                   reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
-    await call.answer()
 
 
 @router.callback_query(F.data.startswith("auser_"))
@@ -783,6 +832,7 @@ async def del_user_cb(call: CallbackQuery):
 @router.callback_query(F.data == "admin_stats")
 async def show_stats(call: CallbackQuery):
     if not is_owner(call.from_user.id): return
+    await _ack(call)
     apps = get_applications()
     orders = get_orders()
     revenue = sum(o.get("total", 0) for o in orders)
@@ -798,7 +848,6 @@ async def show_stats(call: CallbackQuery):
     await call.message.edit_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(
         inline_keyboard=[[InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_back")]]
     ))
-    await call.answer()
 
 
 # ─── Excel hisobot ───────────────────────────────────────────────────────────
@@ -869,23 +918,23 @@ def _build_excel(orders: list, title: str) -> bytes:
 @router.callback_query(F.data == "excel_daily")
 async def excel_daily(call: CallbackQuery):
     if not is_owner(call.from_user.id): return
+    await _ack(call)
     today = datetime.now().date().isoformat()
     orders = [o for o in get_orders() if o.get("created_at", "")[:10] == today]
     data = _build_excel(orders, "Kunlik")
     file = BufferedInputFile(data, filename=f"kunlik_{today}.xlsx")
     await call.message.answer_document(file, caption=f"📅 Kunlik hisobot — {today}\nBuyurtmalar: {len(orders)} ta")
-    await call.answer()
 
 
 @router.callback_query(F.data == "excel_monthly")
 async def excel_monthly(call: CallbackQuery):
     if not is_owner(call.from_user.id): return
+    await _ack(call)
     month = datetime.now().strftime("%Y-%m")
     orders = [o for o in get_orders() if o.get("created_at", "")[:7] == month]
     data = _build_excel(orders, "Oylik")
     file = BufferedInputFile(data, filename=f"oylik_{month}.xlsx")
     await call.message.answer_document(file, caption=f"📆 Oylik hisobot — {month}\nBuyurtmalar: {len(orders)} ta")
-    await call.answer()
 
 
 # ─── Seller bo'yicha hisobot ─────────────────────────────────────────────────
@@ -895,9 +944,15 @@ async def excel_sellers_list(call: CallbackQuery):
     sellers = get_sellers()
     if not sellers:
         await call.answer("Seller yo'q.", show_alert=True); return
+    await _ack(call)
+    # Buyurtma sonini bitta o'tishda yig'amiz (har seller uchun alohida emas).
+    cnt_by_seller: dict = {}
+    for o in get_orders():
+        sid = o.get("seller_id")
+        cnt_by_seller[sid] = cnt_by_seller.get(sid, 0) + 1
     rows = []
     for uid, s in sellers.items():
-        cnt = len(get_seller_orders(int(uid)))
+        cnt = cnt_by_seller.get(int(uid), 0)
         rows.append([InlineKeyboardButton(
             text=f"🏪 {s['shop_name']} ({cnt} buyurtma)",
             callback_data=f"excel_seller_{uid}"
@@ -907,7 +962,6 @@ async def excel_sellers_list(call: CallbackQuery):
         "🏪 <b>Qaysi seller hisoboti?</b>", parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=rows)
     )
-    await call.answer()
 
 
 @router.callback_query(F.data.startswith("excel_seller_"))
@@ -918,6 +972,7 @@ async def excel_seller_report(call: CallbackQuery):
     orders = get_seller_orders(uid)
     if not orders:
         await call.answer("Bu sellerda buyurtma yo'q.", show_alert=True); return
+    await _ack(call)
     shop = seller["shop_name"] if seller else str(uid)
     data = _build_excel(orders, f"{shop}")
     total = sum(o.get("total", 0) for o in orders)
@@ -933,7 +988,6 @@ async def excel_seller_report(call: CallbackQuery):
         ),
         parse_mode="HTML"
     )
-    await call.answer()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1192,6 +1246,104 @@ async def del_admin_cb(call: CallbackQuery):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+#  OWNER: KURIERLAR BOSHQARUVI
+#  To'lov (10% oldindan) tasdiqlangan yetkazib berish zakazlari shu
+#  kurierlarga avtomatik yuboriladi (confirm_payment ichida).
+# ═══════════════════════════════════════════════════════════════════════════
+class AdminCourierState(StatesGroup):
+    user_id = State()
+    name    = State()
+
+
+@router.callback_query(F.data == "admin_couriers")
+async def couriers_list(call: CallbackQuery):
+    if not is_owner(call.from_user.id): return
+    await _ack(call)
+    couriers = get_couriers()
+    text = f"🚚 <b>Kurierlar</b> — jami {len(couriers)} ta\n\n"
+    rows = []
+    if not couriers:
+        text += "Hozircha kurier yo'q.\n"
+    for uid, c in couriers.items():
+        text += f"• {c.get('name','—')} (ID: {uid})\n"
+        rows.append([InlineKeyboardButton(text=f"🗑 {c.get('name', uid)} ni olib tashlash",
+                                          callback_data=f"delcourier_{uid}")])
+    rows.append([InlineKeyboardButton(text="➕ Kurier qo'shish", callback_data="addcourier")])
+    rows.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_back")])
+    text += ("\n<i>To'lov (10%) tasdiqlangan har bir yetkazib berish zakazi "
+             "shu kurierlarga avtomatik yuboriladi. Kurier botga /start "
+             "bosgan bo'lishi shart.</i>")
+    await _admin_nav(call, text, InlineKeyboardMarkup(inline_keyboard=rows))
+
+
+@router.callback_query(F.data == "addcourier")
+async def add_courier_start(call: CallbackQuery, state: FSMContext):
+    if not is_owner(call.from_user.id): return
+    await _ack(call)
+    await state.set_state(AdminCourierState.user_id)
+    await call.message.answer(
+        "➕ Kurierning <b>Telegram ID</b> raqamini yuboring.\n"
+        "(Kurier avval botga /start bosgan bo'lishi kerak. "
+        "ID'ni u 👤 Profil bo'limida ko'radi.)",
+        parse_mode="HTML"
+    )
+
+
+@router.message(AdminCourierState.user_id)
+async def add_courier_id(message: Message, state: FSMContext):
+    if not is_owner(message.from_user.id):
+        await state.clear(); return
+    txt = (message.text or "").strip()
+    if not txt.isdigit():
+        await message.answer("❌ Faqat raqamli ID yuboring:"); return
+    uid = int(txt)
+    u = get_user(uid)
+    name = u.get("full_name") if u else ""
+    await state.update_data(courier_id=uid, courier_name=name)
+    await state.set_state(AdminCourierState.name)
+    hint = f" (botda: {name})" if name else ""
+    await message.answer(f"👤 Kurierning ismini yozing{hint}:")
+
+
+@router.message(AdminCourierState.name)
+async def add_courier_name(message: Message, state: FSMContext):
+    if not is_owner(message.from_user.id):
+        await state.clear(); return
+    data = await state.get_data()
+    await state.clear()
+    uid  = data["courier_id"]
+    name = (message.text or "").strip() or data.get("courier_name") or "Kurier"
+    add_courier(uid, {"user_id": uid, "name": name})
+    _log(message.from_user, "Kurier qo'shildi", f"{name} (ID:{uid})")
+    try:
+        from app.bot.bot import bot
+        await bot.send_message(
+            uid,
+            "🚚 Siz kurier sifatida qo'shildingiz!\n"
+            "To'lovi tasdiqlangan yangi zakazlar sizga shu yerga keladi.",
+        )
+    except Exception:
+        pass
+    await message.answer(
+        f"✅ Kurier qo'shildi: <b>{name}</b> (ID: {uid})",
+        parse_mode="HTML", reply_markup=admin_menu_kb(message.from_user.id)
+    )
+
+
+@router.callback_query(F.data.startswith("delcourier_"))
+async def del_courier_cb(call: CallbackQuery):
+    if not is_owner(call.from_user.id): return
+    uid = call.data.split("_")[1]
+    c = get_couriers().get(uid, {})
+    if remove_courier(uid):
+        _log(call.from_user, "Kurier olib tashlandi", f"{c.get('name','—')} (ID:{uid})")
+        await call.answer("Olib tashlandi.")
+    else:
+        await call.answer("Topilmadi.")
+    await couriers_list(call)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 #  OWNER: AUDIT JURNALI + WORD
 # ═══════════════════════════════════════════════════════════════════════════
 def _fmt_dt(iso: str) -> str:
@@ -1263,11 +1415,11 @@ async def admin_log_word(call: CallbackQuery):
     log = get_audit()
     if not log:
         await call.answer("Jurnal bo'sh.", show_alert=True); return
+    await call.answer("⏳ Tayyorlanmoqda...")
     data = _build_log_docx(log)
     fname = f"jurnal_{datetime.now().strftime('%Y%m%d_%H%M')}.docx"
     file = BufferedInputFile(data, filename=fname)
     await call.message.answer_document(file, caption=f"📜 Amallar jurnali — {len(log)} ta yozuv")
-    await call.answer("Tayyor!")
 
 
 def _build_sellers_docx(sellers: list) -> bytes:
@@ -1310,11 +1462,11 @@ async def admin_sellers_word(call: CallbackQuery):
     sellers = list(get_sellers().values())
     if not sellers:
         await call.answer("Sellerlar yo'q.", show_alert=True); return
+    await call.answer("⏳ Tayyorlanmoqda...")
     data = _build_sellers_docx(sellers)
     fname = f"sellerlar_{datetime.now().strftime('%Y%m%d_%H%M')}.docx"
     file = BufferedInputFile(data, filename=fname)
     await call.message.answer_document(file, caption=f"📄 Sellerlar ro'yxati — {len(sellers)} ta")
-    await call.answer("Tayyor!")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1339,12 +1491,12 @@ def _cities_kb():
 @router.callback_query(F.data == "admin_cities")
 async def admin_cities(call: CallbackQuery):
     if not is_owner(call.from_user.id): return
+    await _ack(call)
     cities = get_cities()
     text = (f"🏙 <b>Shaharlar / Tumanlar</b> — {len(cities)} ta\n\n"
             "Sellerlar va xaridorlar shu ro'yxatdan tanlaydi.\n"
             "Har bir shaharga alohida admin tayinlashingiz mumkin.")
     await _admin_nav(call, text, _cities_kb())
-    await call.answer()
 
 
 @router.callback_query(F.data == "noop")
@@ -1434,8 +1586,8 @@ async def backup_cmd(message: Message):
 @router.callback_query(F.data == "admin_backup")
 async def backup_btn(call: CallbackQuery):
     if not is_owner(call.from_user.id): return
+    await call.answer("⏳ Zaxira tayyorlanmoqda...")
     await _send_backup(call.message)
-    await call.answer("Zaxira tayyor ✅")
 
 
 @router.message(Command("restore"))

@@ -15,6 +15,17 @@ from app.ui import CATEGORIES, category_label, money, divider, product_emoji
 
 router = Router()
 
+
+async def _ack(call: CallbackQuery):
+    """Tugma spinnerini DARHOL o'chiradi — og'ir ishlar (fayl o'qish, xabar
+    yuborish) tugashini kutmasdan. Handler boshqa handlerdan qayta chaqirilganda
+    callback allaqachon javoblangan bo'lishi mumkin — shunda xato bermaydi."""
+    try:
+        await call.answer()
+    except Exception:
+        pass
+
+
 ORDER_STATUSES = {
     "pending":    "⏳ Kutilmoqda",
     "paid":       "💳 To'lov qilindi",
@@ -104,6 +115,7 @@ async def my_city_sellers(message: Message):
 async def seller_products(call: CallbackQuery):
     if not is_seller(call.from_user.id):
         await call.answer("Siz seller emassiz."); return
+    await _ack(call)
     products = get_seller_products(call.from_user.id)
     if not products:
         await call.message.edit_text(
@@ -123,7 +135,6 @@ async def seller_products(call: CallbackQuery):
     rows.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="seller_back")])
     await call.message.edit_text("📦 <b>Mahsulotlaringiz:</b>", parse_mode="HTML",
                                   reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
-    await call.answer()
 
 
 @router.callback_query(F.data.startswith("sprod_"))
@@ -133,6 +144,7 @@ async def seller_product_detail(call: CallbackQuery):
     p = get_product_by_id(pid)
     if not p or p["seller_id"] != call.from_user.id:
         await call.answer("Topilmadi."); return
+    await _ack(call)
     text = (
         f"📦 <b>{p['name']}</b>\n"
         f"📝 {p.get('description','—')}\n"
@@ -146,7 +158,6 @@ async def seller_product_detail(call: CallbackQuery):
         [InlineKeyboardButton(text="🔙 Orqaga",                callback_data="seller_products")],
     ])
     await call.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
-    await call.answer()
 
 
 @router.callback_query(F.data.startswith("seprod_"))
@@ -154,11 +165,11 @@ async def seller_edit_product_start(call: CallbackQuery, state: FSMContext):
     parts = call.data.split("_")   # seprod_name_5
     field = parts[1]
     pid   = int(parts[2])
+    await _ack(call)
     labels = {"name": "Nom", "price": "Narx (raqam)", "desc": "Tavsif"}
     await state.set_state(EditProductState.waiting_value)
     await state.update_data(field=field, pid=pid)
     await call.message.answer(f"✏️ Yangi <b>{labels.get(field,'qiymat')}</b>ni kiriting:", parse_mode="HTML")
-    await call.answer()
 
 
 @router.message(EditProductState.waiting_value)
@@ -202,9 +213,9 @@ async def delete_product_handler(call: CallbackQuery):
 async def start_add_product(call: CallbackQuery, state: FSMContext):
     if not is_seller(call.from_user.id):
         await call.answer("Siz seller emassiz."); return
+    await _ack(call)
     await state.set_state(AddProductState.name)
     await call.message.answer("📦 Mahsulot nomini kiriting:")
-    await call.answer()
 
 
 # ─── Mahsulot qo'shishni bo'lib yuboruvchi tugma/buyruqlarda AVTOMAT to'xtatish ──
@@ -269,6 +280,7 @@ async def product_name(message: Message, state: FSMContext):
 @router.callback_query(AddProductState.category, F.data.startswith("apcat_"))
 async def product_category_chosen(call: CallbackQuery, state: FSMContext):
     code = call.data.split("_", 1)[1]
+    await _ack(call)
     await state.update_data(category=code)
     await state.set_state(AddProductState.description)
     try:
@@ -276,7 +288,6 @@ async def product_category_chosen(call: CallbackQuery, state: FSMContext):
     except Exception:
         pass
     await call.message.answer("📝 Tavsif kiriting (yoki /skip — tavsifsiz davom etish):")
-    await call.answer()
 
 
 @router.message(AddProductState.category)
@@ -487,9 +498,9 @@ async def product_preview_save(call: CallbackQuery, state: FSMContext):
 
 @router.callback_query(AddProductState.preview, F.data == "ap_cancel")
 async def product_preview_cancel(call: CallbackQuery, state: FSMContext):
+    await _ack(call)
     await state.clear()
     await call.message.answer("❌ Mahsulot qo'shish bekor qilindi.", reply_markup=main_menu)
-    await call.answer()
 
 
 # ─── Buyurtmalar (seller) ───────────────────────────────────────────────────────
@@ -497,6 +508,7 @@ async def product_preview_cancel(call: CallbackQuery, state: FSMContext):
 async def seller_orders_list(call: CallbackQuery):
     if not is_seller(call.from_user.id):
         await call.answer("Siz seller emassiz."); return
+    await _ack(call)
     orders = get_seller_orders(call.from_user.id)
     if not orders:
         await call.message.edit_text("🛒 Hozircha buyurtma yo'q.", reply_markup=InlineKeyboardMarkup(
@@ -513,7 +525,6 @@ async def seller_orders_list(call: CallbackQuery):
     rows.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="seller_back")])
     await call.message.edit_text("🛒 <b>Buyurtmalar:</b>", parse_mode="HTML",
                                   reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
-    await call.answer()
 
 
 @router.callback_query(F.data.startswith("sorder_"))
@@ -523,6 +534,7 @@ async def seller_order_detail(call: CallbackQuery):
     o = get_order_by_id(oid)
     if not o or o["seller_id"] != call.from_user.id:
         await call.answer("Topilmadi."); return
+    await _ack(call)
     status = ORDER_STATUSES.get(o.get("status",""), "—")
     dlv = {
         "pickup": "🚶 O'zi olib ketadi",
@@ -586,7 +598,6 @@ async def seller_order_detail(call: CallbackQuery):
     rows.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="seller_orders")])
     await call.message.edit_text(text, parse_mode="HTML",
                                   reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
-    await call.answer()
 
 
 @router.callback_query(F.data.startswith("vrcpt_"))
@@ -663,6 +674,7 @@ async def seller_shop_info(call: CallbackQuery):
     seller = get_seller(call.from_user.id)
     if not seller:
         await call.answer("Seller topilmadi."); return
+    await _ack(call)
     from app.storage import get_seller_rating
     rating, cnt = get_seller_rating(call.from_user.id)
     products = get_seller_products(call.from_user.id)
@@ -680,7 +692,6 @@ async def seller_shop_info(call: CallbackQuery):
             [InlineKeyboardButton(text="🔙 Orqaga", callback_data="seller_back")],
         ]
     ))
-    await call.answer()
 
 
 # ─── Karta raqamini o'zgartirish (seller o'zi) ───────────────────────────────
@@ -688,12 +699,12 @@ async def seller_shop_info(call: CallbackQuery):
 async def seller_edit_card_start(call: CallbackQuery, state: FSMContext):
     if not is_seller(call.from_user.id):
         await call.answer("Siz seller emassiz."); return
+    await _ack(call)
     await state.set_state(EditCardState.waiting_value)
     await call.message.answer(
         "💳 Yangi karta raqamingizni kiriting (16 raqam):\n"
         "Masalan: 8600 1234 5678 9012"
     )
-    await call.answer()
 
 
 @router.message(EditCardState.waiting_value)
@@ -722,11 +733,11 @@ async def seller_back(call: CallbackQuery):
     seller = get_seller(call.from_user.id)
     if not seller:
         await call.answer(); return
+    await _ack(call)
     await call.message.edit_text(
         f"🏪 <b>{seller['shop_name']}</b> — Seller Panel",
         reply_markup=seller_menu_kb(), parse_mode="HTML"
     )
-    await call.answer()
 
 
 # ─── /orders (buyruq orqali) ─────────────────────────────────────────────────

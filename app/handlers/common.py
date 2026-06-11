@@ -1,3 +1,5 @@
+import asyncio
+
 from aiogram import Router, F
 from aiogram.types import (
     Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton,
@@ -11,7 +13,7 @@ from app.storage import (
     search_products, register_user, get_product_by_id,
     save_order, update_order_fields,
     get_user, set_user_field, get_cities, product_photos,
-    set_view_msgs, pop_view_msgs,
+    set_view_msgs, pop_view_msgs, get_view_msgs,
 )
 from app.keyboards.seller import main_menu, seller_main_menu, menu_for, phone_keyboard, cancel_keyboard
 from app.states.seller_application import SearchState, OrderState
@@ -239,11 +241,7 @@ async def _send_shop_menu(call: CallbackQuery, seller_id: int):
     📺 Televizorlar, 🧊 Muzlatgichlar... Bittasini bossa — bo'lim mahsulotlari
     albom bo'lib ochiladi (cat_<seller_id>_<kod>)."""
     chat_id = call.message.chat.id
-    await _clear_last_product(call.message.bot, chat_id)
-    try:
-        await call.message.delete()
-    except Exception:
-        pass
+    await _clear_last_product(call.message.bot, chat_id, [call.message.message_id])
 
     seller    = get_seller(seller_id)
     shop_name = seller["shop_name"] if seller else "Do'kon"
@@ -324,13 +322,10 @@ async def show_category(call: CallbackQuery):
     seller_id, code = int(parts[1]), parts[2]
     if not get_seller(seller_id):
         await call.answer("Do'kon topilmadi."); return
-    await _clear_last_product(call.message.bot, call.message.chat.id)
-    try:
-        await call.message.delete()
-    except Exception:
-        pass
-    await _send_category_products(call.message, seller_id, code)
     await call.answer()
+    await _clear_last_product(call.message.bot, call.message.chat.id,
+                              [call.message.message_id])
+    await _send_category_products(call.message, seller_id, code)
 
 
 @router.callback_query(F.data.startswith("shop_"))
@@ -338,29 +333,25 @@ async def show_shop(call: CallbackQuery):
     uid = int(call.data.split("_")[1])
     if not get_seller(uid):
         await call.answer("Do'kon topilmadi."); return
-    await _send_shop_menu(call, uid)
     await call.answer()
+    await _send_shop_menu(call, uid)
 
 
 @router.callback_query(F.data == "back_shops")
 async def back_to_shops(call: CallbackQuery):
     # Lentadagi barcha mahsulot xabarlarini tozalab, do'konlar ro'yxatini qaytaramiz.
+    await call.answer()
     chat_id = call.message.chat.id
-    await _clear_last_product(call.message.bot, chat_id)
-    try:
-        await call.message.delete()
-    except Exception:
-        pass
+    await _clear_last_product(call.message.bot, chat_id, [call.message.message_id])
     u = get_user(call.from_user.id)
     city = (u.get("city") if u else None)
     if not city:
         await call.message.answer("📍 Shaharingizni tanlang:", reply_markup=_city_picker())
-        await call.answer(); return
+        return
     await call.message.answer(
         f"🛍 <b>Do'konlar</b>   📍 {city}\nBitta do'konni tanlang:",
         parse_mode="HTML", reply_markup=_shops_keyboard(city)
     )
-    await call.answer()
 
 
 # ─── Mahsulot detail ─────────────────────────────────────────────────────────
@@ -429,12 +420,20 @@ def _product_kb(p: dict) -> InlineKeyboardMarkup:
 # rasmlarni o'chira olishi uchun (set_view_msgs / pop_view_msgs).
 
 
-async def _clear_last_product(bot, chat_id: int):
-    for mid in pop_view_msgs(chat_id):
-        try:
-            await bot.delete_message(chat_id, mid)
-        except Exception:
-            pass
+async def _delete_msgs(bot, chat_id: int, ids: list):
+    """Xabarlarni parallel o'chiradi. Har bir o'chirish alohida API chaqiruv —
+    ketma-ket kutish 10 ta rasm uchun bir necha soniya olardi, parallel esa
+    bitta chaqiruv vaqtida tugaydi."""
+    if not ids:
+        return
+    await asyncio.gather(
+        *(bot.delete_message(chat_id, mid) for mid in ids),
+        return_exceptions=True,
+    )
+
+
+async def _clear_last_product(bot, chat_id: int, extra_ids: list | None = None):
+    await _delete_msgs(bot, chat_id, pop_view_msgs(chat_id) + list(extra_ids or []))
 
 
 @router.callback_query(F.data.startswith("prod_"))
@@ -443,19 +442,23 @@ async def product_detail(call: CallbackQuery):
     p = get_product_by_id(pid)
     if not p:
         await call.answer("Topilmadi."); return
+    # Tugma spinnerini darhol o'chiramiz — qolgan ishlar (o'chirish, rasm
+    # yuborish) foydalanuvchini kuttirmasin.
+    await call.answer()
 
     text    = _product_caption(p)
     photos  = product_photos(p)
     kb      = _product_kb(p)
     chat_id = call.message.chat.id
 
-    # Oldingi mahsulot xabarlarini (albom + tugmalar) o'chiramiz, keyin bosilgan
-    # xabarni (do'kon ro'yxati / qidiruv natijasi) ham.
-    await _clear_last_product(call.message.bot, chat_id)
-    try:
-        await call.message.delete()
-    except Exception:
-        pass
+    # Oldingi mahsulot xabarlarini (albom + tugmalar) va bosilgan xabarni
+    # (do'kon ro'yxati / qidiruv natijasi) parallel o'chiramiz. Bu yerda
+    # pop_view_msgs o'rniga get_view_msgs — yangi holat baribir pastda
+    # set_view_msgs bilan yoziladi (bitta diskka yozish yetadi).
+    await _delete_msgs(
+        call.message.bot, chat_id,
+        get_view_msgs(chat_id) + [call.message.message_id],
+    )
 
     ids = []
     if len(photos) > 1:
@@ -481,7 +484,6 @@ async def product_detail(call: CallbackQuery):
         ids.append(sent.message_id)
 
     set_view_msgs(chat_id, ids)
-    await call.answer()
 
 
 # ─── Buyurtma qilish: rang tanlash (agar ranglar bo'lsa) ───────────────────────

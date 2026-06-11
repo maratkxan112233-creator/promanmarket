@@ -13,6 +13,7 @@ ORDERS_FILE       = f"{DATA_DIR}/orders.json"
 REVIEWS_FILE      = f"{DATA_DIR}/reviews.json"
 USERS_FILE        = f"{DATA_DIR}/users.json"
 ADMINS_FILE       = f"{DATA_DIR}/admins.json"
+COURIERS_FILE     = f"{DATA_DIR}/couriers.json"
 AUDIT_FILE        = f"{DATA_DIR}/audit.json"
 CITIES_FILE       = f"{DATA_DIR}/cities.json"
 VIEW_STATE_FILE   = f"{DATA_DIR}/view_state.json"
@@ -47,7 +48,9 @@ def _write(path: str, data: Any):
     # Bu HTTP server (boshqa thread) yarim yozilgan JSON'ni o'qib qolishining oldini oladi.
     tmp = f"{path}.tmp"
     with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+        # indent'siz yozamiz: fayl kichik bo'ladi va yozish tezroq (event loop'ni
+        # qisqaroq bloklaydi).
+        json.dump(data, f, ensure_ascii=False)
     os.replace(tmp, path)
     # Keshni yangi ma'lumot va yangi mtime bilan yangilaymiz (keyingi o'qish tez bo'lsin).
     try:
@@ -350,6 +353,30 @@ def is_sub_admin(user_id: int) -> bool:
     return str(user_id) in get_admins()
 
 
+# ─── Kurierlar ───────────────────────────────────────────────────────────────
+# To'lov (10% oldindan) tasdiqlangan yetkazib berish zakazlari shu kurierlarga
+# yuboriladi. user_id (str) -> {"user_id": int, "name": str}
+def get_couriers() -> dict:
+    data = _read(COURIERS_FILE)
+    return data if isinstance(data, dict) else {}
+
+def add_courier(user_id: int, data: dict):
+    couriers = get_couriers()
+    couriers[str(user_id)] = data
+    _write(COURIERS_FILE, couriers)
+
+def remove_courier(user_id) -> bool:
+    couriers = get_couriers()
+    if str(user_id) in couriers:
+        del couriers[str(user_id)]
+        _write(COURIERS_FILE, couriers)
+        return True
+    return False
+
+def is_courier(user_id: int) -> bool:
+    return str(user_id) in get_couriers()
+
+
 # ─── Audit jurnali (kim nima qildi) ──────────────────────────────────────────
 def get_audit() -> list:
     data = _read(AUDIT_FILE)
@@ -360,7 +387,9 @@ def add_audit(entry: dict):
     entry["id"] = max((e.get("id", 0) for e in log), default=0) + 1
     entry["created_at"] = datetime.now().isoformat()
     log.append(entry)
-    _write(AUDIT_FILE, log)
+    # Jurnal cheksiz o'smasin: faqat oxirgi 500 yozuv saqlanadi, aks holda har
+    # yozishda butun fayl qayta yoziladi va vaqt o'tib sekinlashadi.
+    _write(AUDIT_FILE, log[-500:])
 
 
 # ─── Ko'rish holati (chatda hozir ko'rsatilgan mahsulot xabarlari) ────────────

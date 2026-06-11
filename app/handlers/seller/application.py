@@ -139,6 +139,17 @@ async def process_card_number(message: Message, state: FSMContext):
         "status":      "pending",
     })
 
+    # Avval arizachiga tasdiq — u kutib qolmasin; owner'ga xabar keyin ketadi.
+    await message.answer(
+        f"✅ Arizangiz muvaffaqiyatli qabul qilindi!\n\n"
+        f"👤 Ism: {data['full_name']}\n"
+        f"📱 Telefon: {data['phone']}\n"
+        f"🏙 Shahar: {data.get('city','—')}\n"
+        f"💳 Karta: **** **** **** {data['card_number'][-4:]}\n\n"
+        "⏳ Arizangiz ko'rib chiqiladi va natija sizga xabar qilinadi.",
+        reply_markup=menu_for(message.from_user.id)
+    )
+
     try:
         from app.bot.bot import bot
         from app.app.config.settings import settings
@@ -153,13 +164,3 @@ async def process_card_number(message: Message, state: FSMContext):
         )
     except Exception:
         pass
-
-    await message.answer(
-        f"✅ Arizangiz muvaffaqiyatli qabul qilindi!\n\n"
-        f"👤 Ism: {data['full_name']}\n"
-        f"📱 Telefon: {data['phone']}\n"
-        f"🏙 Shahar: {data.get('city','—')}\n"
-        f"💳 Karta: **** **** **** {data['card_number'][-4:]}\n\n"
-        "⏳ Arizangiz ko'rib chiqiladi va natija sizga xabar qilinadi.",
-        reply_markup=menu_for(message.from_user.id)
-    )
