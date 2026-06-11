@@ -3,11 +3,17 @@ from aiogram.types import (
     InlineKeyboardMarkup, InlineKeyboardButton,
 )
 
+# Menyu versiyasi: menyu tugmalari o'zgarganda shu raqamni 1 taga oshiring.
+# Shunda foydalanuvchilar /start bosmasdan ham yangi menyuni avtomatik oladi
+# (dispatcher.py dagi MenuRefreshMiddleware orqali).
+MENU_VERSION = 2
+
 
 def _build_main_menu() -> ReplyKeyboardMarkup:
     rows = [
         [KeyboardButton(text="🛒 Market"),         KeyboardButton(text="🔎 Qidirish")],
-        [KeyboardButton(text="📦 Buyurtmalarim"), KeyboardButton(text="👤 Profil")],
+        [KeyboardButton(text="📦 Buyurtmalarim"), KeyboardButton(text="❤️ Istaklarim")],
+        [KeyboardButton(text="👤 Profil")],
     ]
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
 

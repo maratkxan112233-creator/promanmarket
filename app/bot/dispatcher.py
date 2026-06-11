@@ -1,5 +1,6 @@
-from aiogram import Dispatcher
+from aiogram import Dispatcher, BaseMiddleware
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import Message
 
 from app.handlers.start import router as start_router
 from app.handlers.seller.application import router as seller_app_router
@@ -7,12 +8,45 @@ from app.handlers.admin import router as admin_router
 from app.handlers.seller_panel import router as seller_panel_router
 from app.handlers.common import router as common_router
 
+
+class MenuRefreshMiddleware(BaseMiddleware):
+    """Bot yangilanganda foydalanuvchilarga menyuni /start bosmasdan yangilab beradi.
+
+    Menyu tugmalari o'zgarganda keyboards/seller.py dagi MENU_VERSION 1 taga
+    oshiriladi. Foydalanuvchi keyingi safar istalgan xabar yozganda eski
+    klaviaturasi avtomatik yangisiga almashtiriladi.
+    """
+
+    async def __call__(self, handler, event: Message, data: dict):
+        try:
+            uid = event.from_user.id if event.from_user else None
+            text = event.text or ""
+            # FSM jarayonida (ariza, buyurtma, qidiruv...) klaviaturani
+            # almashtirmaymiz — jarayon tugagach o'zi yangilanadi.
+            # /start da ham shart emas — u menyuni o'zi yuboradi.
+            if uid and data.get("raw_state") is None and not text.startswith("/start"):
+                from app.storage import get_user, set_user_field
+                from app.keyboards.seller import MENU_VERSION, menu_for
+                u = get_user(uid) or {}
+                if u.get("menu_ver") != MENU_VERSION:
+                    set_user_field(uid, "menu_ver", MENU_VERSION)
+                    await event.answer(
+                        "🔄 Bot yangilandi — menyu yangilandi!",
+                        reply_markup=menu_for(uid),
+                    )
+        except Exception:
+            pass  # menyu yangilash xatosi asosiy ishga to'sqinlik qilmasin
+        return await handler(event, data)
+
+
 # Production uchun RedisStorage tavsiya etiladi:
 # from aiogram.fsm.storage.redis import RedisStorage
 # storage = RedisStorage.from_url("redis://localhost:6379")
 storage = MemoryStorage()
 
 dp = Dispatcher(storage=storage)
+
+dp.message.outer_middleware(MenuRefreshMiddleware())
 
 dp.include_router(admin_router)
 dp.include_router(seller_panel_router)

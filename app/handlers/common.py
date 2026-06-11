@@ -14,6 +14,7 @@ from app.storage import (
     save_order, update_order_fields,
     get_user, set_user_field, get_cities, product_photos,
     set_view_msgs, pop_view_msgs, get_view_msgs,
+    get_favorites, is_favorite, toggle_favorite,
 )
 from app.keyboards.seller import (
     main_menu, seller_main_menu, menu_for, phone_keyboard, cancel_keyboard,
@@ -402,10 +403,15 @@ def _product_caption(p: dict) -> str:
     return "\n".join(lines)
 
 
-def _product_kb(p: dict) -> InlineKeyboardMarkup:
-    """Mahsulot xabari uchun tugmalar: buyurtma va orqaga (do'kon ro'yxatiga)."""
+def _product_kb(p: dict, user_id: int) -> InlineKeyboardMarkup:
+    """Mahsulot xabari uchun tugmalar: buyurtma, istaklar (❤️) va orqaga."""
+    if is_favorite(user_id, p["id"]):
+        fav_text = "💔 Istaklardan olib tashlash"
+    else:
+        fav_text = "❤️ Istaklarimga qo'shish"
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🛒  Buyurtma berish", callback_data=f"order_{p['id']}")],
+        [InlineKeyboardButton(text=fav_text, callback_data=f"fav_{p['id']}")],
         [InlineKeyboardButton(
             text="‹  Orqaga",
             callback_data=f"shop_{p['seller_id']}",
@@ -449,7 +455,7 @@ async def product_detail(call: CallbackQuery):
 
     text    = _product_caption(p)
     photos  = product_photos(p)
-    kb      = _product_kb(p)
+    kb      = _product_kb(p, call.from_user.id)
     chat_id = call.message.chat.id
 
     # Oldingi mahsulot xabarlarini (albom + tugmalar) va bosilgan xabarni
@@ -485,6 +491,57 @@ async def product_detail(call: CallbackQuery):
         ids.append(sent.message_id)
 
     set_view_msgs(chat_id, ids)
+
+
+# ─── ❤️ Istaklar (sevimli mahsulotlar) ───────────────────────────────────────
+@router.callback_query(F.data.startswith("fav_"))
+async def toggle_fav(call: CallbackQuery):
+    pid = int(call.data.split("_")[1])
+    p = get_product_by_id(pid)
+    if not p:
+        await call.answer("Mahsulot topilmadi."); return
+    added = toggle_favorite(call.from_user.id, pid)
+    await call.answer(
+        "❤️ Istaklarimga qo'shildi!" if added else "💔 Istaklardan olib tashlandi."
+    )
+    # Tugma yozuvini yangi holatga moslab yangilaymiz
+    try:
+        await call.message.edit_reply_markup(
+            reply_markup=_product_kb(p, call.from_user.id)
+        )
+    except Exception:
+        pass
+
+
+@router.message(F.text == "❤️ Istaklarim")
+async def favorites_handler(message: Message):
+    favs = get_favorites(message.from_user.id)
+    products = [p for p in (get_product_by_id(pid) for pid in favs) if p]
+    if not products:
+        await message.answer(
+            f"{title('❤️', 'Istaklarim')}\n"
+            f"{divider()}\n"
+            "Hozircha bo'sh.\n"
+            "Mahsulot sahifasidagi ❤️ tugmasi bilan yoqqan mahsulotlarni saqlang!",
+            parse_mode="HTML",
+            reply_markup=menu_for(message.from_user.id)
+        )
+        return
+    rows = [
+        [InlineKeyboardButton(
+            text=f"{product_emoji(p)} {p['name']}  ·  {money(p['price'])}",
+            callback_data=f"prod_{p['id']}"
+        )]
+        for p in products
+    ]
+    await message.answer(
+        f"{title('❤️', 'Istaklarim')}\n"
+        f"{divider()}\n"
+        f"Saqlangan mahsulotlaringiz:  {len(products)} ta\n"
+        "Ochish uchun mahsulotni tanlang:",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows)
+    )
 
 
 # ─── Buyurtma qilish: rang tanlash (agar ranglar bo'lsa) ───────────────────────

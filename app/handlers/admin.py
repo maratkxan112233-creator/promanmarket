@@ -30,6 +30,7 @@ router = Router()
 # Mahsulot qo'shishni bo'lib yuboruvchi menyu tugmalari
 _MENU_BUTTONS = {
     "🛒 Market", "🛍 Bozor", "🔎 Qidirish", "🏪 Sotuvchi bo'lish", "📦 Buyurtmalarim",
+    "❤️ Istaklarim",
     "👤 Profil", "ℹ️ Ma'lumot", "📞 Aloqa", "🛍 Do'kon (ilova)", "❌ Bekor qilish",
 }
 

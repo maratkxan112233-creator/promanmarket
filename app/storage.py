@@ -17,6 +17,7 @@ COURIERS_FILE     = f"{DATA_DIR}/couriers.json"
 AUDIT_FILE        = f"{DATA_DIR}/audit.json"
 CITIES_FILE       = f"{DATA_DIR}/cities.json"
 VIEW_STATE_FILE   = f"{DATA_DIR}/view_state.json"
+FAVORITES_FILE    = f"{DATA_DIR}/favorites.json"
 
 DEFAULT_CITIES = ["Olmaliq", "Angren", "Bekobod", "Ohangaron", "Chirchiq", "Yangiyo'l", "Toshkent"]
 
@@ -129,6 +130,33 @@ def set_user_field(user_id: int, field: str, value):
     u[field] = value
     users[str(user_id)] = u
     _write(USERS_FILE, users)
+
+
+# ─── Istaklar (sevimli mahsulotlar, ❤️) ─────────────────────────────────────
+def get_favorites(user_id: int) -> list:
+    """Foydalanuvchining saqlangan mahsulot id'lari ro'yxati."""
+    favs = _read(FAVORITES_FILE)
+    return [int(x) for x in favs.get(str(user_id), [])] if isinstance(favs, dict) else []
+
+def is_favorite(user_id: int, product_id: int) -> bool:
+    return int(product_id) in get_favorites(user_id)
+
+def toggle_favorite(user_id: int, product_id: int) -> bool:
+    """Saqlangan bo'lsa olib tashlaydi, bo'lmasa qo'shadi. True = endi saqlangan."""
+    favs = _read(FAVORITES_FILE)
+    if not isinstance(favs, dict):
+        favs = {}
+    lst = [int(x) for x in favs.get(str(user_id), [])]
+    pid = int(product_id)
+    if pid in lst:
+        lst.remove(pid)
+        added = False
+    else:
+        lst.append(pid)
+        added = True
+    favs[str(user_id)] = lst
+    _write(FAVORITES_FILE, favs)
+    return added
 
 
 # ─── Shaharlar (tuman/shahar darajasi) ───────────────────────────────────────

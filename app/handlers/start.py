@@ -3,8 +3,8 @@ from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 
-from app.keyboards.seller import menu_for
-from app.storage import register_user
+from app.keyboards.seller import menu_for, MENU_VERSION
+from app.storage import register_user, set_user_field
 from app.handlers.common import FREE_DELIVERY_BANNER, SELLER_INVITE_BANNER
 from app.app.config.settings import settings
 
@@ -18,6 +18,8 @@ async def cmd_start(message: Message, state: FSMContext):
         "full_name": message.from_user.full_name,
         "username":  message.from_user.username,
     })
+    # /start menyuni o'zi yuboradi — qayta yangilash kerak emas
+    set_user_field(message.from_user.id, "menu_ver", MENU_VERSION)
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🏪 Seller bo'lish", callback_data="become_seller")],
         [InlineKeyboardButton(text="💬 Adminga yozish",
