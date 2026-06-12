@@ -5,7 +5,7 @@ from aiogram.fsm.context import FSMContext
 
 from app.states.seller_application import SellerApplicationState
 from app.keyboards.seller import cancel_keyboard, phone_keyboard, menu_for
-from app.storage import save_application, get_application, is_seller, get_cities
+from app.storage import save_application, get_application, is_seller, is_shop_member, get_cities
 from app.app.config.settings import settings
 
 router = Router()
@@ -52,10 +52,11 @@ async def cancel_app_on_command(message: Message, state: FSMContext):
 # ─── Seller bo'lish ───────────────────────────────────────────────────────────
 async def _start_application(message: Message, user_id: int, state: FSMContext):
     """Ariza jarayonini boshlaydi (menyu tugmasi ham, inline tugma ham shuni chaqiradi)."""
-    if is_seller(user_id):
+    if is_shop_member(user_id):
+        extra = "" if is_seller(user_id) else "\n(Siz do'kon yordamchisisiz — alohida seller bo'lish uchun avval yordamchilikdan chiqishingiz kerak.)"
         await message.answer(
             "✅ Siz allaqachon sellersiz!\n"
-            "Seller panelini ochish uchun: /seller",
+            "Seller panelini ochish uchun: /seller" + extra,
             reply_markup=menu_for(user_id)
         )
         return

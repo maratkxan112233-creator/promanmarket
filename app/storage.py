@@ -106,6 +106,50 @@ def delete_seller(user_id: int):
     _write(SELLERS_FILE, sellers)
 
 
+# ─── Yordamchi sellerlar ─────────────────────────────────────────────────────
+def get_owner_id(user_id: int) -> int | None:
+    """O'zi seller bo'lsa — o'z id'si; yordamchi bo'lsa — do'kon egasining id'si."""
+    sellers = get_sellers()
+    if str(user_id) in sellers:
+        return user_id
+    for sid, s in sellers.items():
+        if user_id in (s.get("assistants") or []):
+            return int(sid)
+    return None
+
+def get_shop_seller(user_id: int) -> dict | None:
+    """Ega yoki yordamchi uchun do'kon egasining yozuvini qaytaradi."""
+    owner = get_owner_id(user_id)
+    return get_seller(owner) if owner is not None else None
+
+def is_shop_member(user_id: int) -> bool:
+    return get_owner_id(user_id) is not None
+
+def get_assistants(owner_id: int) -> list[int]:
+    seller = get_seller(owner_id)
+    return (seller or {}).get("assistants") or []
+
+def add_assistant(owner_id: int, assistant_id: int) -> bool:
+    assistants = get_assistants(owner_id)
+    if assistant_id in assistants:
+        return False
+    assistants.append(assistant_id)
+    update_seller(owner_id, {"assistants": assistants})
+    return True
+
+def remove_assistant(owner_id: int, assistant_id: int) -> bool:
+    assistants = get_assistants(owner_id)
+    if assistant_id not in assistants:
+        return False
+    assistants.remove(assistant_id)
+    update_seller(owner_id, {"assistants": assistants})
+    return True
+
+def shop_notify_ids(owner_id: int) -> list[int]:
+    """Buyurtma xabarlari boradigan barcha id'lar: ega + yordamchilar."""
+    return [owner_id, *get_assistants(owner_id)]
+
+
 # ─── Users ───────────────────────────────────────────────────────────────────
 def get_users() -> dict:
     return _read(USERS_FILE)

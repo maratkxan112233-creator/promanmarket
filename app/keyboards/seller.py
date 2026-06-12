@@ -33,9 +33,9 @@ seller_main_menu = _build_seller_main_menu()
 
 
 def menu_for(user_id: int) -> ReplyKeyboardMarkup:
-    """Seller bo'lsa seller menyusi, aks holda xaridor menyusi."""
-    from app.storage import is_seller
-    return seller_main_menu if is_seller(user_id) else main_menu
+    """Seller yoki yordamchi bo'lsa seller menyusi, aks holda xaridor menyusi."""
+    from app.storage import is_shop_member
+    return seller_main_menu if is_shop_member(user_id) else main_menu
 
 
 cancel_keyboard = ReplyKeyboardMarkup(

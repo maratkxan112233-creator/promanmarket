@@ -14,12 +14,13 @@ from app.storage import (
     get_all_products, admin_delete_product, update_product, get_product_by_id,
     product_photos,
     update_seller, delete_seller, delete_user, get_orders, get_seller_reviews,
-    get_order_by_id, update_order_status, get_seller_orders, get_seller,
+    get_order_by_id, update_order_status, update_order_fields, get_seller_orders, get_seller,
     get_seller_products, add_product,
     get_admins, add_admin, remove_admin, is_sub_admin,
     get_couriers, add_courier, remove_courier, is_courier,
     add_audit, get_audit,
     get_cities, add_city, remove_city, get_user, get_users, set_user_field,
+    shop_notify_ids, get_owner_id,
 )
 from app.album import collect
 from app.keyboards.seller import main_menu, stars_kb, menu_for, MENU_VERSION
@@ -374,23 +375,23 @@ async def confirm_payment(call: CallbackQuery):
         except Exception:
             pass
 
-        # Sellerga — XARIDOR MA'LUMOTLARI KO'RSATILMAYDI
-        try:
-            await bot.send_message(
-                o["seller_id"],
-                f"💳 <b>Buyurtma #{oid} — to'lov tasdiqlandi!</b>\n\n"
-                f"📦 {o.get('product_name','—')}\n"
-                f"🚚 {dlv_label}\n\n"
-                f"🔒 <b>Xaridor o'zi olib ketadi — ma'lumotlari ko'rsatilmaydi.</b>\n"
-                f"Xaridor do'kon raqamiga bog'lanib, mahsulotni olib ketadi.\n"
-                f"💡 <i>Eslatma: bu buyurtma uchun platforma xizmat haqi "
-                f"({o.get('commission', int(o.get('total',0)*0.1)):,} so'm — 10%) "
-                f"xaridorning oldi-to'lovidan olingan.</i>\n"
-                f"Mahsulotni tayyorlab qo'ying. /orders",
-                parse_mode="HTML"
-            )
-        except Exception:
-            pass
+        # Sellerga (ega + yordamchilar) — XARIDOR MA'LUMOTLARI KO'RSATILMAYDI
+        seller_msg = (
+            f"💳 <b>Buyurtma #{oid} — to'lov tasdiqlandi!</b>\n\n"
+            f"📦 {o.get('product_name','—')}\n"
+            f"🚚 {dlv_label}\n\n"
+            f"🔒 <b>Xaridor o'zi olib ketadi — ma'lumotlari ko'rsatilmaydi.</b>\n"
+            f"Xaridor do'kon raqamiga bog'lanib, mahsulotni olib ketadi.\n"
+            f"💡 <i>Eslatma: bu buyurtma uchun platforma xizmat haqi "
+            f"({o.get('commission', int(o.get('total',0)*0.1)):,} so'm — 10%) "
+            f"xaridorning oldi-to'lovidan olingan.</i>\n"
+            f"Mahsulotni tayyorlab qo'ying. /orders"
+        )
+        for nid in shop_notify_ids(o["seller_id"]):
+            try:
+                await bot.send_message(nid, seller_msg, parse_mode="HTML")
+            except Exception:
+                pass
     else:
         # ── TAKSI/YETKAZIB BERISH: xaridor ma'lumotlari ENDI ochiladi (to'lov tasdiqlangani uchun) ──
         # Xaridorga
@@ -406,25 +407,25 @@ async def confirm_payment(call: CallbackQuery):
         except Exception:
             pass
 
-        # Sellerga — to'liq xaridor ma'lumotlari
-        try:
-            await bot.send_message(
-                o["seller_id"],
-                f"💳 <b>Buyurtma #{oid} — to'lov tasdiqlandi!</b>\n"
-                f"🔓 <b>Xaridor ma'lumotlari ochildi:</b>\n\n"
-                f"📦 {o.get('product_name','—')}\n"
-                f"👤 {o.get('buyer_name','—')}\n"
-                f"📱 {o.get('phone','—')}\n"
-                f"📍 {o.get('address','—')}\n"
-                f"🚚 {dlv_label}\n\n"
-                f"💡 <i>Eslatma: bu buyurtma uchun platforma xizmat haqi "
-                f"({o.get('commission', int(o.get('total',0)*0.1)):,} so'm — 10%) "
-                f"xaridorning oldi-to'lovidan olingan.</i>\n"
-                f"Endi buyurtmani tayyorlab, taksi orqali manzilga jo'nating. /orders",
-                parse_mode="HTML"
-            )
-        except Exception:
-            pass
+        # Sellerga (ega + yordamchilar) — to'liq xaridor ma'lumotlari
+        seller_msg = (
+            f"💳 <b>Buyurtma #{oid} — to'lov tasdiqlandi!</b>\n"
+            f"🔓 <b>Xaridor ma'lumotlari ochildi:</b>\n\n"
+            f"📦 {o.get('product_name','—')}\n"
+            f"👤 {o.get('buyer_name','—')}\n"
+            f"📱 {o.get('phone','—')}\n"
+            f"📍 {o.get('address','—')}\n"
+            f"🚚 {dlv_label}\n\n"
+            f"💡 <i>Eslatma: bu buyurtma uchun platforma xizmat haqi "
+            f"({o.get('commission', int(o.get('total',0)*0.1)):,} so'm — 10%) "
+            f"xaridorning oldi-to'lovidan olingan.</i>\n"
+            f"Endi buyurtmani tayyorlab, taksi orqali manzilga jo'nating. /orders"
+        )
+        for nid in shop_notify_ids(o["seller_id"]):
+            try:
+                await bot.send_message(nid, seller_msg, parse_mode="HTML")
+            except Exception:
+                pass
 
         # ── KURIERLARGA — yangi zakaz (10% to'lov tasdiqlanishi bilanoq) ──
         for cid in get_couriers():
@@ -1513,7 +1514,81 @@ async def courier_panel(message: Message):
                              reply_markup=_courier_done_kb(o["id"]))
 
 
-# ─── Kurier "Yetkazib berildi" tugmasi ───────────────────────────────────────
+# ─── Kurier "Yetkazib berildi" tugmasi — qolgan 90% to'lov tasdig'i bilan ────
+# Yangi oqim: kurier manzilga yetib borib tugmani bosadi → xaridorga qolgan
+# to'lov summasi + seller kartasi (bosib nusxa olinadigan) boradi, sellerga
+# "✅ To'lovni oldim" tugmasi boradi. Seller HANDOVER_WAIT soniya ichida
+# tasdiqlamasa, kurier o'zi tasdiqlab mahsulotni topshirib ketadi.
+HANDOVER_WAIT = 180  # soniya (3 daqiqa)
+
+
+def _seller_paid_kb(oid: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ To'lovni oldim", callback_data=f"spaid_{oid}")]
+    ])
+
+
+def _courier_confirm_kb(oid: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🤝 Mahsulotni topshirdim (o'zim tasdiqlash)",
+                              callback_data=f"cpaid_{oid}")]
+    ])
+
+
+async def _finalize_handover(oid: int, o: dict, by_seller: bool):
+    """Qolgan to'lov tasdiqlandi — zakaz yakunlanadi: holat 'delivered',
+    xaridorga baholash, tegishli tomonlarga xabar."""
+    from app.bot.bot import bot
+    update_order_status(oid, "delivered")
+    total  = o.get("total", 0)
+    prepay = o.get("prepay", 0)
+    remain = max(total - prepay, 0)
+    remain_note = f"💰 Qolgan to'lov ({remain:,} so'm) tasdiqlandi.\n" if remain else ""
+
+    # Xaridorga — yakun + baholash
+    try:
+        await bot.send_message(
+            o["buyer_id"],
+            f"📦 <b>Buyurtmangiz topshirildi!</b>  (#{oid})\n"
+            f"📦 {o.get('product_name', '—')}\n"
+            f"{remain_note}\n"
+            "⭐ Sellerni baholang:",
+            parse_mode="HTML",
+            reply_markup=stars_kb(o["seller_id"], oid)
+        )
+    except Exception:
+        pass
+
+    if by_seller:
+        # Kurierga — endi mahsulotni topshirish mumkin
+        cid = o.get("handover_courier_id")
+        if cid:
+            try:
+                await bot.send_message(
+                    int(cid),
+                    f"✅ <b>Zakaz #{oid} — seller to'lovni tasdiqladi!</b>\n"
+                    f"📦 {o.get('product_name','—')}\n"
+                    "Mahsulotni xaridorga topshirib ketishingiz mumkin. 🤝",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
+    else:
+        # Seller (ega + yordamchilar)ga — kurier o'zi tasdiqlagani haqida
+        for nid in shop_notify_ids(o["seller_id"]):
+            try:
+                await bot.send_message(
+                    nid,
+                    f"ℹ️ <b>Buyurtma #{oid}:</b> 3 daqiqa ichida tasdiqlanmagani uchun "
+                    f"kurier o'zi tasdiqlab, mahsulotni xaridorga topshirdi.\n"
+                    f"📦 {o.get('product_name','—')}\n"
+                    f"💰 Qolgan to'lov: {remain:,} so'm — kartangizni tekshiring.",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
+
+
 @router.callback_query(F.data.startswith("cdone_"))
 async def courier_delivered(call: CallbackQuery):
     if not (is_courier(call.from_user.id) or is_owner(call.from_user.id)):
@@ -1524,57 +1599,167 @@ async def courier_delivered(call: CallbackQuery):
         await call.answer("Buyurtma topilmadi.", show_alert=True); return
     if o.get("status") == "delivered":
         await call.answer("Bu zakaz allaqachon yetkazilgan.", show_alert=True); return
-    await call.answer("✅ Yetkazib berildi!")
 
-    update_order_status(oid, "delivered")
-    courier = get_couriers().get(str(call.from_user.id), {})
-    _log(call.from_user, "Zakaz yetkazildi (kurier)",
-         f"Buyurtma #{oid} — kurier: {courier.get('name', call.from_user.full_name)}")
-
-    # Kurier xabarini belgilab, tugmani olib tashlaymiz
-    try:
-        await call.message.edit_text(
-            call.message.html_text + "\n\n✅ <b>YETKAZIB BERILDI</b>",
-            parse_mode="HTML",
-        )
-    except Exception:
-        pass
-
-    from app.bot.bot import bot
-    # Xaridorga — yetkazildi + qolgan to'lov + baholash tugmalari
     total  = o.get("total", 0)
     prepay = o.get("prepay", 0)
     remain = max(total - prepay, 0)
-    remain_pct = round(remain / total * 100) if total else 0
-    remain_line = (
-        f"\n💰 Qolgan to'lov:  <b>{remain:,} so'm</b>  ({remain_pct}%)\n"
-        "Mahsulotni tekshirib, qolgan summani to'lang (naqd yoki karta).\n"
-        if remain else "\n"
+    from app.bot.bot import bot
+    courier = get_couriers().get(str(call.from_user.id), {})
+
+    # Qolgan to'lov bo'lmasa — tasdiqlashsiz darhol yakunlanadi
+    if remain <= 0:
+        await call.answer("✅ Yetkazib berildi!")
+        _log(call.from_user, "Zakaz yetkazildi (kurier)",
+             f"Buyurtma #{oid} — kurier: {courier.get('name', call.from_user.full_name)}")
+        try:
+            await call.message.edit_text(
+                call.message.html_text + "\n\n✅ <b>YETKAZIB BERILDI</b>",
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
+        for nid in shop_notify_ids(o["seller_id"]):
+            try:
+                await bot.send_message(
+                    nid,
+                    f"✅ <b>Buyurtma #{oid} kurier tomonidan yetkazildi!</b>\n"
+                    f"📦 {o.get('product_name','—')}",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
+        await _finalize_handover(oid, o, by_seller=True)
+        return
+
+    # Takror bosilgan bo'lsa — faqat tasdiqlash tugmasini qayta ko'rsatamiz
+    if o.get("handover_at"):
+        await call.answer("⏳ To'lov tasdig'i jarayonda.", show_alert=True)
+        try:
+            await call.message.edit_reply_markup(reply_markup=_courier_confirm_kb(oid))
+        except Exception:
+            pass
+        return
+
+    update_order_fields(oid, {
+        "handover_at": datetime.now().isoformat(),
+        "handover_courier_id": call.from_user.id,
+    })
+    await call.answer("📍 Qabul qilindi — endi to'lov tasdig'i.")
+    _log(call.from_user, "Zakaz manzilga yetkazildi (kurier)",
+         f"Buyurtma #{oid} — kurier: {courier.get('name', call.from_user.full_name)}")
+
+    seller_card = (get_seller(o["seller_id"]) or {}).get("card_number", "")
+    card_block = (
+        f"💳 Seller kartasi:  <code>{seller_card}</code>\n"
+        "<i>(raqamni bossangiz — nusxa olinadi)</i>\n"
+        if seller_card else
+        "💳 Karta raqamini kurierdan so'rang yoki naqd to'lang.\n"
     )
+
+    # Xaridorga — qolgan to'lov + nusxa olinadigan karta raqami
     try:
         await bot.send_message(
             o["buyer_id"],
-            f"📦 <b>Buyurtmangiz yetkazildi!</b>  (#{oid})\n"
-            f"📦 {o.get('product_name', '—')}"
-            f"{remain_line}\n"
-            "⭐ Sellerni baholang:",
-            parse_mode="HTML",
-            reply_markup=stars_kb(o["seller_id"], oid)
-        )
-    except Exception:
-        pass
-
-    # Sellerga — kurier yetkazgani haqida
-    try:
-        await bot.send_message(
-            o["seller_id"],
-            f"✅ <b>Buyurtma #{oid} kurier tomonidan yetkazildi!</b>\n"
-            f"📦 {o.get('product_name','—')}\n"
-            f"💰 Qolgan to'lov ({remain:,} so'm) xaridordan olinadi.",
+            f"📦 <b>Buyurtmangiz yetib keldi!</b>  (#{oid})\n"
+            f"📦 {o.get('product_name','—')}\n\n"
+            f"💰 Qolgan to'lov:  <b>{remain:,} so'm</b>\n"
+            f"{card_block}\n"
+            "Mahsulotni tekshirib, qolgan summani seller kartasiga o'tkazing "
+            "(yoki naqd bering). Seller to'lovni tasdiqlagach, kurier mahsulotni "
+            "sizga topshiradi.",
             parse_mode="HTML"
         )
     except Exception:
         pass
+
+    # Sellerga (ega + yordamchilar) — "To'lovni oldim" tugmasi
+    for nid in shop_notify_ids(o["seller_id"]):
+        try:
+            await bot.send_message(
+                nid,
+                f"💰 <b>Buyurtma #{oid} — qolgan to'lov vaqti!</b>\n"
+                f"📦 {o.get('product_name','—')}\n"
+                f"Xaridor qolgan <b>{remain:,} so'm</b>ni kartangizga o'tkazadi "
+                f"(yoki naqd beradi).\n\n"
+                f"Kartangizni tekshirib, to'lov kelgach tasdiqlang. 👇\n"
+                f"⏱ <b>3 daqiqa</b> ichida tasdiqlanmasa, kurier o'zi tasdiqlab "
+                f"mahsulotni topshirib ketadi.",
+                parse_mode="HTML",
+                reply_markup=_seller_paid_kb(oid)
+            )
+        except Exception:
+            pass
+
+    # Kurier xabari — kutish holatiga o'tadi
+    try:
+        await call.message.edit_text(
+            call.message.html_text +
+            f"\n\n⏳ <b>Qolgan to'lov ({remain:,} so'm) — seller tasdig'i kutilmoqda.</b>\n"
+            "Seller 3 daqiqada tasdiqlamasa, quyidagi tugma bilan o'zingiz tasdiqlang:",
+            parse_mode="HTML",
+            reply_markup=_courier_confirm_kb(oid)
+        )
+    except Exception:
+        pass
+
+
+# ─── Seller: "To'lovni oldim" ────────────────────────────────────────────────
+@router.callback_query(F.data.startswith("spaid_"))
+async def seller_payment_received(call: CallbackQuery):
+    oid = int(call.data.split("_")[1])
+    o = get_order_by_id(oid)
+    if not o or o["seller_id"] != get_owner_id(call.from_user.id):
+        await call.answer("Ruxsat yo'q."); return
+    if o.get("status") == "delivered":
+        await call.answer("Allaqachon tasdiqlangan.", show_alert=True); return
+    await call.answer("✅ To'lov tasdiqlandi!")
+    _log(call.from_user, "Qolgan to'lov tasdiqlandi (seller)", f"Buyurtma #{oid}")
+    try:
+        await call.message.edit_text(
+            call.message.html_text + "\n\n✅ <b>TO'LOV TASDIQLANDI</b>",
+            parse_mode="HTML",
+        )
+    except Exception:
+        pass
+    await _finalize_handover(oid, o, by_seller=True)
+
+
+# ─── Kurier: 3 daqiqadan keyin o'zi tasdiqlashi ──────────────────────────────
+@router.callback_query(F.data.startswith("cpaid_"))
+async def courier_payment_confirm(call: CallbackQuery):
+    if not (is_courier(call.from_user.id) or is_owner(call.from_user.id)):
+        await call.answer("Ruxsat yo'q.", show_alert=True); return
+    oid = int(call.data.split("_")[1])
+    o = get_order_by_id(oid)
+    if not o:
+        await call.answer("Buyurtma topilmadi.", show_alert=True); return
+    if o.get("status") == "delivered":
+        await call.answer("Allaqachon tasdiqlangan.", show_alert=True); return
+
+    started = o.get("handover_at")
+    try:
+        elapsed = (datetime.now() - datetime.fromisoformat(started)).total_seconds()
+    except Exception:
+        elapsed = HANDOVER_WAIT  # vaqt yozuvi buzilgan bo'lsa — kutdirmaymiz
+    if elapsed < HANDOVER_WAIT:
+        left = int(HANDOVER_WAIT - elapsed)
+        await call.answer(
+            f"⏳ Seller tasdig'ini kuting — {left} soniya qoldi.", show_alert=True
+        )
+        return
+
+    await call.answer("🤝 Tasdiqlandi — mahsulotni topshiring!")
+    courier = get_couriers().get(str(call.from_user.id), {})
+    _log(call.from_user, "Qolgan to'lov tasdiqlandi (kurier, 3 daqiqa o'tdi)",
+         f"Buyurtma #{oid} — kurier: {courier.get('name', call.from_user.full_name)}")
+    try:
+        await call.message.edit_text(
+            call.message.html_text + "\n\n🤝 <b>KURIER TASDIQLADI — TOPSHIRILDI</b>",
+            parse_mode="HTML",
+        )
+    except Exception:
+        pass
+    await _finalize_handover(oid, o, by_seller=False)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

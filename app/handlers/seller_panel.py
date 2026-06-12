@@ -7,10 +7,11 @@ from aiogram.fsm.state import State, StatesGroup
 from app.storage import (
     is_seller, get_seller, get_sellers, get_seller_products, add_product,
     delete_product, update_product, update_seller, get_seller_orders, update_order_status,
-    to_int,
+    to_int, get_owner_id, get_shop_seller, is_shop_member, get_assistants,
+    add_assistant, remove_assistant, get_user,
 )
 from app.album import collect
-from app.keyboards.seller import main_menu, seller_main_menu, stars_kb
+from app.keyboards.seller import main_menu, seller_main_menu, stars_kb, cancel_keyboard
 from app.ui import money, divider, product_emoji
 
 router = Router()
@@ -52,6 +53,10 @@ class EditCardState(StatesGroup):
     waiting_value = State()
 
 
+class AddAssistantState(StatesGroup):
+    waiting_user = State()
+
+
 def seller_menu_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📦 Mahsulotlarim",    callback_data="seller_products")],
@@ -65,10 +70,10 @@ def seller_menu_kb():
 @router.message(Command("seller"))
 @router.message(F.text == "🛒 Sotuvchi paneli")
 async def seller_panel(message: Message):
-    if not is_seller(message.from_user.id):
+    if not is_shop_member(message.from_user.id):
         await message.answer("❌ Siz sotuvchi emassiz. Ariza bering: 🏪 Sotuvchi bo'lish")
         return
-    seller = get_seller(message.from_user.id)
+    seller = get_shop_seller(message.from_user.id)
     await message.answer(
         f"🏪 <b>{seller['shop_name']}</b> — Seller Panel",
         reply_markup=seller_menu_kb(), parse_mode="HTML"
@@ -78,10 +83,10 @@ async def seller_panel(message: Message):
 # ─── Shahrim sellerlari (shahar bo'yicha sellerlar ro'yxati) ─────────────────
 @router.message(F.text == "👥 Shahrim sellerlari")
 async def my_city_sellers(message: Message):
-    if not is_seller(message.from_user.id):
+    if not is_shop_member(message.from_user.id):
         await message.answer("❌ Siz sotuvchi emassiz.")
         return
-    me = get_seller(message.from_user.id)
+    me = get_shop_seller(message.from_user.id)
     city = (me.get("city") or "").strip()
     if not city:
         await message.answer(
@@ -111,10 +116,10 @@ async def my_city_sellers(message: Message):
 # ─── Mahsulotlar ─────────────────────────────────────────────────────────────
 @router.callback_query(F.data == "seller_products")
 async def seller_products(call: CallbackQuery):
-    if not is_seller(call.from_user.id):
+    if not is_shop_member(call.from_user.id):
         await call.answer("Siz seller emassiz."); return
     await _ack(call)
-    products = get_seller_products(call.from_user.id)
+    products = get_seller_products(get_owner_id(call.from_user.id))
     if not products:
         await call.message.edit_text(
             "📦 Hozircha mahsulot yo'q.",
@@ -126,8 +131,9 @@ async def seller_products(call: CallbackQuery):
         return
     rows = []
     for p in products:
+        finished = "❌ " if p.get("is_finished") else ""
         rows.append([
-            InlineKeyboardButton(text=f"{product_emoji(p)} {p['name']} — {p['price']:,} so'm",
+            InlineKeyboardButton(text=f"{finished}{product_emoji(p)} {p['name']} — {p['price']:,} so'm",
                                  callback_data=f"sprod_{p['id']}"),
         ])
     rows.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="seller_back")])
@@ -140,18 +146,23 @@ async def seller_product_detail(call: CallbackQuery):
     pid = int(call.data.split("_")[1])
     from app.storage import get_product_by_id
     p = get_product_by_id(pid)
-    if not p or p["seller_id"] != call.from_user.id:
+    if not p or p["seller_id"] != get_owner_id(call.from_user.id):
         await call.answer("Topilmadi."); return
     await _ack(call)
+    finished = bool(p.get("is_finished"))
+    status_line = "❌ Tugagan" if finished else "✅ Sotuvda"
     text = (
         f"📦 <b>{p['name']}</b>\n"
         f"📝 {p.get('description','—')}\n"
-        f"💰 {p['price']:,} so'm"
+        f"💰 {p['price']:,} so'm\n"
+        f"📌 Holati: {status_line}"
     )
+    toggle_text = "✅ Bor deb belgilash" if finished else "❌ Tugadi deb belgilash"
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✏️ Nomini o'zgartirish",  callback_data=f"seprod_name_{pid}")],
         [InlineKeyboardButton(text="✏️ Narxini o'zgartirish", callback_data=f"seprod_price_{pid}")],
         [InlineKeyboardButton(text="✏️ Tavsifini o'zgartirish", callback_data=f"seprod_desc_{pid}")],
+        [InlineKeyboardButton(text=toggle_text,                callback_data=f"pfin_{pid}")],
         [InlineKeyboardButton(text="🗑 O'chirish",             callback_data=f"del_product_{pid}")],
         [InlineKeyboardButton(text="🔙 Orqaga",                callback_data="seller_products")],
     ])
@@ -177,7 +188,7 @@ async def seller_edit_product_save(message: Message, state: FSMContext):
     pid   = data["pid"]
     from app.storage import get_product_by_id
     p = get_product_by_id(pid)
-    if not p or p["seller_id"] != message.from_user.id:
+    if not p or p["seller_id"] != get_owner_id(message.from_user.id):
         await state.clear()
         await message.answer("❌ Ruxsat yo'q.")
         return
@@ -199,17 +210,31 @@ async def seller_edit_product_save(message: Message, state: FSMContext):
 @router.callback_query(F.data.startswith("del_product_"))
 async def delete_product_handler(call: CallbackQuery):
     pid = int(call.data.split("_")[-1])
-    if delete_product(pid, call.from_user.id):
+    if delete_product(pid, get_owner_id(call.from_user.id)):
         await call.answer("🗑 O'chirildi!")
         await seller_products(call)
     else:
         await call.answer("Topilmadi.")
 
 
+# ─── "Tugadi" / "Bor" belgilash ──────────────────────────────────────────────
+@router.callback_query(F.data.startswith("pfin_"))
+async def toggle_product_finished(call: CallbackQuery):
+    pid = int(call.data.split("_")[1])
+    from app.storage import get_product_by_id
+    p = get_product_by_id(pid)
+    if not p or p["seller_id"] != get_owner_id(call.from_user.id):
+        await call.answer("Topilmadi."); return
+    new_val = not p.get("is_finished")
+    update_product(pid, {"is_finished": new_val})
+    await call.answer("❌ Tugagan deb belgilandi" if new_val else "✅ Sotuvda deb belgilandi")
+    await seller_product_detail(call)
+
+
 # ─── Mahsulot qo'shish ───────────────────────────────────────────────────────
 @router.callback_query(F.data == "seller_add_product")
 async def start_add_product(call: CallbackQuery, state: FSMContext):
-    if not is_seller(call.from_user.id):
+    if not is_shop_member(call.from_user.id):
         await call.answer("Siz seller emassiz."); return
     await _ack(call)
     await state.set_state(AddProductState.name)
@@ -292,9 +317,10 @@ async def product_price(message: Message, state: FSMContext):
 
 
 def _build_product(user_id: int, data: dict, photos: list) -> dict:
-    seller = get_seller(user_id)
+    owner = get_owner_id(user_id)
+    seller = get_seller(owner)
     return {
-        "seller_id":   user_id,
+        "seller_id":   owner,
         "shop_name":   seller["shop_name"],
         "name":        data["name"],
         "category":    data.get("category", "other"),
@@ -434,10 +460,10 @@ async def product_preview_cancel(call: CallbackQuery, state: FSMContext):
 # ─── Buyurtmalar (seller) ───────────────────────────────────────────────────────
 @router.callback_query(F.data == "seller_orders")
 async def seller_orders_list(call: CallbackQuery):
-    if not is_seller(call.from_user.id):
+    if not is_shop_member(call.from_user.id):
         await call.answer("Siz seller emassiz."); return
     await _ack(call)
-    orders = get_seller_orders(call.from_user.id)
+    orders = get_seller_orders(get_owner_id(call.from_user.id))
     if not orders:
         await call.message.edit_text("🛒 Hozircha buyurtma yo'q.", reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[[InlineKeyboardButton(text="🔙 Orqaga", callback_data="seller_back")]]
@@ -460,7 +486,7 @@ async def seller_order_detail(call: CallbackQuery):
     oid = int(call.data.split("_")[1])
     from app.storage import get_order_by_id
     o = get_order_by_id(oid)
-    if not o or o["seller_id"] != call.from_user.id:
+    if not o or o["seller_id"] != get_owner_id(call.from_user.id):
         await call.answer("Topilmadi."); return
     await _ack(call)
     status = ORDER_STATUSES.get(o.get("status",""), "—")
@@ -533,7 +559,7 @@ async def seller_view_receipt(call: CallbackQuery):
     oid = int(call.data.split("_")[1])
     from app.storage import get_order_by_id
     o = get_order_by_id(oid)
-    if not o or o["seller_id"] != call.from_user.id:
+    if not o or o["seller_id"] != get_owner_id(call.from_user.id):
         await call.answer("Topilmadi."); return
     if not o.get("receipt"):
         await call.answer("Chek yo'q.", show_alert=True); return
@@ -551,7 +577,7 @@ async def update_order(call: CallbackQuery):
     status = parts[2]
     from app.storage import get_order_by_id
     o = get_order_by_id(oid)
-    if not o or o["seller_id"] != call.from_user.id:
+    if not o or o["seller_id"] != get_owner_id(call.from_user.id):
         await call.answer("Ruxsat yo'q."); return
     update_order_status(oid, status)
     status_label = ORDER_STATUSES[status]
@@ -571,9 +597,16 @@ async def update_order(call: CallbackQuery):
             prepay  = o.get("prepay", 0)
             remain  = max(total - prepay, 0)
             remain_pct = round(remain / total * 100) if total else 0
+            seller_card = (get_seller(o["seller_id"]) or {}).get("card_number", "")
+            card_line = (
+                f"💳 Seller kartasi:  <code>{seller_card}</code>  "
+                f"<i>(bossangiz — nusxa olinadi)</i>\n"
+                if seller_card else ""
+            )
             remain_line = (
                 f"\n{divider()}\n"
                 f"💰 Qolgan to'lov:  <b>{money(remain)}</b>  ({remain_pct}%)\n"
+                f"{card_line}"
                 "Mahsulotni tekshirib, qolgan summani do'konga to'lang "
                 "(naqd yoki karta).\n"
                 if remain else "\n"
@@ -599,13 +632,14 @@ async def update_order(call: CallbackQuery):
 # ─── Do'kon info ─────────────────────────────────────────────────────────────
 @router.callback_query(F.data == "seller_shop_info")
 async def seller_shop_info(call: CallbackQuery):
-    seller = get_seller(call.from_user.id)
+    seller = get_shop_seller(call.from_user.id)
     if not seller:
         await call.answer("Seller topilmadi."); return
     await _ack(call)
+    owner_id = get_owner_id(call.from_user.id)
     from app.storage import get_seller_rating
-    rating, cnt = get_seller_rating(call.from_user.id)
-    products = get_seller_products(call.from_user.id)
+    rating, cnt = get_seller_rating(owner_id)
+    products = get_seller_products(owner_id)
     text = (
         f"🏪 <b>{seller['shop_name']}</b>\n\n"
         f"👤 {seller['full_name']}\n"
@@ -614,12 +648,14 @@ async def seller_shop_info(call: CallbackQuery):
         f"📦 Mahsulotlar: {len(products)} ta\n"
         f"⭐ Reyting: {rating} ({cnt} ta baho)"
     )
-    await call.message.edit_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="✏️ Karta raqamini o'zgartirish", callback_data="seller_edit_card")],
-            [InlineKeyboardButton(text="🔙 Orqaga", callback_data="seller_back")],
-        ]
-    ))
+    rows = []
+    # Karta va yordamchilarni faqat do'kon egasi boshqaradi
+    if is_seller(call.from_user.id):
+        rows.append([InlineKeyboardButton(text="✏️ Karta raqamini o'zgartirish", callback_data="seller_edit_card")])
+        rows.append([InlineKeyboardButton(text="👥 Yordamchilar", callback_data="seller_assistants")])
+    rows.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="seller_back")])
+    await call.message.edit_text(text, parse_mode="HTML",
+                                  reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
 
 
 # ─── Karta raqamini o'zgartirish (seller o'zi) ───────────────────────────────
@@ -656,9 +692,158 @@ async def seller_edit_card_save(message: Message, state: FSMContext):
     )
 
 
+# ─── Yordamchilar (faqat do'kon egasi) ───────────────────────────────────────
+def _assistants_view(owner_id: int):
+    assistants = get_assistants(owner_id)
+    if assistants:
+        text = f"👥 <b>Yordamchilar</b> ({len(assistants)} ta):\n\nChiqarish uchun tugmani bosing."
+    else:
+        text = "👥 <b>Yordamchilar</b>\n\nHozircha yordamchi yo'q."
+    rows = []
+    for uid in assistants:
+        u = get_user(uid) or {}
+        name = u.get("full_name") or str(uid)
+        rows.append([InlineKeyboardButton(text=f"🗑 {name} ({uid})", callback_data=f"asst_del_{uid}")])
+    rows.append([InlineKeyboardButton(text="➕ Yordamchi qo'shish", callback_data="asst_add")])
+    rows.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="seller_shop_info")])
+    return text, InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+@router.callback_query(F.data == "seller_assistants")
+async def seller_assistants_list(call: CallbackQuery):
+    if not is_seller(call.from_user.id):
+        await call.answer("Faqat do'kon egasi uchun."); return
+    await _ack(call)
+    text, kb = _assistants_view(call.from_user.id)
+    await call.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+
+
+@router.callback_query(F.data == "asst_add")
+async def assistant_add_start(call: CallbackQuery, state: FSMContext):
+    if not is_seller(call.from_user.id):
+        await call.answer("Faqat do'kon egasi uchun."); return
+    await _ack(call)
+    await state.set_state(AddAssistantState.waiting_user)
+    await call.message.answer(
+        "👥 Yordamchining Telegram <b>ID raqamini</b> yuboring,\n"
+        "yoki uning xabarini forward qiling / kontaktini ulashing.\n\n"
+        "⚠️ Yordamchi avval botga /start bosgan bo'lishi kerak.",
+        parse_mode="HTML", reply_markup=cancel_keyboard
+    )
+
+
+@router.message(AddAssistantState.waiting_user, F.text == "❌ Bekor qilish")
+async def assistant_add_cancel(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer("⛔️ Yordamchi qo'shish bekor qilindi.", reply_markup=seller_main_menu)
+
+
+@router.message(AddAssistantState.waiting_user, F.text.startswith("/"))
+async def assistant_add_interrupt(message: Message, state: FSMContext):
+    if (message.text or "").startswith("/start"):
+        from app.handlers.start import cmd_start
+        await cmd_start(message, state)
+        return
+    await state.clear()
+    await message.answer("⛔️ Yordamchi qo'shish to'xtatildi.", reply_markup=seller_main_menu)
+
+
+@router.message(AddAssistantState.waiting_user, F.text.in_(MENU_BUTTONS))
+async def assistant_add_interrupt_menu(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer("⛔️ Yordamchi qo'shish to'xtatildi.", reply_markup=seller_main_menu)
+
+
+@router.message(AddAssistantState.waiting_user)
+async def assistant_add_save(message: Message, state: FSMContext):
+    owner_id = message.from_user.id
+    if not is_seller(owner_id):
+        await state.clear()
+        await message.answer("❌ Ruxsat yo'q.")
+        return
+
+    # ID'ni aniqlash: forward → kontakt → matn
+    uid = None
+    if message.forward_from:
+        uid = message.forward_from.id
+    elif message.contact and message.contact.user_id:
+        uid = message.contact.user_id
+    else:
+        txt = (message.text or "").strip()
+        if txt.isdigit():
+            uid = int(txt)
+
+    if not uid:
+        await message.answer(
+            "❌ ID aniqlanmadi. Raqamli ID yuboring (masalan: 123456789).\n"
+            "Eslatma: forward qilingan xabarda foydalanuvchi maxfiyligi yoqilgan "
+            "bo'lsa, ID ko'rinmaydi — unda raqamini yozib yuboring."
+        )
+        return
+
+    if uid == owner_id:
+        await message.answer("❌ O'zingizni yordamchi qilib qo'sha olmaysiz.")
+        return
+    if get_owner_id(uid) is not None:
+        await message.answer("❌ Bu foydalanuvchi allaqachon seller yoki boshqa do'kon yordamchisi.")
+        return
+
+    from app.bot.bot import bot
+    try:
+        await bot.get_chat(uid)
+    except Exception:
+        await message.answer(
+            "❌ Bu foydalanuvchi topilmadi.\n"
+            "U avval botga kirib /start bosishi kerak, keyin qayta urinib ko'ring."
+        )
+        return
+
+    add_assistant(owner_id, uid)
+    await state.clear()
+    seller = get_seller(owner_id)
+    u = get_user(uid) or {}
+    name = u.get("full_name") or str(uid)
+    await message.answer(
+        f"✅ <b>{name}</b> ({uid}) do'koningizga yordamchi qilib qo'shildi!",
+        parse_mode="HTML", reply_markup=seller_main_menu
+    )
+    try:
+        await bot.send_message(
+            uid,
+            f"✅ Siz <b>{seller['shop_name']}</b> do'koniga yordamchi qilib qo'shildingiz!\n"
+            "Endi sizda sotuvchi paneli ochiq: 🛒 Sotuvchi paneli",
+            parse_mode="HTML", reply_markup=seller_main_menu
+        )
+    except Exception:
+        pass
+
+
+@router.callback_query(F.data.startswith("asst_del_"))
+async def assistant_remove(call: CallbackQuery):
+    if not is_seller(call.from_user.id):
+        await call.answer("Faqat do'kon egasi uchun."); return
+    uid = int(call.data.split("_")[2])
+    owner_id = call.from_user.id
+    if not remove_assistant(owner_id, uid):
+        await call.answer("Topilmadi."); return
+    await call.answer("🗑 Yordamchi chiqarildi.")
+    seller = get_seller(owner_id)
+    try:
+        from app.bot.bot import bot
+        await bot.send_message(
+            uid,
+            f"ℹ️ Siz <b>{seller['shop_name']}</b> do'koni yordamchiligidan chiqarildingiz.",
+            parse_mode="HTML", reply_markup=main_menu
+        )
+    except Exception:
+        pass
+    text, kb = _assistants_view(owner_id)
+    await call.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+
+
 @router.callback_query(F.data == "seller_back")
 async def seller_back(call: CallbackQuery):
-    seller = get_seller(call.from_user.id)
+    seller = get_shop_seller(call.from_user.id)
     if not seller:
         await call.answer(); return
     await _ack(call)
@@ -671,9 +856,9 @@ async def seller_back(call: CallbackQuery):
 # ─── /orders (buyruq orqali) ─────────────────────────────────────────────────
 @router.message(Command("orders"))
 async def orders_cmd(message: Message):
-    if not is_seller(message.from_user.id):
+    if not is_shop_member(message.from_user.id):
         await message.answer("Siz seller emassiz."); return
-    orders = get_seller_orders(message.from_user.id)
+    orders = get_seller_orders(get_owner_id(message.from_user.id))
     if not orders:
         await message.answer("🛒 Hozircha buyurtma yo'q."); return
     text = "🛒 <b>Buyurtmalaringiz:</b>\n\n"

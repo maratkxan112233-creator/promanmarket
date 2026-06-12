@@ -15,6 +15,7 @@ from app.storage import (
     get_user, set_user_field, get_cities, product_photos,
     set_view_msgs, pop_view_msgs, get_view_msgs,
     get_favorites, is_favorite, toggle_favorite,
+    is_shop_member, get_shop_seller, get_owner_id, shop_notify_ids,
 )
 from app.keyboards.seller import (
     main_menu, seller_main_menu, menu_for, phone_keyboard, cancel_keyboard,
@@ -94,7 +95,7 @@ def _city_picker() -> InlineKeyboardMarkup:
 # ─── 🚀 Start tugmasi (salomlashish xabaridan) ───────────────────────────────
 @router.callback_query(F.data == "go_start")
 async def go_start(call: CallbackQuery):
-    if is_seller(call.from_user.id):
+    if is_shop_member(call.from_user.id):
         await call.message.answer(
             "🛒 Siz sotuvchisiz. Quyidagi menyudan foydalaning:",
             reply_markup=seller_main_menu
@@ -135,11 +136,12 @@ async def contact_handler(message: Message):
 @router.message(F.text == "👤 Profil")
 async def profile_handler(message: Message):
     user = message.from_user
-    seller = get_seller(user.id)
+    seller = get_shop_seller(user.id)
     if seller:
-        rating, cnt = get_seller_rating(user.id)
+        owner_id = get_owner_id(user.id)
+        rating, cnt = get_seller_rating(owner_id)
         stars = "⭐" * int(rating) if rating else "—"
-        products = get_seller_products(user.id)
+        products = get_seller_products(owner_id)
         extra = (
             f"{divider()}\n"
             f"🏪 Do'kon:  {seller['shop_name']}\n"
@@ -148,7 +150,7 @@ async def profile_handler(message: Message):
             f"{divider()}\n"
             "/seller — sotuvchi paneli"
         )
-        role = "🏪 Sotuvchi"
+        role = "🏪 Sotuvchi" if is_seller(user.id) else "🏪 Sotuvchi (yordamchi)"
     else:
         role  = "🛍 Xaridor"
         u = get_user(user.id)
@@ -175,7 +177,7 @@ async def profile_handler(message: Message):
 # Eski "🛍 Bozor" yozuvi ham qabul qilinadi (eski klaviaturasi ochiq foydalanuvchilar uchun).
 @router.message(F.text.in_({"🛒 Market", "🛍 Bozor"}))
 async def market_handler(message: Message):
-    if is_seller(message.from_user.id):
+    if is_shop_member(message.from_user.id):
         await message.answer(
             "🛒 Siz sotuvchisiz. Quyidagi menyudan foydalaning:",
             reply_markup=seller_main_menu
@@ -265,8 +267,9 @@ async def _send_shop_menu(call: CallbackQuery, seller_id: int):
         name = p.get("name", "—")
         if len(name) > 30:
             name = name[:30].rstrip() + "…"
+        finished = "  ·  ❌ Tugagan" if p.get("is_finished") else ""
         rows.append([InlineKeyboardButton(
-            text=f"{product_emoji(p)} {name}  ·  {money(p.get('price', 0))}",
+            text=f"{product_emoji(p)} {name}  ·  {money(p.get('price', 0))}{finished}",
             callback_data=f"prod_{p['id']}"
         )])
     rows.append([InlineKeyboardButton(text="‹  Orqaga", callback_data="back_shops")])
@@ -302,8 +305,9 @@ async def _send_category_products(message: Message, seller_id: int, code: str):
         name = p.get("name", "—")
         if len(name) > 30:
             name = name[:30].rstrip() + "…"
+        finished = "  ·  ❌ Tugagan" if p.get("is_finished") else ""
         rows.append([InlineKeyboardButton(
-            text=f"{product_emoji(p)} {name}  ·  {money(p.get('price', 0))}",
+            text=f"{product_emoji(p)} {name}  ·  {money(p.get('price', 0))}{finished}",
             callback_data=f"prod_{p['id']}"
         )])
     rows.append([InlineKeyboardButton(text="‹  Orqaga", callback_data=f"shop_{seller_id}")])
@@ -386,6 +390,9 @@ def _product_caption(p: dict) -> str:
         price_line += f"   <s>{money(old_price)}</s>"
     lines.append(price_line)
 
+    if p.get("is_finished"):
+        lines.append("❌ <b>Mahsulot tugagan</b> — hozircha buyurtma qilib bo'lmaydi")
+
     if desc:
         lines.append(f"{divider()}\n📝 {desc}")
 
@@ -409,14 +416,15 @@ def _product_kb(p: dict, user_id: int) -> InlineKeyboardMarkup:
         fav_text = "💔 Istaklardan olib tashlash"
     else:
         fav_text = "❤️ Istaklarimga qo'shish"
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🛒  Buyurtma berish", callback_data=f"order_{p['id']}")],
-        [InlineKeyboardButton(text=fav_text, callback_data=f"fav_{p['id']}")],
-        [InlineKeyboardButton(
-            text="‹  Orqaga",
-            callback_data=f"shop_{p['seller_id']}",
-        )],
-    ])
+    rows = []
+    if not p.get("is_finished"):
+        rows.append([InlineKeyboardButton(text="🛒  Buyurtma berish", callback_data=f"order_{p['id']}")])
+    rows.append([InlineKeyboardButton(text=fav_text, callback_data=f"fav_{p['id']}")])
+    rows.append([InlineKeyboardButton(
+        text="‹  Orqaga",
+        callback_data=f"shop_{p['seller_id']}",
+    )])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 # chat_id -> hozir ko'rsatilgan mahsulotning barcha xabar id'lari (albom rasmlari + tugmalar).
@@ -529,7 +537,8 @@ async def favorites_handler(message: Message):
         return
     rows = [
         [InlineKeyboardButton(
-            text=f"{product_emoji(p)} {p['name']}  ·  {money(p['price'])}",
+            text=f"{product_emoji(p)} {p['name']}  ·  {money(p['price'])}"
+                 f"{'  ·  ❌ Tugagan' if p.get('is_finished') else ''}",
             callback_data=f"prod_{p['id']}"
         )]
         for p in products
@@ -623,6 +632,9 @@ async def start_order(call: CallbackQuery, state: FSMContext):
     p = get_product_by_id(pid)
     if not p:
         await call.answer("Mahsulot topilmadi."); return
+    if p.get("is_finished"):
+        await call.answer("❌ Mahsulot tugagan. Hozircha buyurtma qilib bo'lmaydi.", show_alert=True)
+        return
     await state.clear()
     await state.update_data(pid=pid)
     await state.set_state(OrderState.quantity)
@@ -774,6 +786,13 @@ async def order_phone(message: Message, state: FSMContext):
         await state.clear()
         await message.answer("❌ Mahsulot topilmadi.", reply_markup=main_menu)
         return
+    if p.get("is_finished"):
+        await state.clear()
+        await message.answer(
+            "❌ Afsuski, bu mahsulot hozirgina tugadi. Buyurtma qabul qilinmadi.",
+            reply_markup=main_menu
+        )
+        return
 
     qty   = data.get("quantity", 1)
     total = p["price"] * qty
@@ -870,29 +889,30 @@ async def order_phone(message: Message, state: FSMContext):
     # Telefon/manzil faqat admin 10% to'lovni tasdiqlagandan keyin ochiladi.
     # Bu seller bilan xaridor to'g'ridan-to'g'ri kelishib, komissiyani
     # chetlab o'tishining oldini oladi.
-    try:
-        from app.bot.bot import bot
-        await bot.send_message(
-            p["seller_id"],
-            f"🛒 <b>Yangi buyurtma #{order_id}!</b>\n\n"
-            f"📦 {p['name']}\n"
-            f"🔢 Miqdor: {qty} dona × {p['price']:,} so'm\n"
-            f"💰 Jami: {total:,} so'm\n"
-            f"🚚 {dlv_label}\n"
-            f"{seller_dlv_note}\n"
-            f"🔒 <b>Xaridor ma'lumotlari (ism, tel, manzil) yashirin.</b>\n"
-            f"Platforma to'lovi (oldi-to'lov) tasdiqlangach avtomatik ochiladi.\n\n"
-            f"💡 <b>Eslatma:</b> Bot orqali sotilgan har bir buyurtma uchun "
-            f"mahsulot narxining {pct}% qismi platforma xizmat haqi sifatida olinadi.\n"
-            f"Bu summa ({commission:,} so'm) xaridorning oldi-to'lovidan to'g'ridan-to'g'ri "
-            f"platformaga o'tadi — sizdan keyinchalik alohida hech narsa so'ralmaydi. "
-            f"Hamkorligingiz uchun rahmat! 🙏\n\n"
-            f"⏳ Holat: to'lov tasdig'i kutilmoqda.\n"
-            f"Buyurtmalar: /orders",
-            parse_mode="HTML"
-        )
-    except Exception:
-        pass
+    from app.bot.bot import bot
+    seller_msg = (
+        f"🛒 <b>Yangi buyurtma #{order_id}!</b>\n\n"
+        f"📦 {p['name']}\n"
+        f"🔢 Miqdor: {qty} dona × {p['price']:,} so'm\n"
+        f"💰 Jami: {total:,} so'm\n"
+        f"🚚 {dlv_label}\n"
+        f"{seller_dlv_note}\n"
+        f"🔒 <b>Xaridor ma'lumotlari (ism, tel, manzil) yashirin.</b>\n"
+        f"Platforma to'lovi (oldi-to'lov) tasdiqlangach avtomatik ochiladi.\n\n"
+        f"💡 <b>Eslatma:</b> Bot orqali sotilgan har bir buyurtma uchun "
+        f"mahsulot narxining {pct}% qismi platforma xizmat haqi sifatida olinadi.\n"
+        f"Bu summa ({commission:,} so'm) xaridorning oldi-to'lovidan to'g'ridan-to'g'ri "
+        f"platformaga o'tadi — sizdan keyinchalik alohida hech narsa so'ralmaydi. "
+        f"Hamkorligingiz uchun rahmat! 🙏\n\n"
+        f"⏳ Holat: to'lov tasdig'i kutilmoqda.\n"
+        f"Buyurtmalar: /orders"
+    )
+    # Do'kon egasi + yordamchilarga yuboriladi
+    for nid in shop_notify_ids(p["seller_id"]):
+        try:
+            await bot.send_message(nid, seller_msg, parse_mode="HTML")
+        except Exception:
+            pass
 
     # ── Adminga: yangi buyurtma xabari (to'liq) ──
     try:
@@ -972,7 +992,7 @@ async def order_receipt_invalid(message: Message):
 # ─── Buyurtmalarim ──────────────────────────────────────────────────────────────
 @router.message(F.text == "📦 Buyurtmalarim")
 async def my_orders(message: Message):
-    if is_seller(message.from_user.id):
+    if is_shop_member(message.from_user.id):
         await message.answer(
             "🛒 Siz sotuvchisiz. Buyurtmalarni 🛒 Sotuvchi paneli orqali ko'ring:",
             reply_markup=seller_main_menu
@@ -1027,7 +1047,7 @@ async def resend_receipt(call: CallbackQuery, state: FSMContext):
 # ─── Qidirish ────────────────────────────────────────────────────────────────
 @router.message(F.text == "🔎 Qidirish")
 async def search_start(message: Message, state: FSMContext):
-    if is_seller(message.from_user.id):
+    if is_shop_member(message.from_user.id):
         await message.answer(
             "🛒 Siz sotuvchisiz. Quyidagi menyudan foydalaning:",
             reply_markup=seller_main_menu
@@ -1057,10 +1077,11 @@ async def do_search(message: Message, state: FSMContext):
     photo_ids = []
     for p in results[:5]:
         caption = _product_caption(p)
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🛒 Buyurtma qilish", callback_data=f"order_{p['id']}")],
-            [InlineKeyboardButton(text="🔍 Batafsil",     callback_data=f"prod_{p['id']}")],
-        ])
+        kb_rows = []
+        if not p.get("is_finished"):
+            kb_rows.append([InlineKeyboardButton(text="🛒 Buyurtma qilish", callback_data=f"order_{p['id']}")])
+        kb_rows.append([InlineKeyboardButton(text="🔍 Batafsil", callback_data=f"prod_{p['id']}")])
+        kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
         photos = product_photos(p)
         if photos:
             try:
