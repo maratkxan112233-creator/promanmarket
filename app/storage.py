@@ -150,6 +150,33 @@ def shop_notify_ids(owner_id: int) -> list[int]:
     return [owner_id, *get_assistants(owner_id)]
 
 
+def normalize_phone(phone) -> str:
+    """Raqamdan faqat sonlarni qoldirib, oxirgi 9 tasini qaytaradi
+    (+998 90 123-45-67 ham, 901234567 ham bir xil bo'ladi)."""
+    digits = "".join(ch for ch in str(phone or "") if ch.isdigit())
+    return digits[-9:] if len(digits) >= 9 else digits
+
+def find_user_id_by_phone(phone) -> int | None:
+    """Telefon raqami bo'yicha foydalanuvchi id'sini topadi.
+    Qidiruv tartibi: users → buyurtmalar (oxirgilari avval) → arizalar → sellerlar."""
+    target = normalize_phone(phone)
+    if len(target) < 9:
+        return None
+    for uid, u in get_users().items():
+        if normalize_phone(u.get("phone")) == target:
+            return int(uid)
+    for o in reversed(get_orders()):
+        if o.get("buyer_id") and normalize_phone(o.get("phone")) == target:
+            return int(o["buyer_id"])
+    for uid, a in get_applications().items():
+        if normalize_phone(a.get("phone")) == target:
+            return int(uid)
+    for sid, s in get_sellers().items():
+        if normalize_phone(s.get("phone")) == target:
+            return int(sid)
+    return None
+
+
 # ─── Users ───────────────────────────────────────────────────────────────────
 def get_users() -> dict:
     return _read(USERS_FILE)

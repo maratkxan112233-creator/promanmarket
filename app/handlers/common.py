@@ -778,6 +778,10 @@ async def order_phone(message: Message, state: FSMContext):
         await message.answer("❌ Telefon raqamni yuboring yoki yozing:")
         return
 
+    # Raqamni profilga ham yozamiz — keyin telefon orqali topish mumkin bo'ladi
+    # (masalan, seller yordamchini raqami bilan qo'shganda)
+    set_user_field(message.from_user.id, "phone", phone)
+
     data = await state.get_data()
     pid  = data["pid"]
     dlv  = data.get("delivery", "pickup")

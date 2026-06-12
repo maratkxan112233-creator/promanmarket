@@ -8,7 +8,7 @@ from app.storage import (
     is_seller, get_seller, get_sellers, get_seller_products, add_product,
     delete_product, update_product, update_seller, get_seller_orders, update_order_status,
     to_int, get_owner_id, get_shop_seller, is_shop_member, get_assistants,
-    add_assistant, remove_assistant, get_user,
+    add_assistant, remove_assistant, get_user, set_user_field, find_user_id_by_phone,
 )
 from app.album import collect
 from app.keyboards.seller import main_menu, seller_main_menu, stars_kb, cancel_keyboard
@@ -57,13 +57,17 @@ class AddAssistantState(StatesGroup):
     waiting_user = State()
 
 
-def seller_menu_kb():
-    return InlineKeyboardMarkup(inline_keyboard=[
+def seller_menu_kb(user_id: int | None = None):
+    rows = [
         [InlineKeyboardButton(text="📦 Mahsulotlarim",    callback_data="seller_products")],
         [InlineKeyboardButton(text="➕ Mahsulot qo'shish", callback_data="seller_add_product")],
         [InlineKeyboardButton(text="🛒 Buyurtmalar",          callback_data="seller_orders")],
-        [InlineKeyboardButton(text="🏪 Do'konim",          callback_data="seller_shop_info")],
-    ])
+    ]
+    # Yordamchilarni faqat do'kon egasi boshqaradi
+    if user_id is not None and is_seller(user_id):
+        rows.append([InlineKeyboardButton(text="👥 Yordamchilar", callback_data="seller_assistants")])
+    rows.append([InlineKeyboardButton(text="🏪 Do'konim", callback_data="seller_shop_info")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 # ─── /seller ─────────────────────────────────────────────────────────────────
@@ -76,7 +80,7 @@ async def seller_panel(message: Message):
     seller = get_shop_seller(message.from_user.id)
     await message.answer(
         f"🏪 <b>{seller['shop_name']}</b> — Seller Panel",
-        reply_markup=seller_menu_kb(), parse_mode="HTML"
+        reply_markup=seller_menu_kb(message.from_user.id), parse_mode="HTML"
     )
 
 
@@ -204,7 +208,7 @@ async def seller_edit_product_save(message: Message, state: FSMContext):
         value = txt
     update_product(pid, {mapping[field]: value})
     await state.clear()
-    await message.answer("✅ Mahsulot yangilandi!", reply_markup=seller_menu_kb())
+    await message.answer("✅ Mahsulot yangilandi!", reply_markup=seller_menu_kb(message.from_user.id))
 
 
 @router.callback_query(F.data.startswith("del_product_"))
@@ -649,10 +653,9 @@ async def seller_shop_info(call: CallbackQuery):
         f"⭐ Reyting: {rating} ({cnt} ta baho)"
     )
     rows = []
-    # Karta va yordamchilarni faqat do'kon egasi boshqaradi
+    # Kartani faqat do'kon egasi o'zgartiradi
     if is_seller(call.from_user.id):
         rows.append([InlineKeyboardButton(text="✏️ Karta raqamini o'zgartirish", callback_data="seller_edit_card")])
-        rows.append([InlineKeyboardButton(text="👥 Yordamchilar", callback_data="seller_assistants")])
     rows.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="seller_back")])
     await call.message.edit_text(text, parse_mode="HTML",
                                   reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
@@ -703,9 +706,10 @@ def _assistants_view(owner_id: int):
     for uid in assistants:
         u = get_user(uid) or {}
         name = u.get("full_name") or str(uid)
-        rows.append([InlineKeyboardButton(text=f"🗑 {name} ({uid})", callback_data=f"asst_del_{uid}")])
+        extra = u.get("phone") or uid
+        rows.append([InlineKeyboardButton(text=f"🗑 {name} ({extra})", callback_data=f"asst_del_{uid}")])
     rows.append([InlineKeyboardButton(text="➕ Yordamchi qo'shish", callback_data="asst_add")])
-    rows.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="seller_shop_info")])
+    rows.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="seller_back")])
     return text, InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -725,8 +729,9 @@ async def assistant_add_start(call: CallbackQuery, state: FSMContext):
     await _ack(call)
     await state.set_state(AddAssistantState.waiting_user)
     await call.message.answer(
-        "👥 Yordamchining Telegram <b>ID raqamini</b> yuboring,\n"
-        "yoki uning xabarini forward qiling / kontaktini ulashing.\n\n"
+        "👥 Yordamchining <b>telefon raqamini</b> yuboring\n"
+        "(masalan: +998 90 123 45 67),\n"
+        "yoki 📎 orqali uning <b>kontaktini</b> ulashing.\n\n"
         "⚠️ Yordamchi avval botga /start bosgan bo'lishi kerak.",
         parse_mode="HTML", reply_markup=cancel_keyboard
     )
@@ -762,22 +767,28 @@ async def assistant_add_save(message: Message, state: FSMContext):
         await message.answer("❌ Ruxsat yo'q.")
         return
 
-    # ID'ni aniqlash: forward → kontakt → matn
+    # Foydalanuvchini aniqlash: kontakt → forward → telefon raqami (matn)
     uid = None
-    if message.forward_from:
-        uid = message.forward_from.id
-    elif message.contact and message.contact.user_id:
+    phone_txt = None
+    if message.contact:
         uid = message.contact.user_id
-    else:
-        txt = (message.text or "").strip()
-        if txt.isdigit():
-            uid = int(txt)
+        phone_txt = message.contact.phone_number
+    elif message.forward_from:
+        uid = message.forward_from.id
+    elif message.text:
+        phone_txt = message.text.strip()
+
+    if uid is None and phone_txt:
+        uid = find_user_id_by_phone(phone_txt)
 
     if not uid:
         await message.answer(
-            "❌ ID aniqlanmadi. Raqamli ID yuboring (masalan: 123456789).\n"
-            "Eslatma: forward qilingan xabarda foydalanuvchi maxfiyligi yoqilgan "
-            "bo'lsa, ID ko'rinmaydi — unda raqamini yozib yuboring."
+            "❌ Bu raqam bo'yicha foydalanuvchi topilmadi.\n\n"
+            "Sabablari: yordamchi botga hali kirmagan yoki botda telefon "
+            "raqamini hech qachon kiritmagan bo'lishi mumkin.\n\n"
+            "✅ Eng ishonchli usul — 📎 (skrepka) orqali yordamchining "
+            "<b>kontaktini</b> ulashing, yoki boshqa raqamini yuboring:",
+            parse_mode="HTML"
         )
         return
 
@@ -799,12 +810,16 @@ async def assistant_add_save(message: Message, state: FSMContext):
         return
 
     add_assistant(owner_id, uid)
+    if phone_txt:
+        # Raqamini profilga yozib qo'yamiz — keyingi safar shu raqam bilan topiladi
+        set_user_field(uid, "phone", phone_txt)
     await state.clear()
     seller = get_seller(owner_id)
     u = get_user(uid) or {}
     name = u.get("full_name") or str(uid)
+    extra = phone_txt or u.get("phone") or uid
     await message.answer(
-        f"✅ <b>{name}</b> ({uid}) do'koningizga yordamchi qilib qo'shildi!",
+        f"✅ <b>{name}</b> ({extra}) do'koningizga yordamchi qilib qo'shildi!",
         parse_mode="HTML", reply_markup=seller_main_menu
     )
     try:
@@ -849,7 +864,7 @@ async def seller_back(call: CallbackQuery):
     await _ack(call)
     await call.message.edit_text(
         f"🏪 <b>{seller['shop_name']}</b> — Seller Panel",
-        reply_markup=seller_menu_kb(), parse_mode="HTML"
+        reply_markup=seller_menu_kb(call.from_user.id), parse_mode="HTML"
     )
 
 
