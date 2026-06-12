@@ -659,12 +659,13 @@ async def admin_restart_menu_go(call: CallbackQuery):
     sent, failed = 0, 0
     for i, uid in enumerate(targets, 1):
         try:
-            await bot.send_message(
-                int(uid),
-                "🔄 <b>Bot yangilandi!</b>\nYangi menyudan foydalaning 👇",
-                parse_mode="HTML",
-                reply_markup=menu_for(int(uid)),
-            )
+            # Xabarni yuborib darhol o'chiramiz — yangi klaviatura saqlanib
+            # qoladi, foydalanuvchiga hech qanday matn ko'rinmaydi.
+            m = await bot.send_message(int(uid), "🔄", reply_markup=menu_for(int(uid)))
+            try:
+                await m.delete()
+            except Exception:
+                pass
             set_user_field(int(uid), "menu_ver", MENU_VERSION)
             sent += 1
         except Exception:

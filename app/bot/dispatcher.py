@@ -30,10 +30,13 @@ class MenuRefreshMiddleware(BaseMiddleware):
                 u = get_user(uid) or {}
                 if u.get("menu_ver") != MENU_VERSION:
                     set_user_field(uid, "menu_ver", MENU_VERSION)
-                    await event.answer(
-                        "🔄 Bot yangilandi — menyu yangilandi!",
-                        reply_markup=menu_for(uid),
-                    )
+                    # Xabarni yuborib darhol o'chiramiz — yangi klaviatura
+                    # saqlanib qoladi, foydalanuvchi hech qanday matn ko'rmaydi.
+                    m = await event.answer("🔄", reply_markup=menu_for(uid))
+                    try:
+                        await m.delete()
+                    except Exception:
+                        pass
         except Exception:
             pass  # menyu yangilash xatosi asosiy ishga to'sqinlik qilmasin
         return await handler(event, data)
