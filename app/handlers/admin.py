@@ -666,13 +666,16 @@ async def admin_restart_menu_go(call: CallbackQuery):
     sent, failed = 0, 0
     for i, uid in enumerate(targets, 1):
         try:
-            # Xabarni yuborib darhol o'chiramiz — yangi klaviatura saqlanib
-            # qoladi, foydalanuvchiga hech qanday matn ko'rinmaydi.
-            m = await bot.send_message(int(uid), "🔄", reply_markup=menu_for(int(uid)))
-            try:
-                await m.delete()
-            except Exception:
-                pass
+            # MUHIM: reply-klaviatura uni olib kelgan xabarga bog'langan bo'ladi.
+            # Agar xabarni o'chirsak, klaviatura ham yo'qoladi (xaridorlarda panel
+            # ko'rinmay qolardi). Shuning uchun xabarni O'CHIRMAYMIZ — qisqa,
+            # foydali matn bilan qoldiramiz va klaviatura barqaror turadi.
+            await bot.send_message(
+                int(uid),
+                "🔄 <b>Menyu yangilandi!</b>\nQuyidagi tugmalardan foydalaning 👇",
+                parse_mode="HTML",
+                reply_markup=menu_for(int(uid)),
+            )
             set_user_field(int(uid), "menu_ver", MENU_VERSION)
             sent += 1
         except Exception:

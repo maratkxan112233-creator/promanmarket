@@ -30,13 +30,14 @@ class MenuRefreshMiddleware(BaseMiddleware):
                 u = get_user(uid) or {}
                 if u.get("menu_ver") != MENU_VERSION:
                     set_user_field(uid, "menu_ver", MENU_VERSION)
-                    # Xabarni yuborib darhol o'chiramiz — yangi klaviatura
-                    # saqlanib qoladi, foydalanuvchi hech qanday matn ko'rmaydi.
-                    m = await event.answer("🔄", reply_markup=menu_for(uid))
-                    try:
-                        await m.delete()
-                    except Exception:
-                        pass
+                    # MUHIM: reply-klaviatura uni olib kelgan xabarga bog'langan.
+                    # Agar xabarni o'chirsak, klaviatura ham yo'qoladi (xaridorda
+                    # panel ko'rinmay qolardi). Shuning uchun O'CHIRMAYMIZ — bu
+                    # faqat versiya o'zgarganda bir marta yuboriladi.
+                    await event.answer(
+                        "🔄 Menyu yangilandi!",
+                        reply_markup=menu_for(uid),
+                    )
         except Exception:
             pass  # menyu yangilash xatosi asosiy ishga to'sqinlik qilmasin
         return await handler(event, data)
