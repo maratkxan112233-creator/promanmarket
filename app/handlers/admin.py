@@ -69,7 +69,7 @@ class AdminMsgSeller(StatesGroup):
     text = State()
 
 
-class AdminMsgAllSellers(StatesGroup):
+class AdminBroadcast(StatesGroup):
     text = State()
 
 
@@ -86,9 +86,10 @@ def _sellers_keyboard(items):
 
 
 def _sellers_text(items):
-    from app.storage import get_reviews, get_orders
-    # Reyting va buyurtma sonini har seller uchun alohida emas, bitta o'tishda
-    # yig'amiz (N+1 takroriy aylanishlar ro'yxat katta bo'lganda sekinlashtirardi).
+    from app.storage import get_reviews, get_orders, get_all_products
+    # Reyting, buyurtma va mahsulot sonini har seller uchun alohida emas, bitta
+    # o'tishda yig'amiz (N+1 takroriy aylanishlar ro'yxat katta bo'lganda
+    # sekinlashtirardi).
     stars_by_seller: dict = {}
     for r in get_reviews():
         stars_by_seller.setdefault(r.get("seller_id"), []).append(r.get("stars", 0))
@@ -96,6 +97,10 @@ def _sellers_text(items):
     for o in get_orders():
         sid = o.get("seller_id")
         orders_by_seller[sid] = orders_by_seller.get(sid, 0) + 1
+    products_by_seller: dict = {}
+    for p in get_all_products():
+        sid = p.get("seller_id")
+        products_by_seller[sid] = products_by_seller.get(sid, 0) + 1
 
     lines = ["🏪 <b>Sellerlar</b> — jami " + str(len(items)) + " ta\n"]
     for i, (uid, s) in enumerate(items, 1):
@@ -103,6 +108,7 @@ def _sellers_text(items):
         rating = round(sum(stars) / len(stars), 1) if stars else 0.0
         cnt = len(stars)
         ordc = orders_by_seller.get(int(uid), 0)
+        prodc = products_by_seller.get(int(uid), 0)
         card = s.get("card_number", "")
         last4 = card[-4:] if card else "—"
         lines.append(
@@ -110,7 +116,8 @@ def _sellers_text(items):
             f"   👤 {s['full_name']}\n"
             f"   🏙 {s.get('city','—')}\n"
             f"   📱 {s.get('phone','—')}\n"
-            f"   💳 **** {last4}   ⭐ {rating} ({cnt})   🛒 {ordc} buyurtma"
+            f"   💳 **** {last4}   ⭐ {rating} ({cnt})\n"
+            f"   📦 {prodc} mahsulot   🛒 {ordc} buyurtma"
         )
     return "\n".join(lines)
 
@@ -167,7 +174,7 @@ def admin_menu_kb(uid: int):
         return InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📋 Arizalar",        callback_data="admin_applications")],
             [InlineKeyboardButton(text="🏪 Sellerlar",        callback_data="admin_sellers")],
-            [InlineKeyboardButton(text="📢 Hamma sellerlarga xabar", callback_data="admin_msg_all")],
+            [InlineKeyboardButton(text="📢 Ommaviy xabar / e'lon", callback_data="admin_broadcast")],
             [InlineKeyboardButton(text="📄 Sellerlar (Word)", callback_data="admin_sellers_word")],
             [InlineKeyboardButton(text="➕ Mahsulot qo'shish", callback_data="admin_addprod")],
             [InlineKeyboardButton(text="📦 Mahsulotlar",      callback_data="admin_products")],
@@ -694,26 +701,80 @@ async def admin_restart_menu_go(call: CallbackQuery):
         await call.message.answer(result, parse_mode="HTML")
 
 
-# ─── Hamma sellerlarga birdaniga xabar yuborish ──────────────────────────────
-@router.callback_query(F.data == "admin_msg_all")
-async def msg_all_sellers_start(call: CallbackQuery, state: FSMContext):
+# ─── Ommaviy xabar / e'lon (sellerlar, xaridorlar yoki hammaga) ──────────────
+def _broadcast_targets(target: str) -> list[int]:
+    """Ommaviy xabar uchun qabul qiluvchilar id ro'yxati.
+    target: "sellers" | "buyers" | "all".
+    - sellers : barcha sellerlar
+    - buyers  : seller bo'lmagan oddiy xaridorlar (botga /start bosganlar)
+    - all     : sellerlar + xaridorlar (hamma)
+    """
+    seller_ids = {int(uid) for uid in get_sellers()}
+    user_ids = {int(uid) for uid in get_users()}
+    if target == "sellers":
+        ids = seller_ids
+    elif target == "buyers":
+        ids = user_ids - seller_ids
+    else:  # all
+        ids = user_ids | seller_ids
+    return sorted(ids)
+
+
+_BROADCAST_LABELS = {
+    "sellers": "🏪 Sellerlar",
+    "buyers":  "🛍 Xaridorlar",
+    "all":     "📢 Hamma (seller + xaridor)",
+}
+
+
+@router.callback_query(F.data == "admin_broadcast")
+async def admin_broadcast_menu(call: CallbackQuery):
     if not is_owner(call.from_user.id): return
-    sellers = get_sellers()
-    if not sellers:
-        await call.answer("Hozircha sellerlar yo'q.", show_alert=True); return
-    await state.set_state(AdminMsgAllSellers.text)
+    await _ack(call)
+    n_sellers = len(_broadcast_targets("sellers"))
+    n_buyers  = len(_broadcast_targets("buyers"))
+    n_all     = len(_broadcast_targets("all"))
+    text = (
+        "📢 <b>Ommaviy xabar / e'lon</b>\n\n"
+        "Kimga yubormoqchisiz? Tanlang — keyin matn, rasm yoki "
+        "istalgan xabarni yuboring, bot uni har bir kishining lichkasiga "
+        "yetkazadi.\n\n"
+        f"🏪 Sellerlar: <b>{n_sellers}</b> ta\n"
+        f"🛍 Xaridorlar: <b>{n_buyers}</b> ta\n"
+        f"📢 Hammasi: <b>{n_all}</b> ta"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"🏪 Sellerlarga ({n_sellers})", callback_data="bcast_sellers")],
+        [InlineKeyboardButton(text=f"🛍 Xaridorlarga ({n_buyers})", callback_data="bcast_buyers")],
+        [InlineKeyboardButton(text=f"📢 Hammaga ({n_all})", callback_data="bcast_all")],
+        [InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_back")],
+    ])
+    await _admin_nav(call, text, kb)
+
+
+@router.callback_query(F.data.startswith("bcast_"))
+async def admin_broadcast_start(call: CallbackQuery, state: FSMContext):
+    if not is_owner(call.from_user.id): return
+    target = call.data.split("_", 1)[1]   # bcast_sellers → "sellers"
+    if target not in _BROADCAST_LABELS:
+        await call.answer("Noma'lum tanlov."); return
+    recipients = _broadcast_targets(target)
+    if not recipients:
+        await call.answer("Bu guruhda hech kim yo'q.", show_alert=True); return
+    await state.set_state(AdminBroadcast.text)
+    await state.update_data(target=target)
     await call.message.answer(
-        f"📢 <b>Hamma sellerlarga xabar</b>  (jami {len(sellers)} ta)\n\n"
-        f"Matn, rasm yoki istalgan xabarni yuboring — bot uni BARCHA "
-        f"sellerlarning lichkasiga yetkazadi.\n"
+        f"📢 <b>{_BROADCAST_LABELS[target]}</b>ga xabar  (jami {len(recipients)} ta)\n\n"
+        f"Endi matn, rasm, video yoki istalgan xabarni yuboring — bot uni "
+        f"har bir kishining lichkasiga yetkazadi.\n"
         f"Bekor qilish: /cancel",
         parse_mode="HTML"
     )
     await call.answer()
 
 
-@router.message(AdminMsgAllSellers.text)
-async def msg_all_sellers_send(message: Message, state: FSMContext):
+@router.message(AdminBroadcast.text)
+async def admin_broadcast_send(message: Message, state: FSMContext):
     if not is_owner(message.from_user.id):
         await state.clear(); return
     if (message.text or "").startswith("/"):
@@ -721,24 +782,34 @@ async def msg_all_sellers_send(message: Message, state: FSMContext):
         await message.answer("⛔️ Xabar yuborish bekor qilindi.",
                              reply_markup=admin_menu_kb(message.from_user.id))
         return
+    data = await state.get_data()
+    target = data.get("target", "sellers")
     await state.clear()
+    recipients = _broadcast_targets(target)
     from app.bot.bot import bot
-    sellers = get_sellers()
+    status = await message.answer(f"📤 Yuborilmoqda...  0/{len(recipients)}")
     sent, failed = 0, 0
-    for uid in sellers:
+    for i, uid in enumerate(recipients, 1):
         try:
             await bot.send_message(int(uid), "📩 <b>Admindan xabar:</b>", parse_mode="HTML")
             await message.send_copy(chat_id=int(uid))
             sent += 1
         except Exception:
+            # Botni bloklagan yoki hali /start bosmagan — o'tkazib yuboramiz
             failed += 1
         # Telegram flood limitiga tushib qolmaslik uchun kichik pauza
         await asyncio.sleep(0.1)
-    _log(message.from_user, "Hamma sellerlarga xabar",
+        if i % 25 == 0:
+            try:
+                await status.edit_text(f"📤 Yuborilmoqda...  {i}/{len(recipients)}")
+            except Exception:
+                pass
+    _log(message.from_user, f"Ommaviy xabar ({_BROADCAST_LABELS[target]})",
          f"yetdi: {sent}, yetmadi: {failed}")
     result = (
         f"📢 <b>Yuborish yakunlandi!</b>\n"
-        f"✅ Yetib bordi: <b>{sent}</b> ta seller\n"
+        f"🎯 Maqsad: {_BROADCAST_LABELS[target]}\n"
+        f"✅ Yetib bordi: <b>{sent}</b> ta\n"
     )
     if failed:
         result += (

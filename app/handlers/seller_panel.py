@@ -241,6 +241,7 @@ async def start_add_product(call: CallbackQuery, state: FSMContext):
     if not is_shop_member(call.from_user.id):
         await call.answer("Siz seller emassiz."); return
     await _ack(call)
+    await state.set_data({})   # oldingi chala urinishdan rasm va boshqa ma'lumot qolmasin
     await state.set_state(AddProductState.name)
     await call.message.answer("📦 Mahsulot nomini kiriting:")
 
@@ -262,8 +263,7 @@ ADD_PRODUCT_STATES = StateFilter(
 
 # Rasm bosqichi uchun matn (bir necha joyda ishlatiladi)
 _PHOTO_PROMPT = (
-    "📸 Rasm(lar)ni yuboring — bittasini yoki bir nechtasini birga "
-    "(albom) jo'nating.\nRasmsiz qo'shish uchun /skip yozing."
+    "📸 Kamida 2 ta rasm yuboring — albom qilib birga yoki bittadan."
 )
 
 
@@ -291,21 +291,22 @@ async def product_name(message: Message, state: FSMContext):
         await message.answer("❌ Mahsulot nomini matn ko'rinishida kiriting:"); return
     await state.update_data(name=message.text.strip())
     await state.set_state(AddProductState.description)
-    await message.answer("📝 Tavsif kiriting (yoki /skip — tavsifsiz davom etish):")
+    await message.answer("📝 Tavsif kiriting (kamida 8 ta so'z):")
 
 
 @router.message(AddProductState.description, F.text == "/skip")
 async def product_description_skip(message: Message, state: FSMContext):
-    await state.update_data(description="")
-    await state.set_state(AddProductState.price)
-    await message.answer("💰 Narxini kiriting (masalan: 150000 yoki 150 000):")
+    await message.answer("❌ Tavsif majburiy — kamida 8 ta so'z yozing:")
 
 
 @router.message(AddProductState.description)
 async def product_description(message: Message, state: FSMContext):
-    if not (message.text or "").strip():
-        await message.answer("❌ Tavsifni matn ko'rinishida kiriting yoki /skip yozing:"); return
-    await state.update_data(description=message.text.strip())
+    txt = (message.text or "").strip()
+    if not txt:
+        await message.answer("❌ Tavsifni matn ko'rinishida kiriting:"); return
+    if len(txt.split()) < 8:
+        await message.answer("❌ Tavsif kamida 8 ta so'zdan iborat bo'lsin. To'liqroq yozing:"); return
+    await state.update_data(description=txt)
     await state.set_state(AddProductState.price)
     await message.answer("💰 Narxini kiriting (masalan: 150000 yoki 150 000):")
 
@@ -350,33 +351,39 @@ async def product_photo_album(message: Message, state: FSMContext):
     key  = (message.from_user.id, message.media_group_id)
 
     async def done(photos):
-        await state.update_data(pending_photos=photos)
+        all_photos = (data.get("pending_photos") or []) + photos
+        await state.update_data(pending_photos=all_photos)
         await state.set_state(AddProductState.colors)
         await message.answer(_colors_prompt())
 
     collect(key, message.photo[-1].file_id, 1.5, done)
 
 
-# ─── Bitta rasm ──────────────────────────────────────────────────────────────
+# ─── Bitta rasm (kamida 2 ta bo'lguncha yig'amiz) ────────────────────────────
 @router.message(AddProductState.photo, F.photo)
 async def product_photo_single(message: Message, state: FSMContext):
-    await state.update_data(pending_photos=[message.photo[-1].file_id])
+    data   = await state.get_data()
+    photos = (data.get("pending_photos") or []) + [message.photo[-1].file_id]
+    await state.update_data(pending_photos=photos)
+    if len(photos) < 2:
+        await message.answer(
+            f"✅ {len(photos)}-rasm qabul qilindi. Yana kamida {2 - len(photos)} ta rasm yuboring:"
+        )
+        return
     await state.set_state(AddProductState.colors)
     await message.answer(_colors_prompt())
 
 
-# ─── Rasmsiz (/skip) ─────────────────────────────────────────────────────────
+# ─── /skip endi ishlamaydi — rasm majburiy ───────────────────────────────────
 @router.message(AddProductState.photo, F.text == "/skip")
 async def product_photo_skip(message: Message, state: FSMContext):
-    await state.update_data(pending_photos=[])
-    await state.set_state(AddProductState.colors)
-    await message.answer(_colors_prompt())
+    await message.answer("❌ Rasmsiz qo'shib bo'lmaydi — kamida 2 ta rasm yuboring:")
 
 
 # ─── Noto'g'ri tur ───────────────────────────────────────────────────────────
 @router.message(AddProductState.photo)
 async def product_photo_wrong(message: Message, state: FSMContext):
-    await message.answer("❌ Rasm yuboring yoki /skip yozing:")
+    await message.answer("❌ Rasm yuboring (kamida 2 ta):")
 
 
 # ─── Rang kiritish ────────────────────────────────────────────────────────────
