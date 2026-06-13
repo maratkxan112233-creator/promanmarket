@@ -842,7 +842,7 @@ async def order_phone(message: Message, state: FSMContext):
     owner_free_note = (
         f"\n🚚 <b>BEPUL YETKAZIB BERISH buyurtmasi</b>\n"
         f"➡️ Sellerga <b>5% ({delivery_refund:,} so'm)</b> o'tkazing (taksi haqini qoplash):\n"
-        f"💳 Seller kartasi: <code>{seller_card or '—'}</code>\n"
+        f"💳 Seller karta/raqami: <code>{seller_card or '—'}</code>\n"
         if is_free_delivery else ""
     )
 
@@ -1123,7 +1123,17 @@ async def save_review(call: CallbackQuery):
     seller_id = int(parts[1])
     order_id  = int(parts[2])
     stars     = int(parts[3])
-    from app.storage import add_review
+    from app.storage import add_review, has_order_review
+    # Bir buyurtma faqat bir marta baholanadi — takror bosishlar reytingni
+    # buzmasligi uchun.
+    if has_order_review(order_id):
+        await call.answer("Bu buyurtmaga allaqachon baho bergansiz. Rahmat!",
+                          show_alert=True)
+        try:
+            await call.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        return
     add_review({
         "seller_id": seller_id,
         "buyer_id":  call.from_user.id,

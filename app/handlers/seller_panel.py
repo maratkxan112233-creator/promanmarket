@@ -546,11 +546,14 @@ async def seller_order_detail(call: CallbackQuery):
             "processing": ["delivered"],   # o'zi olib ketadi — to'g'ridan topshirildi
         }
     else:
+        # Delivery (yetkazib berish) buyurtmada YAKUNIY "delivered"ni KURIER oqimi
+        # bajaradi (kurier "Yetkazib berildi" → seller "To'lovni oldim" / 3 daqiqa).
+        # Shuning uchun seller bu yerda faqat "Yo'lda"gacha o'zgartiradi — aks holda
+        # xaridorga qolgan to'lov so'rovi va baholash ikki marta borardi.
         next_statuses = {
             "pending":    ["cancelled"],
             "paid":       ["processing","cancelled"],
             "processing": ["shipped"],
-            "shipped":    ["delivered"],
         }
     rows = []
     if o.get("receipt"):
@@ -610,7 +613,7 @@ async def update_order(call: CallbackQuery):
             remain_pct = round(remain / total * 100) if total else 0
             seller_card = (get_seller(o["seller_id"]) or {}).get("card_number", "")
             card_line = (
-                f"💳 Seller kartasi:  <code>{seller_card}</code>  "
+                f"💳 Seller karta/raqami:  <code>{seller_card}</code>  "
                 f"<i>(bossangiz — nusxa olinadi)</i>\n"
                 if seller_card else ""
             )
@@ -676,8 +679,9 @@ async def seller_edit_card_start(call: CallbackQuery, state: FSMContext):
     await _ack(call)
     await state.set_state(EditCardState.waiting_value)
     await call.message.answer(
-        "💳 Yangi karta raqamingizni kiriting (16 raqam):\n"
-        "Masalan: 8600 1234 5678 9012"
+        "💳 Yangi karta yoki telefon raqamingizni kiriting:\n\n"
+        "💳 Karta (16 raqam): 8600 1234 5678 9012\n"
+        "📱 Telefon: +998 90 123 45 67"
     )
 
 
@@ -687,19 +691,29 @@ async def seller_edit_card_save(message: Message, state: FSMContext):
         await state.clear()
         await message.answer("❌ Ruxsat yo'q.")
         return
-    card = (message.text or "").replace(" ", "").replace("-", "")
-    if not card.isdigit() or len(card) != 16:
+    cleaned = (message.text or "").replace(" ", "").replace("-", "").replace("+", "")
+    if not cleaned.isdigit():
         await message.answer(
-            "❌ Noto'g'ri karta raqami.\n"
-            "16 ta raqam kiriting (masalan: 8600 1234 5678 9012):"
+            "❌ Noto'g'ri raqam.\n"
+            "💳 Karta (16 raqam) yoki 📱 telefon raqamingizni kiriting:"
         )
         return
-    update_seller(message.from_user.id, {"card_number": card})
+    # 16 raqam — karta; 9–13 raqam — telefon.
+    if len(cleaned) == 16:
+        payment = cleaned
+        ok_line = f"✅ Karta raqami yangilandi: **** **** **** {cleaned[-4:]}"
+    elif 9 <= len(cleaned) <= 13:
+        payment = (message.text or "").strip()
+        ok_line = f"✅ To'lov raqami yangilandi: {payment}"
+    else:
+        await message.answer(
+            "❌ Noto'g'ri raqam.\n"
+            "💳 Karta — 16 ta raqam, yoki 📱 telefon raqamingizni kiriting:"
+        )
+        return
+    update_seller(message.from_user.id, {"card_number": payment})
     await state.clear()
-    await message.answer(
-        f"✅ Karta raqami yangilandi: **** **** **** {card[-4:]}",
-        reply_markup=seller_main_menu
-    )
+    await message.answer(ok_line, reply_markup=seller_main_menu)
 
 
 # ─── Yordamchilar (faqat do'kon egasi) ───────────────────────────────────────

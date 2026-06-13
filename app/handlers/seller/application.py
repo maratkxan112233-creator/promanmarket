@@ -135,26 +135,51 @@ async def process_city(message: Message, state: FSMContext):
     await state.update_data(city=message.text)
     await state.set_state(SellerApplicationState.card_number)
     await message.answer(
-        "5/5 — Karta raqamingizni kiriting (16 raqam):\n"
-        "Masalan: 8600 1234 5678 9012",
+        "5/5 — To'lov uchun karta yoki telefon raqamingizni kiriting:\n\n"
+        "💳 Karta (16 raqam): 8600 1234 5678 9012\n"
+        "📱 Telefon: +998 90 123 45 67",
         reply_markup=cancel_keyboard
     )
 
 
-# ─── 5: Karta raqami (yakuniy) ───────────────────────────────────────────────
+def _format_payment(value: str) -> str:
+    """To'lov rekvizitini ko'rsatish uchun chiroyli ko'rinish.
+    16 raqamli bo'lsa — karta sifatida niqoblanadi; aks holda telefon raqami
+    sifatida to'liq ko'rsatiladi."""
+    digits = "".join(ch for ch in value if ch.isdigit())
+    if len(digits) == 16:
+        return f"💳 Karta: **** **** **** {digits[-4:]}"
+    return f"📱 To'lov raqami: {value}"
+
+
+# ─── 5: Karta yoki telefon raqami (yakuniy) ──────────────────────────────────
 @router.message(SellerApplicationState.card_number)
 async def process_card_number(message: Message, state: FSMContext):
     if not message.text:
-        await message.answer("❌ Karta raqamini matn sifatida yuboring:")
+        await message.answer("❌ Karta yoki telefon raqamini matn sifatida yuboring:")
         return
-    card = message.text.replace(" ", "").replace("-", "")
-    if not card.isdigit() or len(card) != 16:
+    # Bo'shliq, chiziqcha va + belgisini olib tashlab faqat raqamlarni tekshiramiz
+    cleaned = message.text.replace(" ", "").replace("-", "").replace("+", "")
+    if not cleaned.isdigit():
         await message.answer(
-            "❌ Noto'g'ri karta raqami.\n"
-            "16 ta raqam kiriting (masalan: 8600 1234 5678 9012):"
+            "❌ Noto'g'ri raqam.\n"
+            "💳 Karta (16 raqam) yoki 📱 telefon raqamingizni kiriting:"
         )
         return
-    await state.update_data(card_number=card)
+    # 16 raqam — karta; 9–13 raqam — telefon. Aks holda xato.
+    if len(cleaned) == 16:
+        payment = cleaned
+    elif 9 <= len(cleaned) <= 13:
+        # Telefon raqamini kiritgan ko'rinishida (bo'shliqsiz) saqlaymiz
+        payment = message.text.strip()
+    else:
+        await message.answer(
+            "❌ Noto'g'ri raqam.\n"
+            "💳 Karta — 16 ta raqam, yoki\n"
+            "📱 Telefon — masalan +998 90 123 45 67 kiriting:"
+        )
+        return
+    await state.update_data(card_number=payment)
     data = await state.get_data()
     await state.clear()
 
@@ -168,6 +193,8 @@ async def process_card_number(message: Message, state: FSMContext):
         "status":      "pending",
     })
 
+    pay_line = _format_payment(data["card_number"])
+
     # Avval arizachiga tasdiq — u kutib qolmasin; owner'ga xabar keyin ketadi.
     await message.answer(
         f"✅ Arizangiz muvaffaqiyatli qabul qilindi!\n\n"
@@ -175,7 +202,7 @@ async def process_card_number(message: Message, state: FSMContext):
         f"🏪 Do'kon: {data.get('shop_name','—')}\n"
         f"📱 Telefon: {data['phone']}\n"
         f"🏙 Shahar: {data.get('city','—')}\n"
-        f"💳 Karta: **** **** **** {data['card_number'][-4:]}\n\n"
+        f"{pay_line}\n\n"
         "⏳ Arizangiz ko'rib chiqiladi va natija sizga xabar qilinadi.\n"
         f"❓ Savol bo'lsa — admin: @{settings.ADMIN_USERNAME}",
         reply_markup=menu_for(message.from_user.id)
@@ -191,7 +218,7 @@ async def process_card_number(message: Message, state: FSMContext):
             f"🏪 Do'kon: {data.get('shop_name','—')}\n"
             f"🏙 Shahar: {data.get('city','—')}\n"
             f"📱 {data['phone']}\n"
-            f"💳 **** {data['card_number'][-4:]}\n\n"
+            f"{pay_line}\n\n"
             f"Ko'rish: /admin"
         )
     except Exception:

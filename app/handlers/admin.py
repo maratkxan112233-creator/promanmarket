@@ -1724,10 +1724,10 @@ async def courier_delivered(call: CallbackQuery):
 
     seller_card = (get_seller(o["seller_id"]) or {}).get("card_number", "")
     card_block = (
-        f"💳 Seller kartasi:  <code>{seller_card}</code>\n"
+        f"💳 Seller karta/raqami:  <code>{seller_card}</code>\n"
         "<i>(raqamni bossangiz — nusxa olinadi)</i>\n"
         if seller_card else
-        "💳 Karta raqamini kurierdan so'rang yoki naqd to'lang.\n"
+        "💳 Karta/raqamni kurierdan so'rang yoki naqd to'lang.\n"
     )
 
     # Xaridorga — qolgan to'lov + nusxa olinadigan karta raqami

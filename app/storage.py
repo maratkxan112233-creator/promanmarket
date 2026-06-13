@@ -423,6 +423,11 @@ def add_review(review: dict):
 def get_seller_reviews(seller_id: int) -> list:
     return [r for r in get_reviews() if r.get("seller_id") == seller_id]
 
+def has_order_review(order_id: int) -> bool:
+    """Bu buyurtma uchun allaqachon baho berilganmi (takror baholashning oldini
+    olish — bir buyurtma faqat bir marta baholanadi)."""
+    return any(r.get("order_id") == order_id for r in get_reviews())
+
 def get_seller_rating(seller_id: int) -> tuple[float, int]:
     reviews = get_seller_reviews(seller_id)
     if not reviews:
