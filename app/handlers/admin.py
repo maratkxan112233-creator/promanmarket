@@ -672,8 +672,7 @@ async def admin_restart_menu_go(call: CallbackQuery):
             # foydali matn bilan qoldiramiz va klaviatura barqaror turadi.
             await bot.send_message(
                 int(uid),
-                "🔄 <b>Menyu yangilandi!</b>\nQuyidagi tugmalardan foydalaning 👇",
-                parse_mode="HTML",
+                "🖐🏻🖐🏻 Eson-omonmisiz, men uchun qadrdon inson.",
                 reply_markup=menu_for(int(uid)),
             )
             set_user_field(int(uid), "menu_ver", MENU_VERSION)

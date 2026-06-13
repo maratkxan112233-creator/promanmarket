@@ -35,7 +35,7 @@ class MenuRefreshMiddleware(BaseMiddleware):
                     # panel ko'rinmay qolardi). Shuning uchun O'CHIRMAYMIZ — bu
                     # faqat versiya o'zgarganda bir marta yuboriladi.
                     await event.answer(
-                        "🔄 Menyu yangilandi!",
+                        "🖐🏻🖐🏻 Eson-omonmisiz, men uchun qadrdon inson.",
                         reply_markup=menu_for(uid),
                     )
         except Exception:
