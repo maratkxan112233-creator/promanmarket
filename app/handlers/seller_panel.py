@@ -36,6 +36,12 @@ ORDER_STATUSES = {
     "cancelled":  "❌ Bekor qilindi",
 }
 
+# Seller buyurtma kartochkasidagi harakat tugmalari uchun maxsus yozuvlar
+# (holat nomidan farqli — masalan "Yo'lda" o'rniga "Kurierga berdim").
+SELLER_ACTION_LABELS = {
+    "shipped": "🚚 Kurierga berdim",
+}
+
 
 class AddProductState(StatesGroup):
     name        = State()
@@ -508,27 +514,13 @@ async def seller_order_detail(call: CallbackQuery):
     }.get(o.get("delivery",""), o.get("delivery","—"))
     receipt_line = "🧾 Chek: yuborilgan" if o.get("receipt") else "🧾 Chek: yo'q"
 
-    # Xaridor kontakti faqat TAKSI + to'lov tasdiqlangan bo'lsa ko'rinadi.
-    # Pickup (o'zi olib ketadi) — ma'lumotlar HECH QACHON ko'rsatilmaydi.
-    is_pickup = o.get("delivery") == "pickup"
-    paid_ok = o.get("status") in ("paid", "processing", "shipped", "delivered")
-    unlocked = (not is_pickup) and paid_ok
-    if unlocked:
-        buyer_block = (
-            f"👤 Xaridor: {o.get('buyer_name','—')}\n"
-            f"📱 Tel: {o.get('phone','—')}\n"
-            f"📍 Manzil: {o.get('address','—')}\n"
-        )
-    elif is_pickup:
-        buyer_block = (
-            f"🔒 <b>Xaridor o'zi olib ketadi — ma'lumotlari ko'rsatilmaydi.</b>\n"
-            f"   (xaridor do'kon raqamiga o'zi bog'lanadi)\n"
-        )
-    else:
-        buyer_block = (
-            f"🔒 <b>Xaridor ma'lumotlari yashirin</b>\n"
-            f"   (platforma to'lovi tasdiqlangach ochiladi)\n"
-        )
+    # Xaridor ma'lumotlari sellerga HECH QACHON ko'rsatilmaydi — endi seller bilan
+    # xaridor o'rtasida to'g'ridan aloqa yo'q. Manzil/tel/ism faqat KURIERGA
+    # ko'rinadi (mahsulotni kurier do'kondan olib, xaridorga yetkazadi).
+    buyer_block = (
+        f"🔒 <b>Xaridor ma'lumotlari kurierда — ko'rsatilmaydi.</b>\n"
+        f"   (mahsulotni kurier do'kondan olib, xaridorga yetkazadi)\n"
+    )
     text = (
         f"🛒 <b>Buyurtma #{oid}</b>\n\n"
         f"📦 {o.get('product_name','—')}\n"
@@ -560,7 +552,7 @@ async def seller_order_detail(call: CallbackQuery):
         rows.append([InlineKeyboardButton(text="🧾 Chekni ko'rish", callback_data=f"vrcpt_{oid}")])
     for s in next_statuses.get(o.get("status",""), []):
         rows.append([InlineKeyboardButton(
-            text=ORDER_STATUSES[s],
+            text=SELLER_ACTION_LABELS.get(s, ORDER_STATUSES[s]),
             callback_data=f"ostatus_{oid}_{s}"
         )])
     rows.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="seller_orders")])
@@ -634,6 +626,16 @@ async def update_order(call: CallbackQuery):
                 "⭐ Sellerni baholang:",
                 parse_mode="HTML",
                 reply_markup=stars_kb(o["seller_id"], oid)
+            )
+        elif status == "shipped":
+            # Seller "Kurierga berdim" bosdi → xaridorga "yo'lda" xabari
+            await bot.send_message(
+                o["buyer_id"],
+                f"🚚 <b>Mahsulotingiz yo'lda!</b>  (#{oid})\n"
+                f"📦 {o.get('product_name','—')}\n\n"
+                f"Kurier mahsulotni manzilingizga yetkazmoqda. "
+                f"Tez orada bog'lanadi. 📍",
+                parse_mode="HTML"
             )
         else:
             await bot.send_message(o["buyer_id"], msg, parse_mode="HTML")

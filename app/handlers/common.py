@@ -48,15 +48,27 @@ DELIVERY_LABELS = {
     "uzum": "🍊 Uzum Pochta",
 }
 
-# Shu summa va undan ortiq xaridga shahar ichida yetkazib berish bepul.
-FREE_DELIVERY_MIN = 300_000
-# Bepul yetkazib berish buyurtmalarida platforma sellerga shu foizni qaytaradi
-# (seller taksini o'zi to'laydi, platforma esa 5% ni kartasiga o'tkazib beradi).
-DELIVERY_REFUND_RATE = 0.05
+# Yetkazib berish narxi — qat'iy belgilangan (har bir buyurtma uchun bir xil).
+DELIVERY_FEE = 19_000
+# Shu summadan yuqori (va teng) xaridlarga yetkazib berish bepul.
+FREE_DELIVERY_THRESHOLD = 300_000
+
+
+def delivery_fee_for(total: int) -> int:
+    """Yetkazish narxi: xarid 300 000 so'mdan yuqori bo'lsa bepul (0)."""
+    return 0 if total >= FREE_DELIVERY_THRESHOLD else DELIVERY_FEE
+
+
+def delivery_text(fee: int) -> str:
+    """Yetkazish narxini chiroyli matnga aylantiradi (bepul bo'lsa — BEPUL)."""
+    return "BEPUL 🎉" if fee == 0 else money(fee)
+
+
 # Xaridorni qiziqtirish uchun har joyda chiqadigan doimiy reklama yozuvi.
 FREE_DELIVERY_BANNER = (
-    f"🚚 <b>{money(FREE_DELIVERY_MIN)}dan ortiq xaridga — "
-    f"shahar ichida yetkazish BEPUL!</b>"
+    f"🚚 <b>Yetkazib berish — atigi {money(DELIVERY_FEE)}!</b>\n"
+    f"🎉 <b>{money(FREE_DELIVERY_THRESHOLD)} dan yuqori xaridga — BEPUL!</b>\n"
+    f"Bugun buyurtma bering — bugun yetkazamiz."
 )
 # Sellerlarni jalb qilish uchun doimiy ko'rinib turadigan taklif yozuvi.
 SELLER_INVITE_BANNER = (
@@ -402,11 +414,8 @@ def _product_caption(p: dict) -> str:
         lines.append(f"{divider()}\n{stars} {rating}  ·  💬 {rev_cnt} ta sharh")
 
     lines.append(divider())
-    if price >= FREE_DELIVERY_MIN:
-        lines.append("🚚 <b>Shahar ichida BEPUL yetkazib berish!</b>")
-    else:
-        lines.append(f"🚚 {money(FREE_DELIVERY_MIN)}dan ortiq xaridga yetkazish bepul")
-    lines.append("🚕 Bugun yetkazamiz  ·  🚶 O'zingiz olib ketishingiz mumkin")
+    lines.append(f"🚚 Yetkazib berish: <b>{money(DELIVERY_FEE)}</b>  ·  🚕 Bugun yetkazamiz")
+    lines.append(f"🎉 <b>{money(FREE_DELIVERY_THRESHOLD)} dan yuqori xaridga — BEPUL</b>")
     return "\n".join(lines)
 
 
@@ -557,7 +566,7 @@ async def favorites_handler(message: Message):
 async def _ask_color(message: Message, state: FSMContext, p: dict):
     colors = p.get("colors") or []
     if not colors:
-        await _ask_fulfillment(message, state, p)
+        await _start_delivery(message, state, p)
         return
     await state.set_state(OrderState.color)
     await state.update_data(pid=p["id"])
@@ -578,29 +587,29 @@ async def choose_color(call: CallbackQuery, state: FSMContext):
     p = get_product_by_id(data["pid"])
     if not p:
         await call.answer("Mahsulot topilmadi."); return
-    await _ask_fulfillment(call.message, state, p)
+    await _start_delivery(call.message, state, p)
     await call.answer()
 
 
-# ─── Buyurtma qilish: 0) olib ketish usuli (o'zi / yetkazib berish) ─────────────
-async def _ask_fulfillment(message: Message, state: FSMContext, p: dict):
-    await state.set_state(OrderState.fulfillment)
-    await state.update_data(pid=p["id"])
+# ─── Buyurtma qilish: yetkazib berish (yagona usul) → manzil so'raymiz ─────────
+async def _start_delivery(message: Message, state: FSMContext, p: dict):
+    """Endi yagona usul — yetkazib berish (19 000 so'm). Pickup olib tashlangan."""
+    await state.update_data(pid=p["id"], fulfillment="delivery", delivery="taxi")
+    await state.set_state(OrderState.address)
     data = await state.get_data()
     qty   = data.get("quantity", 1)
     total = p["price"] * qty
+    fee   = delivery_fee_for(total)
     color_line = f"🎨 Rang: <b>{data['selected_color']}</b>\n" if data.get("selected_color") else ""
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🚶 O'zim olib ketaman", callback_data="flf_pickup")],
-        [InlineKeyboardButton(text="🚚 Menga yetkazib berilsin", callback_data="flf_delivery")],
-    ])
     await message.answer(
         f"🛒 <b>{p['name']}</b>\n"
         f"🔢 Miqdor: {qty} dona\n"
         f"💰 Jami: <b>{total:,} so'm</b>\n"
-        f"{color_line}\n"
-        f"Mahsulotni qanday olmoqchisiz?",
-        parse_mode="HTML", reply_markup=kb
+        f"{color_line}"
+        f"🚚 Yetkazib berish: <b>{delivery_text(fee)}</b>\n\n"
+        f"📍 <b>Yetkazib berish manzilingizni kiriting</b>\n"
+        f"(shahar, ko'cha, uy — to'liq yozing):",
+        parse_mode="HTML", reply_markup=cancel_keyboard
     )
 
 
@@ -668,72 +677,6 @@ async def order_qty_ok(call: CallbackQuery, state: FSMContext):
     await call.answer()
 
 
-# ─── 0a) O'zim olib ketaman → pochta usuli/manzil shart emas, telefon so'raymiz ─
-@router.callback_query(OrderState.fulfillment, F.data == "flf_pickup")
-async def fulfillment_pickup(call: CallbackQuery, state: FSMContext):
-    await state.update_data(fulfillment="pickup", delivery="pickup",
-                            address="🚶 O'zi olib ketadi (do'kondan)")
-    await state.set_state(OrderState.phone)
-    await call.message.answer(
-        "📱 <b>Telefon raqamingizni yuboring</b>\n"
-        "(pastdagi tugma orqali yoki qo'lda yozing):\n\n"
-        "<i>To'lov tasdiqlangach do'kon bilan bog'lanib, mahsulotni o'zingiz olib ketasiz.</i>",
-        parse_mode="HTML", reply_markup=phone_keyboard
-    )
-    await call.answer()
-
-
-# ─── 0b) Yetkazib berish → pochta usulini tanlash bosqichiga o'tamiz ─────────
-@router.callback_query(OrderState.fulfillment, F.data == "flf_delivery")
-async def fulfillment_delivery(call: CallbackQuery, state: FSMContext):
-    await state.update_data(fulfillment="delivery")
-    await state.set_state(OrderState.delivery)
-    data = await state.get_data()
-    p = get_product_by_id(data.get("pid"))
-    total = (p.get("price", 0) * data.get("quantity", 1)) if p else 0
-    free = total >= FREE_DELIVERY_MIN
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🚕 Taksi pochta (shu bugunoq)", callback_data="dlv_taxi")],
-    ])
-    if free:
-        note = (
-            f"✅ <b>Shahar ichida yetkazib berish BEPUL!</b>\n"
-            f"<i>Xaridingiz {FREE_DELIVERY_MIN:,} so'mdan ortiq — shahar ichidagi taksi "
-            f"haqini do'kon o'zi qoplaydi.</i>"
-        )
-    else:
-        note = (
-            f"ℹ️ <i>Eslatma: taksi (yetkazib berish) haqi xaridor tomonidan "
-            f"to'lanadi va masofaga qarab belgilanadi. Mahsulot narxiga "
-            f"kirmaydi — taksi haqini yetkazilganda haydovchiga to'laysiz.\n"
-            f"({FREE_DELIVERY_MIN:,} so'mdan ortiq xaridga shahar ichida yetkazib berish bepul.)</i>"
-        )
-    await call.message.answer(
-        "🚚 <b>Yetkazib berish usulini tanlang:</b>\n\n"
-        "🚕 <b>Taksi pochta</b> — mahsulot shu bugunoq taksi orqali "
-        "manzilingizga yetkaziladi.\n\n"
-        f"{note}",
-        parse_mode="HTML", reply_markup=kb
-    )
-    await call.answer()
-
-
-# ─── 2) yetkazib berish tanlandi → manzil so'raymiz ─────────────────────────
-@router.callback_query(OrderState.delivery, F.data.startswith("dlv_"))
-async def choose_delivery(call: CallbackQuery, state: FSMContext):
-    dlv = call.data.split("_")[1]
-    await state.update_data(delivery=dlv)
-    await state.set_state(OrderState.address)
-    await call.message.answer(
-        f"{title('📍', 'Manzilni kiriting')}\n"
-        f"{divider()}\n"
-        "Iltimos, yetkazib berish manzilingizni kiriting\n"
-        "(shahar, ko'cha, uy — to'liq yozing):",
-        parse_mode="HTML", reply_markup=cancel_keyboard
-    )
-    await call.answer()
-
-
 # ─── Bekor qilish (har qanday buyurtma bosqichida) ──────────────────────────
 @router.message(
     OrderState.color, F.text == "❌ Bekor qilish"
@@ -784,7 +727,7 @@ async def order_phone(message: Message, state: FSMContext):
 
     data = await state.get_data()
     pid  = data["pid"]
-    dlv  = data.get("delivery", "pickup")
+    dlv  = data.get("delivery", "taxi")
     p = get_product_by_id(pid)
     if not p:
         await state.clear()
@@ -800,6 +743,7 @@ async def order_phone(message: Message, state: FSMContext):
 
     qty   = data.get("quantity", 1)
     total = p["price"] * qty
+    fee   = delivery_fee_for(total)   # 300 000 dan yuqori xaridga — bepul
     commission = int(total * settings.COMMISSION_RATE)
     order_id = save_order({
         "buyer_id":     message.from_user.id,
@@ -813,7 +757,8 @@ async def order_phone(message: Message, state: FSMContext):
         "total":        total,
         "prepay":       commission,       # 10% = platforma komissiyasi
         "commission":   commission,
-        "fulfillment":  data.get("fulfillment", "delivery"),
+        "delivery_fee": fee,              # 300 000 dan yuqori xaridga 0 (bepul)
+        "fulfillment":  "delivery",
         "delivery":     dlv,
         "address":      data.get("address", "—"),
         "phone":        phone,
@@ -824,53 +769,25 @@ async def order_phone(message: Message, state: FSMContext):
     await state.update_data(order_id=order_id)
     await state.set_state(OrderState.receipt)
 
-    dlv_label   = DELIVERY_LABELS.get(dlv, dlv)
     platform_card = settings.PLATFORM_CARD or "⚠️ admin kartani sozlamagan"
     card_name_line = f"   → Karta egasi: <b>{settings.PLATFORM_CARD_NAME}</b>\n" if settings.PLATFORM_CARD_NAME else ""
     pct = int(settings.COMMISSION_RATE * 100)
-    is_pickup = data.get("fulfillment") == "pickup"
-    is_free_delivery = (not is_pickup) and total >= FREE_DELIVERY_MIN
-    delivery_refund  = int(total * DELIVERY_REFUND_RATE) if is_free_delivery else 0
-    seller_card      = (get_seller(p["seller_id"]) or {}).get("card_number", "")
-    seller_dlv_note = (
-        "\n🚚 <b>Bu buyurtmada yetkazib berish XARIDOR uchun BEPUL.</b>\n"
-        "⚠️ Taksi (yetkazib berish) haqini <b>SIZ haydovchiga to'laysiz</b>.\n"
-        f"💸 Platforma sizga <b>5% ({delivery_refund:,} so'm)</b> kartangizga qaytaradi "
-        "(taksi haqini qoplash uchun).\n"
-        if is_free_delivery else ""
-    )
-    owner_free_note = (
-        f"\n🚚 <b>BEPUL YETKAZIB BERISH buyurtmasi</b>\n"
-        f"➡️ Sellerga <b>5% ({delivery_refund:,} so'm)</b> o'tkazing (taksi haqini qoplash):\n"
-        f"💳 Seller karta/raqami: <code>{seller_card or '—'}</code>\n"
-        if is_free_delivery else ""
-    )
+    remain = max(total - commission, 0)
 
     # ── Xaridorga: oldi-to'lov PLATFORMA kartasiga ──
-    if is_pickup:
-        deliver_line = (
-            f"🚶 Olish usuli: O'zingiz olib ketasiz\n"
-            f"<b>🔵 To'lov tasdiqlangach do'kon bilan bog'lanasiz.</b>\n\n"
-        )
-    elif total >= FREE_DELIVERY_MIN:
-        deliver_line = (
-            f"🚚 Yetkazib berish: {dlv_label}\n"
-            f"📍 Manzil: {data['address']}\n"
-            f"📱 Tel: {phone}\n"
-            f"<b>🟢 Yetkazib berish: SHU BUGUNOQ (taksi pochta)</b>\n"
-            f"<b>✅ Shahar ichida yetkazib berish — BEPUL!</b>\n"
-            f"<i>(Xaridingiz {FREE_DELIVERY_MIN:,} so'mdan ortiq — shahar ichidagi "
-            f"taksi haqini do'kon qoplaydi.)</i>\n\n"
-        )
-    else:
-        deliver_line = (
-            f"🚚 Yetkazib berish: {dlv_label}\n"
-            f"📍 Manzil: {data['address']}\n"
-            f"📱 Tel: {phone}\n"
-            f"<b>🟢 Yetkazib berish: SHU BUGUNOQ (taksi pochta)</b>\n"
-            f"<i>ℹ️ Taksi haqi xaridor tomonidan to'lanadi (masofaga qarab) "
-            f"va mahsulot narxiga kirmaydi.</i>\n\n"
-        )
+    fee_note = (
+        f" + yetkazib berish <b>{money(fee)}</b>" if fee
+        else " (yetkazib berish <b>BEPUL 🎉</b>)"
+    )
+    deliver_line = (
+        f"🚚 Yetkazib berish: <b>{delivery_text(fee)}</b>\n"
+        f"📍 Manzil: {data['address']}\n"
+        f"📱 Tel: {phone}\n"
+        f"<b>🟢 Yetkazib berish: SHU BUGUNOQ</b>\n\n"
+        f"💵 Yetkazilganda <b>kurierga naqd</b> to'laysiz: qolgan mahsulot puli "
+        f"<b>{money(remain)}</b>{fee_note}.\n"
+        f"💳 Karta orqali to'lamoqchi bo'lsangiz — kurierdan so'raysiz.\n\n"
+    )
     await message.answer(
         f"✅ <b>Buyurtmangiz qabul qilindi!</b>  (#{order_id})\n"
         f"Boshlang'ich <b>{pct}%</b> to'lovni qiling.\n"
@@ -899,10 +816,9 @@ async def order_phone(message: Message, state: FSMContext):
         f"📦 {p['name']}\n"
         f"🔢 Miqdor: {qty} dona × {p['price']:,} so'm\n"
         f"💰 Jami: {total:,} so'm\n"
-        f"🚚 {dlv_label}\n"
-        f"{seller_dlv_note}\n"
-        f"🔒 <b>Xaridor ma'lumotlari (ism, tel, manzil) yashirin.</b>\n"
-        f"Platforma to'lovi (oldi-to'lov) tasdiqlangach avtomatik ochiladi.\n\n"
+        f"🚚 Yetkazib berish: {delivery_text(fee)}\n\n"
+        f"🔒 <b>Xaridor ma'lumotlari kurierда.</b>\n"
+        f"Mahsulotni kurier do'koningizdan olib, xaridorga yetkazadi.\n\n"
         f"💡 <b>Eslatma:</b> Bot orqali sotilgan har bir buyurtma uchun "
         f"mahsulot narxining {pct}% qismi platforma xizmat haqi sifatida olinadi.\n"
         f"Bu summa ({commission:,} so'm) xaridorning oldi-to'lovidan to'g'ridan-to'g'ri "
@@ -930,8 +846,7 @@ async def order_phone(message: Message, state: FSMContext):
             f"👤 {message.from_user.full_name} (ID: {message.from_user.id})\n"
             f"📱 {phone}\n"
             f"📍 {data['address']}\n"
-            f"🚚 {dlv_label}\n"
-            f"{owner_free_note}\n"
+            f"🚚 Yetkazib berish: {delivery_text(fee)}\n"
             f"🧾 To'lov cheki kutilmoqda...",
             parse_mode="HTML"
         )
