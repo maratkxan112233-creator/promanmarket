@@ -414,8 +414,13 @@ def _product_caption(p: dict) -> str:
         lines.append(f"{divider()}\n{stars} {rating}  ·  💬 {rev_cnt} ta sharh")
 
     lines.append(divider())
-    lines.append(f"🚚 Yetkazib berish: <b>{money(DELIVERY_FEE)}</b>  ·  🚕 Bugun yetkazamiz")
-    lines.append(f"🎉 <b>{money(FREE_DELIVERY_THRESHOLD)} dan yuqori xaridga — BEPUL</b>")
+    # Yetkazib berish narxi mahsulot narxiga qarab: 300 000 dan yuqori — BEPUL,
+    # aks holda 19 000 so'm.
+    fee = delivery_fee_for(price)
+    lines.append(f"🚚 Yetkazib berish: <b>{delivery_text(fee)}</b>  ·  🚕 Bugun yetkazamiz")
+    if fee:
+        # Hali bepulga yetmagan — xaridorni rag'batlantirish uchun eslatma.
+        lines.append(f"🎉 <b>{money(FREE_DELIVERY_THRESHOLD)} dan yuqori xaridga — BEPUL</b>")
     return "\n".join(lines)
 
 

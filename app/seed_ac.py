@@ -1,9 +1,10 @@
-"""Bir martalik xavfsiz "seed": Bravo electronics do'koniga konditsionerlar qo'shadi.
+"""Bir martalik xavfsiz "seed": Bravo electronics do'koniga mahsulotlar qo'shadi.
 
 Bot ishga tushganda chaqiriladi. Do'konni telefon yoki nom bo'yicha topadi va
-14 ta konditsionerni faqat HALI YO'Q bo'lsa qo'shadi — shuning uchun bot necha
-marta qayta ishga tushsa ham takror qo'shilmaydi va mavjud mahsulotlarga tegmaydi.
+mahsulotlarni faqat HALI YO'Q bo'lsa qo'shadi — shuning uchun bot necha marta
+qayta ishga tushsa ham takror qo'shilmaydi va mavjud mahsulotlarga tegmaydi.
 
+Hozircha: konditsionerlar va kir yuvish mashinalari.
 Rasm manzillari Uzum Market CDN'idan (images.uzum.uz) olingan.
 """
 
@@ -81,6 +82,50 @@ _AIR_CONDITIONERS = [
      3959010, "cqo6askqvsse8leujoc0"),
 ]
 
+# Eng ko'p sotilayotgan kir yuvish mashinalari (Uzum'dagi ommabop, sharhlari ko'p).
+# (nom, tavsif, narx so'm, Uzum rasm ID)
+_WASHING_MACHINES = [
+    ("Kir yuvish mashinasi JPE Invertor BLDC, 6-8-10 kg",
+     "Avtomat kir yuvish mashinasi, BLDC invertor motor, 6/8/10 kg, kechiktirish "
+     "funksiyasi va Child-Lock. Eng ko'p sotilganlardan biri.",
+     2410174, "crfbbk60t1lqb8aqt2r0"),
+    ("Yarim avtomatik kir yuvish mashinasi Rosso R90WM, 9 kg",
+     "Yarim avtomat kir yuvish mashinasi, 9 kg, ikki barabanli (yuvish + quritish), "
+     "tejamkor va ishonchli.",
+     1345410, "cvgerqjvgbkm5ehljia0"),
+    ("Kirmoshina WM-4088, 4 kg, qurutish barabani bilan",
+     "Ixcham yarim avtomat kir yuvish mashinasi, 4 kg, alohida qurutish barabani "
+     "bilan — kichik xonadonlar uchun qulay.",
+     548460, "d1rmni7nrko24u2h49c0"),
+    ("Kir yuvish mashinasi ELITE ELT WM-4199, yarim avtomatik",
+     "Yarim avtomat kir yuvish mashinasi, ikki barabanli, tejamkor va arzon — "
+     "kundalik foydalanish uchun.",
+     1088010, "cqd5denfrr885gh2mteg"),
+    ("Kir yuvish mashinasi QLT 6/8/10 kg",
+     "Avtomat kir yuvish mashinasi, 6/8/10 kg variantlari, ko'p dasturli, "
+     "tejamkor va sokin.",
+     2177010, "d6begl7qkmarvs5i1in0"),
+    ("Kir yuvish mashinasi Artel SE25 Mini, 2,5 kg, oq",
+     "Mini avtomat kir yuvish mashinasi, 2,5 kg — talabalar va kichik oilalar "
+     "uchun ixcham yechim.",
+     710820, "cv0k6sui4n36ls3s6tbg"),
+    ("Kir yuvish mashinasi Artel 2.5 kg",
+     "Ixcham kir yuvish mashinasi, 2,5 kg, kam joy egallaydi, oson boshqariladi.",
+     701910, "cujete45j42bjc4d1dp0"),
+    ("Kir yuvish mashinasi Magna Inverter, 6 kg, 1000 ob/daq",
+     "Avtomat kir yuvish mashinasi, invertor motor, 6 kg, 1000 ob/daq siqish, "
+     "bug' bilan yuvish funksiyasi.",
+     2474010, "d80t9qbsv8vo2t0dojlg"),
+    ("Kir yuvish mashinasi Hofmann WM610BWH2/HF, 6 kg, BLDC Inverter",
+     "Avtomat kir yuvish mashinasi, BLDC invertor motor, 6 kg, 12 ta dastur, "
+     "A+++ energiya klassi.",
+     3563010, "d7p0abi1146tv06s41u0"),
+    ("HOFMANN avtomat kir yuvish mashinasi, 6 kg",
+     "Avtomat kir yuvish mashinasi, 6 kg, ko'p dasturli, tejamkor va ishonchli — "
+     "ommabop model.",
+     3266010, "d8al9di1146tv073465g"),
+]
+
 
 def _find_bravo_seller() -> tuple[int, dict] | None:
     """Bravo electronics do'konini telefon yoki nom bo'yicha topadi."""
@@ -92,11 +137,12 @@ def _find_bravo_seller() -> tuple[int, dict] | None:
     return None
 
 
-def seed_air_conditioners() -> int:
-    """Yo'q konditsionerlarni qo'shadi. Qo'shilgan mahsulotlar sonini qaytaradi."""
+def _seed_products(items: list, label: str) -> int:
+    """Berilgan mahsulotlarni Bravo electronics do'koniga (yo'q bo'lsa) qo'shadi.
+    Qo'shilgan mahsulotlar sonini qaytaradi."""
     found = _find_bravo_seller()
     if not found:
-        logger.warning("Seed: 'Bravo electronics' do'koni topilmadi — konditsioner qo'shilmadi.")
+        logger.warning("Seed: 'Bravo electronics' do'koni topilmadi — %s qo'shilmadi.", label)
         return 0
     seller_id, seller = found
     shop_name = seller.get("shop_name", "Bravo electronics")
@@ -108,7 +154,7 @@ def seed_air_conditioners() -> int:
     }
 
     added = 0
-    for name, desc, price, img_id in _AIR_CONDITIONERS:
+    for name, desc, price, img_id in items:
         if name.strip().lower() in existing:
             continue
         storage.add_product({
@@ -123,7 +169,22 @@ def seed_air_conditioners() -> int:
         added += 1
 
     if added:
-        logger.info("Seed: %s ta konditsioner '%s' do'koniga qo'shildi.", added, shop_name)
+        logger.info("Seed: %s ta %s '%s' do'koniga qo'shildi.", added, label, shop_name)
     else:
-        logger.info("Seed: barcha konditsionerlar allaqachon mavjud — qo'shilmadi.")
+        logger.info("Seed: barcha %s allaqachon mavjud — qo'shilmadi.", label)
     return added
+
+
+def seed_air_conditioners() -> int:
+    """Yo'q konditsionerlarni qo'shadi."""
+    return _seed_products(_AIR_CONDITIONERS, "konditsioner")
+
+
+def seed_washing_machines() -> int:
+    """Yo'q kir yuvish mashinalarini qo'shadi."""
+    return _seed_products(_WASHING_MACHINES, "kir yuvish mashinasi")
+
+
+def seed_all() -> int:
+    """Barcha kategoriyalarni seed qiladi. Jami qo'shilganlar sonini qaytaradi."""
+    return seed_air_conditioners() + seed_washing_machines()
