@@ -4,6 +4,9 @@ import logging
 from app.bot.bot import bot
 from app.bot.dispatcher import dp
 from app.seed_ac import seed_all
+from app.seed_bikes import seed_bikes
+from app.seed_cars import seed_cars
+from app.seed_conditioners import seed_conditioners
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -18,6 +21,21 @@ async def main():
         seed_all()
     except Exception:
         logger.exception("Seed (mahsulotlar) bajarilmadi")
+    # DinamoKids do'koniga velosipedlar (yo'q bo'lsa) qo'shiladi.
+    try:
+        seed_bikes()
+    except Exception:
+        logger.exception("Seed (velosipedlar) bajarilmadi")
+    # DinamoKids do'koniga bolalar minadigan mashinalari (yo'q bo'lsa) qo'shiladi.
+    try:
+        seed_cars()
+    except Exception:
+        logger.exception("Seed (bolalar mashinalari) bajarilmadi")
+    # DinamoKids do'koniga konditsionerlar (Artel/AUX/Premier) qo'shiladi.
+    try:
+        seed_conditioners()
+    except Exception:
+        logger.exception("Seed (konditsionerlar) bajarilmadi")
     await dp.start_polling(
         bot,
         allowed_updates=dp.resolve_used_update_types(),

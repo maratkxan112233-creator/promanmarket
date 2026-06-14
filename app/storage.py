@@ -18,6 +18,7 @@ AUDIT_FILE        = f"{DATA_DIR}/audit.json"
 CITIES_FILE       = f"{DATA_DIR}/cities.json"
 VIEW_STATE_FILE   = f"{DATA_DIR}/view_state.json"
 FAVORITES_FILE    = f"{DATA_DIR}/favorites.json"
+BLOCKED_FILE      = f"{DATA_DIR}/blocked.json"
 
 DEFAULT_CITIES = ["Olmaliq", "Angren", "Bekobod", "Ohangaron", "Chirchiq", "Yangiyo'l", "Toshkent"]
 
@@ -228,6 +229,33 @@ def toggle_favorite(user_id: int, product_id: int) -> bool:
     favs[str(user_id)] = lst
     _write(FAVORITES_FILE, favs)
     return added
+
+
+# ─── Botni bloklaganlar ──────────────────────────────────────────────────────
+# Foydalanuvchi botni bloklaganda Telegram "my_chat_member" yangilanishini
+# yuboradi (yangi holat = "kicked"). Shu paytda bu yerga yozib qo'yamiz, admin
+# panelda "🚫 Bloklaganlar" bo'limida ko'rinadi. Blokdan chiqarsa — o'chiriladi.
+# user_id (str) -> {"user_id", "name", "username", "blocked_at"}
+def get_blocked() -> dict:
+    data = _read(BLOCKED_FILE)
+    return data if isinstance(data, dict) else {}
+
+def mark_blocked(user_id: int, data: dict):
+    blocked = get_blocked()
+    data["blocked_at"] = datetime.now().isoformat()
+    blocked[str(user_id)] = data
+    _write(BLOCKED_FILE, blocked)
+
+def unmark_blocked(user_id: int) -> bool:
+    blocked = get_blocked()
+    if str(user_id) in blocked:
+        del blocked[str(user_id)]
+        _write(BLOCKED_FILE, blocked)
+        return True
+    return False
+
+def is_blocked(user_id: int) -> bool:
+    return str(user_id) in get_blocked()
 
 
 # ─── Shaharlar (tuman/shahar darajasi) ───────────────────────────────────────

@@ -5,7 +5,7 @@ import zipfile
 from datetime import datetime, timedelta
 from aiogram import Router, F
 from aiogram.filters import Command, StateFilter
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile, ChatMemberUpdated
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
@@ -21,6 +21,7 @@ from app.storage import (
     add_audit, get_audit,
     get_cities, add_city, remove_city, get_user, get_users, set_user_field,
     shop_notify_ids, get_owner_id,
+    get_blocked, mark_blocked, unmark_blocked,
 )
 from app.album import collect
 from app.keyboards.seller import main_menu, stars_kb, menu_for, MENU_VERSION
@@ -179,6 +180,7 @@ def admin_menu_kb(uid: int):
             [InlineKeyboardButton(text="➕ Mahsulot qo'shish", callback_data="admin_addprod")],
             [InlineKeyboardButton(text="📦 Mahsulotlar",      callback_data="admin_products")],
             [InlineKeyboardButton(text="👥 Foydalanuvchilar", callback_data="admin_users")],
+            [InlineKeyboardButton(text="🚫 Bloklaganlar",     callback_data="admin_blocked")],
             [InlineKeyboardButton(text="🏙 Shaharlar",        callback_data="admin_cities")],
             [InlineKeyboardButton(text="📊 Statistika",       callback_data="admin_stats")],
             [InlineKeyboardButton(text="📈 Excel hisobot",    callback_data="admin_excel_menu")],
@@ -1024,6 +1026,77 @@ async def del_user_cb(call: CallbackQuery):
     _log(call.from_user, "Foydalanuvchi o'chirildi", f"ID:{uid}")
     await call.message.edit_text(f"🗑 Foydalanuvchi (ID:{uid}) o'chirildi.")
     await call.answer("O'chirildi")
+
+
+# ─── Botni bloklaganlar ──────────────────────────────────────────────────────
+# Telegram foydalanuvchi botni bloklaganda/blokdan chiqarganda "my_chat_member"
+# yangilanishini yuboradi. Shu yerda ushlab, bloklaganlar ro'yxatini yuritamiz.
+@router.my_chat_member()
+async def on_my_chat_member(event: ChatMemberUpdated):
+    # Faqat shaxsiy chatdagi (foydalanuvchi ↔ bot) holat o'zgarishi muhim.
+    if event.chat.type != "private":
+        return
+    u = event.from_user
+    status = event.new_chat_member.status
+    if status == "kicked":
+        # Foydalanuvchi botni BLOKLADI
+        mark_blocked(u.id, {
+            "user_id":  u.id,
+            "name":     u.full_name,
+            "username": u.username or "",
+        })
+        # Owner'ga darhol xabar beramiz
+        try:
+            from app.bot.bot import bot
+            uname = f"@{u.username}" if u.username else "—"
+            await bot.send_message(
+                settings.OWNER_ID,
+                f"🚫 <b>Foydalanuvchi botni bloklab qo'ydi</b>\n\n"
+                f"👤 {u.full_name}\n"
+                f"🔗 Username: {uname}\n"
+                f"🆔 ID: <code>{u.id}</code>",
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
+    elif status == "member":
+        # Foydalanuvchi botni blokdan chiqardi — ro'yxatdan olib tashlaymiz
+        unmark_blocked(u.id)
+
+
+@router.callback_query(F.data == "admin_blocked")
+async def admin_blocked(call: CallbackQuery):
+    if not is_owner(call.from_user.id): return
+    await _ack(call)
+    blocked = get_blocked()
+    if not blocked:
+        await _admin_nav(
+            call,
+            "🚫 <b>Bloklaganlar</b>\n\nHozircha botni bloklagan foydalanuvchi yo'q. ✅",
+            InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_back")]
+            ]),
+        )
+        return
+    # Oxirgi bloklaganlar yuqorida tursin
+    items = sorted(blocked.values(), key=lambda b: b.get("blocked_at", ""), reverse=True)
+    lines = [f"🚫 <b>Botni bloklaganlar</b> — jami {len(items)} ta\n"]
+    for i, b in enumerate(items, 1):
+        uname = f"@{b['username']}" if b.get("username") else "—"
+        when = (b.get("blocked_at", "") or "")[:16].replace("T", " ")
+        lines.append(
+            f"<b>{i}. {b.get('name','—')}</b>\n"
+            f"   🔗 {uname}\n"
+            f"   🆔 <code>{b.get('user_id','—')}</code>\n"
+            f"   🕒 {when}"
+        )
+    await _admin_nav(
+        call,
+        "\n".join(lines),
+        InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_back")]
+        ]),
+    )
 
 
 # ─── Statistika ──────────────────────────────────────────────────────────────
