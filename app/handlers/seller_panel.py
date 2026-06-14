@@ -124,31 +124,65 @@ async def my_city_sellers(message: Message):
 
 
 # ─── Mahsulotlar ─────────────────────────────────────────────────────────────
-@router.callback_query(F.data == "seller_products")
-async def seller_products(call: CallbackQuery):
-    if not is_shop_member(call.from_user.id):
-        await call.answer("Siz seller emassiz."); return
-    await _ack(call)
-    products = get_seller_products(get_owner_id(call.from_user.id))
+# Bitta sahifadagi mahsulotlar soni. Telegram juda ko'p tugmani qabul qilmaydi
+# (mahsulot 100 dan oshsa ro'yxat ochilmay qoladi) — shuning uchun sahifalaymiz.
+_SELLER_PER_PAGE = 40
+
+
+def _seller_products_content(owner_id: int, page: int):
+    """(matn, klaviatura) — sotuvchi mahsulotlarining `page`-sahifasi."""
+    products = get_seller_products(owner_id)
     if not products:
-        await call.message.edit_text(
+        return (
             "📦 Hozircha mahsulot yo'q.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="➕ Qo'shish",  callback_data="seller_add_product")],
                 [InlineKeyboardButton(text="🔙 Orqaga",    callback_data="seller_back")],
             ])
         )
-        return
+    total = len(products)
+    pages = max(1, (total + _SELLER_PER_PAGE - 1) // _SELLER_PER_PAGE)
+    page = max(0, min(page, pages - 1))
+    start = page * _SELLER_PER_PAGE
     rows = []
-    for p in products:
+    for p in products[start:start + _SELLER_PER_PAGE]:
         finished = "❌ " if p.get("is_finished") else ""
         rows.append([
             InlineKeyboardButton(text=f"{finished}{product_emoji(p)} {p['name']} — {p['price']:,} so'm",
                                  callback_data=f"sprod_{p['id']}"),
         ])
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(text="◀️", callback_data=f"sprodpg_{page-1}"))
+    if page < pages - 1:
+        nav.append(InlineKeyboardButton(text="▶️", callback_data=f"sprodpg_{page+1}"))
+    if nav:
+        rows.append(nav)
     rows.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="seller_back")])
-    await call.message.edit_text("📦 <b>Mahsulotlaringiz:</b>", parse_mode="HTML",
-                                  reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+    page_info = f"  (sahifa {page+1}/{pages})" if pages > 1 else ""
+    return f"📦 <b>Mahsulotlaringiz</b> — {total} ta{page_info}:", InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+@router.callback_query(F.data == "seller_products")
+async def seller_products(call: CallbackQuery):
+    if not is_shop_member(call.from_user.id):
+        await call.answer("Siz seller emassiz."); return
+    await _ack(call)
+    text, kb = _seller_products_content(get_owner_id(call.from_user.id), 0)
+    await call.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("sprodpg_"))
+async def seller_products_page(call: CallbackQuery):
+    if not is_shop_member(call.from_user.id):
+        await call.answer("Siz seller emassiz."); return
+    await _ack(call)
+    page = int(call.data.split("_")[1])
+    text, kb = _seller_products_content(get_owner_id(call.from_user.id), page)
+    try:
+        await call.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+    except Exception:
+        await call.message.answer(text, parse_mode="HTML", reply_markup=kb)
 
 
 @router.callback_query(F.data.startswith("sprod_"))

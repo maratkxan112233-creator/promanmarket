@@ -251,13 +251,14 @@ async def buyer_set_city(call: CallbackQuery):
     await _show_market(call.message, city)
 
 
-async def _send_shop_menu(call: CallbackQuery, seller_id: int):
-    """Do'konga kirilganda TO'G'RIDAN-TO'G'RI barcha mahsulotlar ro'yxatini
-    yuboradi (bo'limlar menyusisiz): har bir mahsulot nomi + narxi alohida
-    tugma (prod_<id>)."""
-    chat_id = call.message.chat.id
-    await _clear_last_product(call.message.bot, chat_id, [call.message.message_id])
+# Do'kon menyusida bitta sahifadagi mahsulotlar soni. Telegram inline-klaviatura
+# juda ko'p tugmani qabul qilmaydi (mahsulot 100 dan oshsa menyu ochilmay qoladi),
+# shuning uchun sahifalaymiz.
+_SHOP_PER_PAGE = 40
 
+
+def _shop_menu_content(seller_id: int, page: int):
+    """(matn, klaviatura) — do'kon mahsulotlarining `page`-sahifasi."""
     seller    = get_seller(seller_id)
     shop_name = seller["shop_name"] if seller else "Do'kon"
     rating, cnt = get_seller_rating(seller_id)
@@ -265,17 +266,20 @@ async def _send_shop_menu(call: CallbackQuery, seller_id: int):
 
     products = get_seller_products(seller_id)
     if not products:
-        await call.message.answer(
+        return (
             f"{title('🏪', shop_name)}\n{divider()}\n📦 Hozircha mahsulot yo'q.",
-            parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="‹  Do'konlarga qaytish", callback_data="back_shops")]
             ])
         )
-        return
+
+    total = len(products)
+    pages = max(1, (total + _SHOP_PER_PAGE - 1) // _SHOP_PER_PAGE)
+    page = max(0, min(page, pages - 1))
+    start = page * _SHOP_PER_PAGE
 
     rows = []
-    for p in products:
+    for p in products[start:start + _SHOP_PER_PAGE]:
         name = p.get("name", "—")
         if len(name) > 30:
             name = name[:30].rstrip() + "…"
@@ -284,14 +288,41 @@ async def _send_shop_menu(call: CallbackQuery, seller_id: int):
             text=f"{product_emoji(p)} {name}  ·  {money(p.get('price', 0))}{finished}",
             callback_data=f"prod_{p['id']}"
         )])
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(text="◀️", callback_data=f"shoppg_{seller_id}_{page-1}"))
+    if page < pages - 1:
+        nav.append(InlineKeyboardButton(text="▶️", callback_data=f"shoppg_{seller_id}_{page+1}"))
+    if nav:
+        rows.append(nav)
     rows.append([InlineKeyboardButton(text="‹  Orqaga", callback_data="back_shops")])
 
-    await call.message.answer(
-        f"{title('🏪', shop_name)}{stars}\n{divider()}\n"
-        f"📦 {len(products)} ta mahsulot — birini tanlang 👇",
-        parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows)
-    )
+    page_info = f"  (sahifa {page+1}/{pages})" if pages > 1 else ""
+    text = (f"{title('🏪', shop_name)}{stars}\n{divider()}\n"
+            f"📦 {total} ta mahsulot{page_info} — birini tanlang 👇")
+    return text, InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+async def _send_shop_menu(call: CallbackQuery, seller_id: int):
+    """Do'konga kirilganda barcha mahsulotlar ro'yxatini (sahifalab) yuboradi."""
+    chat_id = call.message.chat.id
+    await _clear_last_product(call.message.bot, chat_id, [call.message.message_id])
+    text, kb = _shop_menu_content(seller_id, 0)
+    await call.message.answer(text, parse_mode="HTML", reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("shoppg_"))
+async def shop_menu_page(call: CallbackQuery):
+    parts = call.data.split("_")          # shoppg_<seller>_<page>
+    seller_id, page = int(parts[1]), int(parts[2])
+    if not get_seller(seller_id):
+        await call.answer("Do'kon topilmadi."); return
+    await call.answer()
+    text, kb = _shop_menu_content(seller_id, page)
+    try:
+        await call.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+    except Exception:
+        await call.message.answer(text, parse_mode="HTML", reply_markup=kb)
 
 
 async def _send_category_products(message: Message, seller_id: int, code: str):

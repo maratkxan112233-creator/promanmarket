@@ -838,25 +838,57 @@ async def del_seller_cb(call: CallbackQuery):
 
 
 # ─── Mahsulotlar (admin) ─────────────────────────────────────────────────────
+# Bitta sahifadagi mahsulotlar soni. Telegram inline-klaviaturasi juda ko'p
+# tugmani qabul qilmaydi (mahsulot soni 100 dan oshganda "Mahsulotlar" tugmasi
+# umuman ochilmasdi) — shuning uchun sahifalab ko'rsatamiz.
+_PROD_PER_PAGE = 30
+
+
+def _products_page(page: int):
+    """(matn, klaviatura) — mahsulotlarning `page`-sahifasi. Sahifalash tugmalari
+    (◀️ ▶️) bilan."""
+    products = get_all_products()
+    total = len(products)
+    pages = max(1, (total + _PROD_PER_PAGE - 1) // _PROD_PER_PAGE)
+    page = max(0, min(page, pages - 1))
+    start = page * _PROD_PER_PAGE
+    rows = [
+        [InlineKeyboardButton(text=f"📦 {p.get('name','—')} — {p.get('price',0):,} so'm",
+                              callback_data=f"aprod_{p['id']}")]
+        for p in products[start:start + _PROD_PER_PAGE]
+    ]
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(text="◀️ Oldingi", callback_data=f"aprodpg_{page-1}"))
+    if page < pages - 1:
+        nav.append(InlineKeyboardButton(text="Keyingi ▶️", callback_data=f"aprodpg_{page+1}"))
+    if nav:
+        rows.append(nav)
+    rows.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_back")])
+    text = f"📦 <b>Barcha mahsulotlar</b> — {total} ta  (sahifa {page+1}/{pages}):"
+    return text, InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 @router.callback_query(F.data == "admin_products")
 async def admin_products(call: CallbackQuery):
     if not is_owner(call.from_user.id): return
     await _ack(call)
-    products = get_all_products()
-    if not products:
-        await call.message.edit_text("Mahsulot yo'q.", reply_markup=InlineKeyboardMarkup(
+    if not get_all_products():
+        await _admin_nav(call, "Mahsulot yo'q.", InlineKeyboardMarkup(
             inline_keyboard=[[InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_back")]]
         ))
         return
-    rows = []
-    for p in products:
-        rows.append([InlineKeyboardButton(
-            text=f"📦 {p['name']} — {p['price']:,} so'm",
-            callback_data=f"aprod_{p['id']}"
-        )])
-    rows.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_back")])
-    await _admin_nav(call, "📦 <b>Barcha mahsulotlar:</b>",
-                     InlineKeyboardMarkup(inline_keyboard=rows))
+    text, kb = _products_page(0)
+    await _admin_nav(call, text, kb)
+
+
+@router.callback_query(F.data.startswith("aprodpg_"))
+async def admin_products_page(call: CallbackQuery):
+    if not is_owner(call.from_user.id): return
+    await _ack(call)
+    page = int(call.data.split("_")[1])
+    text, kb = _products_page(page)
+    await _admin_nav(call, text, kb)
 
 
 def _admin_product_card(p: dict, pid: int):
@@ -964,16 +996,12 @@ async def admin_del_product(call: CallbackQuery):
     _log(call.from_user, "Mahsulot o'chirildi",
          f"{_p['name']} (ID:{pid})" if _p else f"ID:{pid}")
     name = _p["name"] if _p else f"#{pid}"
-    products = get_all_products()
-    rows = []
-    for p in products:
-        rows.append([InlineKeyboardButton(
-            text=f"📦 {p['name']} — {p['price']:,} so'm",
-            callback_data=f"aprod_{p['id']}"
-        )])
-    rows.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_back")])
-    kb = InlineKeyboardMarkup(inline_keyboard=rows)
-    text = f"🗑 <b>{name}</b> o'chirildi.\n\n📦 <b>Barcha mahsulotlar:</b>" if products else f"🗑 <b>{name}</b> o'chirildi.\n\nMahsulot yo'q."
+    if get_all_products():
+        page_text, kb = _products_page(0)
+        text = f"🗑 <b>{name}</b> o'chirildi.\n\n" + page_text
+    else:
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_back")]])
+        text = f"🗑 <b>{name}</b> o'chirildi.\n\nMahsulot yo'q."
     await _admin_nav(call, text, kb)
     await call.answer("O'chirildi")
 

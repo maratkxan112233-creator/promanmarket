@@ -11,6 +11,7 @@ Rasm manzillari Uzum Market CDN'idan (images.uzum.uz) olingan.
 import logging
 
 from app import storage
+from app.seed_bikes import seed_products
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,7 @@ _AIR_CONDITIONERS = [
     ("Konditsioner Artel Marvarid 12BE Inverter",
      "Artel Marvarid 12 BTU invertorli konditsioner. ~35 m² xona uchun, sovutish va "
      "isitish, tejamkor hamda shovqinsiz.",
-     3365010, "d7vl7ojsv8vo2t0d8k1g"),
+     3365010, ["d7q9uu3sv8vo2t0b39ug", "d7qsbhs9g1ktqmljcemg", "d8k6j0c9g1ktqmlt06ig"]),
     ("Konditsioner IMMER 12 Full DC Inverter, R32",
      "IMMER Full DC invertorli konditsioner (12/18/24 BTU), R32 freon, shovqinsiz va "
      "energiya tejamkor.",
@@ -39,7 +40,7 @@ _AIR_CONDITIONERS = [
     ("Konditsioner Artel Iceberg 12 Inverter + TEN",
      "Artel Iceberg 12 BTU invertorli, isitish uchun TEN bilan — qishda ham issiq "
      "beradi, ~35 m² xona uchun.",
-     4008510, "d8l6d821146tv076qo9g"),
+     4008510, ["d8l6d821146tv076qo9g", "d44747tsp2tj49o8ce20", "d4475j5sp2tj49o8cegg"]),
     ("Konditsioner Shivaki Elegant 12 Inverter",
      "Shivaki Elegant 12 BTU invertorli konditsioner, zamonaviy dizayn, "
      "sovutish-isitish, tejamkor.",
@@ -67,11 +68,11 @@ _AIR_CONDITIONERS = [
     ("Konditsioner AUX ASW 12 Inverter",
      "AUX invertorli konditsioner (12/18 BTU), Turbo rejim va namlik datchigi bilan, "
      "samarali sovutish.",
-     4479037, "d8kj42i1146tv076jgd0"),
+     4479037, ["d8kj42i1146tv076jgd0", "d8kj4349g1ktqmlt402g", "d8kj43rsv8vo2t0l0rj0"]),
     ("Konditsioner Artel Shahrisabz 12 Inverter, Wi-Fi",
      "Artel Shahrisabz 12 BTU invertorli, Wi-Fi boshqaruvi, ~35 m² xona uchun, "
      "sovutish va isitish.",
-     4276800, "d0d0la0n274j5sclj8c0"),
+     4276800, ["d7srsoa1146tv06tm870", "d7srsobsv8vo2t0c33c0", "d0o0j68n274j5sco1qvg"]),
     ("Konditsioner Samsung 12 kBTU AR12DXHQASINEV Inverter",
      "Samsung 12 kBTU invertorli konditsioner, 35 m² gacha xonalar uchun, sokin va "
      "energiya tejamkor.",
@@ -137,52 +138,14 @@ def _find_bravo_seller() -> tuple[int, dict] | None:
     return None
 
 
-def _seed_products(items: list, label: str) -> int:
-    """Berilgan mahsulotlarni Bravo electronics do'koniga (yo'q bo'lsa) qo'shadi.
-    Qo'shilgan mahsulotlar sonini qaytaradi."""
-    found = _find_bravo_seller()
-    if not found:
-        logger.warning("Seed: 'Bravo electronics' do'koni topilmadi — %s qo'shilmadi.", label)
-        return 0
-    seller_id, seller = found
-    shop_name = seller.get("shop_name", "Bravo electronics")
-    city = seller.get("city", "")
-
-    existing = {
-        str(p.get("name", "")).strip().lower()
-        for p in storage.get_seller_products(seller_id)
-    }
-
-    added = 0
-    for name, desc, price, img_id in items:
-        if name.strip().lower() in existing:
-            continue
-        storage.add_product({
-            "seller_id": seller_id,
-            "shop_name": shop_name,
-            "city": city,
-            "name": name,
-            "description": desc,
-            "price": price,
-            "photos": [_IMG.format(img_id)],
-        })
-        added += 1
-
-    if added:
-        logger.info("Seed: %s ta %s '%s' do'koniga qo'shildi.", added, label, shop_name)
-    else:
-        logger.info("Seed: barcha %s allaqachon mavjud — qo'shilmadi.", label)
-    return added
-
-
 def seed_air_conditioners() -> int:
-    """Yo'q konditsionerlarni qo'shadi."""
-    return _seed_products(_AIR_CONDITIONERS, "konditsioner")
+    """Konditsionerlarni Bravo electronics do'koniga qo'shadi/rasmlarini yangilaydi."""
+    return seed_products(_AIR_CONDITIONERS, _find_bravo_seller, "konditsioner (Bravo)")
 
 
 def seed_washing_machines() -> int:
-    """Yo'q kir yuvish mashinalarini qo'shadi."""
-    return _seed_products(_WASHING_MACHINES, "kir yuvish mashinasi")
+    """Kir yuvish mashinalarini qo'shadi/rasmlarini yangilaydi."""
+    return seed_products(_WASHING_MACHINES, _find_bravo_seller, "kir yuvish mashinasi")
 
 
 def seed_all() -> int:

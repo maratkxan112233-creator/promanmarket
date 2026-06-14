@@ -341,6 +341,16 @@ def add_product(product: dict):
     products.append(product)
     _write(PRODUCTS_FILE, products)
 
+def save_products(products: list):
+    """Mahsulotlar ro'yxatini to'liq saqlaydi (bitta yozish).
+    Ko'p mahsulotni birvarakayiga qo'shish/yangilashda har biriga alohida fayl
+    yozmaslik uchun — masalan seed (startup) ancha tezlashadi."""
+    _write(PRODUCTS_FILE, products)
+
+def next_product_id() -> int:
+    """Keyingi bo'sh mahsulot id'si (bulk qo'shishda foydali)."""
+    return max((p["id"] for p in get_all_products()), default=0) + 1
+
 def update_product(product_id: int, fields: dict):
     products = get_all_products()
     for p in products:
