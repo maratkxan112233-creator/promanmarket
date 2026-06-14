@@ -7,6 +7,7 @@ from app.seed_ac import seed_all
 from app.seed_bikes import seed_bikes
 from app.seed_cars import seed_cars
 from app.seed_conditioners import seed_conditioners
+from app.seed_strollers import seed_strollers
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -36,6 +37,11 @@ async def main():
         seed_conditioners()
     except Exception:
         logger.exception("Seed (konditsionerlar) bajarilmadi")
+    # DinamoKids do'koniga bolalar aravachalari (kolyaska) qo'shiladi.
+    try:
+        seed_strollers()
+    except Exception:
+        logger.exception("Seed (kolyaskalar) bajarilmadi")
     await dp.start_polling(
         bot,
         allowed_updates=dp.resolve_used_update_types(),
