@@ -251,14 +251,20 @@ async def buyer_set_city(call: CallbackQuery):
     await _show_market(call.message, city)
 
 
-# Do'kon menyusida bitta sahifadagi mahsulotlar soni. Telegram inline-klaviatura
-# juda ko'p tugmani qabul qilmaydi (mahsulot 100 dan oshsa menyu ochilmay qoladi),
-# shuning uchun sahifalaymiz.
+# Bitta xabardagi (inline-klaviaturadagi) mahsulotlar soni. Telegram bitta
+# klaviaturaga juda ko'p tugmani qabul qilmaydi (mahsulot 100 dan oshsa menyu
+# ochilmay qoladi). Shuning uchun "▶️ keyingi sahifa" tugmasi O'RNIGA mahsulotlar
+# ketma-ket bir nechta xabarga bo'lib yuboriladi — foydalanuvchi shunchaki pastga
+# aylantirib, BITTA UZUN RO'YXATdek ko'radi (hech qanday sahifa tugmasini bosmaydi).
 _SHOP_PER_PAGE = 40
 
 
-def _shop_menu_content(seller_id: int, page: int):
-    """(matn, klaviatura) — do'kon mahsulotlarining `page`-sahifasi."""
+def _shop_menu_chunks(seller_id: int):
+    """(sarlavha_matni, [klaviatura, ...]) — do'kon mahsulotlarining BUTUN ro'yxati,
+    har biri ≤_SHOP_PER_PAGE tugmali bo'laklarga bo'lingan holda.
+
+    Bo'laklar ketma-ket alohida xabar bo'lib yuboriladi, shu sababli sahifalash
+    (◀️/▶️) tugmalari KERAK EMAS — ro'yxat uzluksiz ko'rinadi."""
     seller    = get_seller(seller_id)
     shop_name = seller["shop_name"] if seller else "Do'kon"
     rating, cnt = get_seller_rating(seller_id)
@@ -268,18 +274,14 @@ def _shop_menu_content(seller_id: int, page: int):
     if not products:
         return (
             f"{title('🏪', shop_name)}\n{divider()}\n📦 Hozircha mahsulot yo'q.",
-            InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="‹  Do'konlarga qaytish", callback_data="back_shops")]
-            ])
+            ])]
         )
 
     total = len(products)
-    pages = max(1, (total + _SHOP_PER_PAGE - 1) // _SHOP_PER_PAGE)
-    page = max(0, min(page, pages - 1))
-    start = page * _SHOP_PER_PAGE
-
     rows = []
-    for p in products[start:start + _SHOP_PER_PAGE]:
+    for p in products:
         name = p.get("name", "—")
         if len(name) > 30:
             name = name[:30].rstrip() + "…"
@@ -288,41 +290,28 @@ def _shop_menu_content(seller_id: int, page: int):
             text=f"{product_emoji(p)} {name}  ·  {money(p.get('price', 0))}{finished}",
             callback_data=f"prod_{p['id']}"
         )])
-    nav = []
-    if page > 0:
-        nav.append(InlineKeyboardButton(text="◀️", callback_data=f"shoppg_{seller_id}_{page-1}"))
-    if page < pages - 1:
-        nav.append(InlineKeyboardButton(text="▶️", callback_data=f"shoppg_{seller_id}_{page+1}"))
-    if nav:
-        rows.append(nav)
-    rows.append([InlineKeyboardButton(text="‹  Orqaga", callback_data="back_shops")])
 
-    page_info = f"  (sahifa {page+1}/{pages})" if pages > 1 else ""
+    # Tugmalarni ≤_SHOP_PER_PAGE talik bo'laklarga ajratamiz.
+    chunks = [rows[i:i + _SHOP_PER_PAGE] for i in range(0, len(rows), _SHOP_PER_PAGE)]
+    # "‹ Orqaga" tugmasi faqat oxirgi bo'lakda.
+    chunks[-1].append([InlineKeyboardButton(text="‹  Orqaga", callback_data="back_shops")])
+    keyboards = [InlineKeyboardMarkup(inline_keyboard=c) for c in chunks]
+
     text = (f"{title('🏪', shop_name)}{stars}\n{divider()}\n"
-            f"📦 {total} ta mahsulot{page_info} — birini tanlang 👇")
-    return text, InlineKeyboardMarkup(inline_keyboard=rows)
+            f"📦 {total} ta mahsulot — birini tanlang 👇")
+    return text, keyboards
 
 
 async def _send_shop_menu(call: CallbackQuery, seller_id: int):
-    """Do'konga kirilganda barcha mahsulotlar ro'yxatini (sahifalab) yuboradi."""
+    """Do'konga kirilganda BARCHA mahsulotlarni uzluksiz (sahifa tugmasisiz)
+    ketma-ket xabarlar bilan yuboradi."""
     chat_id = call.message.chat.id
     await _clear_last_product(call.message.bot, chat_id, [call.message.message_id])
-    text, kb = _shop_menu_content(seller_id, 0)
-    await call.message.answer(text, parse_mode="HTML", reply_markup=kb)
-
-
-@router.callback_query(F.data.startswith("shoppg_"))
-async def shop_menu_page(call: CallbackQuery):
-    parts = call.data.split("_")          # shoppg_<seller>_<page>
-    seller_id, page = int(parts[1]), int(parts[2])
-    if not get_seller(seller_id):
-        await call.answer("Do'kon topilmadi."); return
-    await call.answer()
-    text, kb = _shop_menu_content(seller_id, page)
-    try:
-        await call.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
-    except Exception:
-        await call.message.answer(text, parse_mode="HTML", reply_markup=kb)
+    text, keyboards = _shop_menu_chunks(seller_id)
+    # Birinchi bo'lak — sarlavha bilan; qolganlari "davomi" bilan.
+    await call.message.answer(text, parse_mode="HTML", reply_markup=keyboards[0])
+    for kb in keyboards[1:]:
+        await call.message.answer("📦 …davomi", reply_markup=kb)
 
 
 async def _send_category_products(message: Message, seller_id: int, code: str):
