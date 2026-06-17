@@ -535,27 +535,19 @@ def add_audit(entry: dict):
 
 
 # ─── Ko'rish holati (chatda hozir ko'rsatilgan mahsulot xabarlari) ────────────
-# chat_id -> [message_id, ...]. Diskda saqlanadi — bot qayta ishga tushganda ham
-# eski mahsulot rasmlarini o'chirib, chatda bir vaqtda faqat bitta mahsulot
-# rasmlari turishini ta'minlash uchun (Telegram rasm ko'ruvchisida aralashmasligi).
+# chat_id -> [message_id, ...]. FAQAT XOTIRADA saqlanadi (diskka yozilmaydi).
+# Avval har mahsulot ko'rilganda butun view_state.json diskka yoziatilardi — bu
+# eng tez-tez bajariladigan amal bo'lgani uchun event loop'ni bloklab, botni
+# sekinlashtirardi. Endi xotirada — diskka yozish yo'q, mahsulot ko'rish bir
+# necha barobar tez. Yagona farq: bot qayta ishga tushsa, undan OLDIN ko'rsatilgan
+# mahsulot xabarlari avtomatik o'chmaydi (juda kichik, sezilmas farq).
+_VIEW_MSGS: dict[int, list] = {}
+
 def get_view_msgs(chat_id: int) -> list:
-    data = _read(VIEW_STATE_FILE)
-    if not isinstance(data, dict):
-        return []
-    ids = data.get(str(chat_id))
-    return ids if isinstance(ids, list) else []
+    return list(_VIEW_MSGS.get(chat_id, []))
 
 def set_view_msgs(chat_id: int, ids: list):
-    data = _read(VIEW_STATE_FILE)
-    if not isinstance(data, dict):
-        data = {}
-    data[str(chat_id)] = list(ids)
-    _write(VIEW_STATE_FILE, data)
+    _VIEW_MSGS[chat_id] = list(ids)
 
 def pop_view_msgs(chat_id: int) -> list:
-    data = _read(VIEW_STATE_FILE)
-    if not isinstance(data, dict):
-        return []
-    ids = data.pop(str(chat_id), [])
-    _write(VIEW_STATE_FILE, data)
-    return ids if isinstance(ids, list) else []
+    return _VIEW_MSGS.pop(chat_id, [])
