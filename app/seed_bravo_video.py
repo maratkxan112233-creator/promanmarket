@@ -82,6 +82,75 @@ _VIDEO_PRODUCTS = [
      "chivin, pashsha va hasharotlardan himoya qiladi.",
      24500, ["d8m3rs21146tv0778tlg", "d8m48la1146tv0779460",
              "d8m48nrsv8vo2t0lmib0", "d8m48rs9g1ktqmltppb0"]),
+
+    # ── Mikroto'lqinli pechlar (video: do'kon javonlarida ko'plab pech) ──────
+    ("Mikroto'lqinli pech Artel MM20S01, 20 litr, 700 Vt",
+     "20 litrli mikroto‘lqinli pech, 700 Vt quvvat — isitish va eritish uchun "
+     "qulay, ixcham va ishonchli.",
+     930020, ["d2slam34eu2h0tmqh260", "d2slak7iub35i07je4tg", "d2slb7viub35i07je570",
+              "d2slcer4eu2h0tmqh350", "d2slc2r4eu2h0tmqh2ug"]),
+    ("Mikroto'lqinli pech Bench BM-M20W02RB/RW, 20 litr",
+     "Bench 20 litrli mikroto‘lqinli pech, mexanik boshqaruv — uy va ofis uchun "
+     "tejamkor variant.",
+     636020, ["d1ooqjvnrkoeo1hjvagg", "d055u7k7fd1idphtihn0", "d055u247fd1idphtihm0"]),
+    ("Mikroto'lqinli pech Goodwell GMF, 20-23 litr, qora shisha",
+     "Goodwell mikroto‘lqinli pech, 20-23 litr, qora shisha sirt — zamonaviy "
+     "dizayn, oson tozalanadi.",
+     783020, ["d6sibuq1146lmcd37820", "d6sibuq1146lmcd3782g",
+              "d1ies50jsv1jqvb7eeq0", "d1ies50jsv1jqvb7eepg"]),
+
+    # ── Suv sovutgich / kuler (video: oq-qora tik kulerlar) ─────────────────
+    ("Suv sovutgichi WellStars, 3 rejimli (issiq/xona/sovuq)",
+     "Tik turuvchi suv kuleri (dispenser), 3 rejim — issiq, xona va sovuq suv. "
+     "Yuqoridan ballon o‘rnatiladi, ofis va uy uchun.",
+     791010, ["d4i3njdv2sjnqk4ilba0", "d4i3njdv2sjnqk4ilb9g",
+              "d4i3njej76ooegrmragg", "d425hcdsp2tj49o7q5og"]),
+
+    # ── Muzlatgich (video: bir va ikki kamerali sovutgichlar) ───────────────
+    ("Muzlatgich Ferre BCD-275, 225 litr, ikki kamerali",
+     "Ikki kamerali maishiy sovutgich, 225 litr — yuqori sifat, tejamkor va "
+     "keng saqlash hajmi.",
+     2335410, ["d8nug1bsv8vo2t0mcqcg", "cmjphfbifoubkc6ocipg", "cmjphf925ku8ad8ho5ig",
+               "cmjphb9s99ouqbfqv0pg", "cppckej6eisq2rkco4bg"]),
+    ("Sandiq muzlatgich Biryusa 260KX, 240 litr",
+     "Yopiq qopqoqli sandiq (lar) muzlatgich, 240 litr — muzqaymoq va ko'p "
+     "mahsulot saqlash uchun, savdo nuqtalariga ham mos.",
+     2969010, ["d6inv7i1146k64hufgv0", "d6invggs9rf3gtpkos4g",
+               "cphi25vfrr82f0a5scfg", "cphi25u0t1llbtq5tvj0"]),
+
+    # ── Erkin turuvchi gaz plita (video: duxovkali plitalar) ────────────────
+    ("Gaz plitasi Artel Apetito 02-G, duxovkali, 4 ko'zli",
+     "Erkin turuvchi gaz plita, 4 ko'zli va duxovkali (pech) — to'liq taom "
+     "tayyorlash uchun, mustahkam va chiroyli.",
+     3493858, ["d6hta8gs9rfd9u94uvvg", "d6hta8i1146jevjrsfl0", "d6hta8i1146jevjrsflg",
+               "d6hta8gs9rfd9u94uvv0", "d6hta8jvgbklj92iika0"]),
+
+    # ── Elektr choynak (video: Boinman elektr choynaklar) ───────────────────
+    ("Elektr choynak HAN RIVER, 2.3 litr, metall",
+     "Zanglamas po'lat elektr choynak, 2.3 litr — tez qaynaydi, avtomatik "
+     "o'chish funksiyasi bilan.",
+     107800, ["d13qrta7s4fr083f18og", "d13qsfa7s4fr083f18ug", "d13qsc8n274lpu38ofg0",
+              "d13qse0n274lpu38ofh0", "d13qsbi7s4fr083f18tg"]),
+
+    # ── Tarozi (video: elektron tarozi) ─────────────────────────────────────
+    ("Aqlli pol tarozi Xiaomi Mi Smart Scale 2, 180 kg",
+     "Xiaomi aqlli elektron tarozi, 180 kg gacha, ilova bilan bog'lanadi — "
+     "vazn va tana ko'rsatkichlarini o'lchaydi.",
+     260930, ["d7sap03sv8vo2t0bsni0", "cpvanjj6eisq2rkdugb0", "d7saovjsv8vo2t0bsnhg",
+              "d7sap021146tv06tg1qg", "d7sap1c9g1ktqmljvsag"]),
+
+    # ── Turuvchi ventilyator (video: oyoqli ventilyatorlar) ─────────────────
+    ("Oyoqli ventilyator LAMO, masofadan boshqaruvli",
+     "Balandligi rostlanadigan oyoqli (pol) ventilyator, pultli boshqaruv — "
+     "kuchli havo oqimi, uy va ofis uchun.",
+     484110, ["d8kp3lbsv8vo2t0l4km0", "d8kp3eq1146tv076nblg", "d8kp3i49g1ktqmlt7p5g"]),
+
+    # ── Metall javon / etajerka (video: g'ildirakli javonlar) ───────────────
+    ("Metall etajerka GHY2402, g'ildirakli, 3 qavatli",
+     "G'ildirakli yig'ma metall etajerka (tokcha) — oshxona, hammom va xona "
+     "uchun, oson siljitiladi va ko'p narsa sig'adi.",
+     343000, ["d3r1c0bs2ta8m27ejudg", "ctplq26i4n324lr1rs2g", "ctplq245j42bjc4606ug",
+              "ctplq1tht56ksubb532g", "ctplq25ht56ksubb5330"]),
 ]
 
 
