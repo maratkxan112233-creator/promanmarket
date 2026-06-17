@@ -8,6 +8,7 @@ from app.seed_bikes import seed_bikes
 from app.seed_cars import seed_cars
 from app.seed_conditioners import seed_conditioners
 from app.seed_strollers import seed_strollers
+from app.seed_bravo_video import seed_bravo_video
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -42,6 +43,12 @@ async def main():
         seed_strollers()
     except Exception:
         logger.exception("Seed (kolyaskalar) bajarilmadi")
+    # Bravo electronics do'koniga video'dan aniqlangan mahsulotlar (yarim avtomat,
+    # vitrina sovutkich, gaz panel, ventilyator, quritgich, chivin to'ri) qo'shiladi.
+    try:
+        seed_bravo_video()
+    except Exception:
+        logger.exception("Seed (video mahsulotlari) bajarilmadi")
     await dp.start_polling(
         bot,
         allowed_updates=dp.resolve_used_update_types(),

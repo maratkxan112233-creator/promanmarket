@@ -89,7 +89,8 @@ _WASHING_MACHINES = [
     ("Kir yuvish mashinasi JPE Invertor BLDC, 6-8-10 kg",
      "Avtomat kir yuvish mashinasi, BLDC invertor motor, 6/8/10 kg, kechiktirish "
      "funksiyasi va Child-Lock. Eng ko'p sotilganlardan biri.",
-     2410174, "crfbbk60t1lqb8aqt2r0"),
+     2410174, ["crfbbk60t1lqb8aqt2r0", "cp8o0f7j2e4qlbitag8g", "cp5dv7vfrr80f2gm0190",
+               "cp5e1qnj2e4ghqns36vg", "cp5e83vj2e4ghqns3880"]),
     ("Yarim avtomatik kir yuvish mashinasi Rosso R90WM, 9 kg",
      "Yarim avtomat kir yuvish mashinasi, 9 kg, ikki barabanli (yuvish + quritish), "
      "tejamkor va ishonchli.",
@@ -105,7 +106,8 @@ _WASHING_MACHINES = [
     ("Kir yuvish mashinasi QLT 6/8/10 kg",
      "Avtomat kir yuvish mashinasi, 6/8/10 kg variantlari, ko'p dasturli, "
      "tejamkor va sokin.",
-     2177010, "d6begl7qkmarvs5i1in0"),
+     2177010, ["d6begl7qkmarvs5i1in0", "d6begppe6ph7gqpjbr30", "d6begr7qkmarvs5i1irg",
+               "d4skd9btqdhua1urfve0", "d4sm33bs2ta3qj5jn1cg"]),
     ("Kir yuvish mashinasi Artel SE25 Mini, 2,5 kg, oq",
      "Mini avtomat kir yuvish mashinasi, 2,5 kg — talabalar va kichik oilalar "
      "uchun ixcham yechim.",
@@ -124,7 +126,8 @@ _WASHING_MACHINES = [
     ("HOFMANN avtomat kir yuvish mashinasi, 6 kg",
      "Avtomat kir yuvish mashinasi, 6 kg, ko'p dasturli, tejamkor va ishonchli — "
      "ommabop model.",
-     3266010, "d8al9di1146tv073465g"),
+     3266010, ["d8al9di1146tv073465g", "d8gpmva1146tv07572k0", "d8gpl8s9g1ktqmlrnab0",
+               "d8gplci1146tv0757220", "d8gplfq1146tv075723g"]),
 ]
 
 

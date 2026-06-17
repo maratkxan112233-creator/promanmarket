@@ -77,20 +77,20 @@ SELLER_INVITE_BANNER = (
 )
 
 
-def _shops_keyboard(city: str) -> InlineKeyboardMarkup:
-    sellers = get_sellers()
-    rows = []
-    for uid, s in sellers.items():
-        if s.get("city") != city:
-            continue
-        rating, cnt = get_seller_rating(int(uid))
-        stars = f"⭐{rating}" if cnt else ""
-        prods = get_seller_products(int(uid))
-        suffix = f"  {stars}" if stars else ""
-        rows.append([InlineKeyboardButton(
-            text=f"🏪 {s['shop_name']}{suffix}  ·  {len(prods)} ta mahsulot",
-            callback_data=f"shop_{uid}"
-        )])
+def _city_sellers(city: str) -> list[tuple[str, dict]]:
+    """Shu shahardagi sellerlar ro'yxati (uid, yozuv) — tartibi saqlangan holda.
+    Matn ro'yxati va tugmalar BIR XIL ketma-ketlikda bo'lishi uchun ishlatiladi."""
+    return [(uid, s) for uid, s in get_sellers().items() if s.get("city") == city]
+
+
+def _shops_keyboard(sellers: list[tuple[str, dict]]) -> InlineKeyboardMarkup:
+    # Admin panelidagidek (admin_menu_kb) — bir ustunli, toza kartochkalar.
+    # Har bir do'kon tugmasi faqat nomdan iborat; reyting/mahsulot soni
+    # yuqoridagi matn ro'yxatida ko'rsatiladi (_show_market).
+    rows = [
+        [InlineKeyboardButton(text=f"🏪 {s['shop_name']}", callback_data=f"shop_{uid}")]
+        for uid, s in sellers
+    ]
     rows.append([InlineKeyboardButton(text="📍 Shaharni o'zgartirish", callback_data="changecity")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -208,7 +208,7 @@ async def market_handler(message: Message):
 
 
 async def _show_market(message: Message, city: str):
-    sellers = [s for s in get_sellers().values() if s.get("city") == city]
+    sellers = _city_sellers(city)
     if not sellers:
         await message.answer(
             f"🛒 <b>{city}</b> shahrida hozircha do'kon yo'q.\n"
@@ -216,14 +216,24 @@ async def _show_market(message: Message, city: str):
             parse_mode="HTML", reply_markup=_city_picker()
         )
         return
+    # Reyting va mahsulot soni endi tugmada emas — bu yerda raqamlangan
+    # ro'yxatda. Tartib tugmalar bilan bir xil (ikkalasi ham `sellers` dan).
+    lines = []
+    for i, (uid, s) in enumerate(sellers, 1):
+        rating, cnt = get_seller_rating(int(uid))
+        prods = get_seller_products(int(uid))
+        meta = f"⭐{rating} · {len(prods)} ta mahsulot" if cnt else f"{len(prods)} ta mahsulot"
+        lines.append(f"{i}. 🏪 {s['shop_name']} — {meta}")
     await message.answer(
         f"{FREE_DELIVERY_BANNER}\n"
         f"{SELLER_INVITE_BANNER}\n"
         f"{divider()}\n"
         f"🛍 <b>Do'konlar</b>   📍 {city}\n"
+        + "\n".join(lines) + "\n"
+        f"{divider()}\n"
         "Bitta do'konni tanlang:",
         parse_mode="HTML",
-        reply_markup=_shops_keyboard(city)
+        reply_markup=_shops_keyboard(sellers)
     )
 
 
@@ -386,10 +396,7 @@ async def back_to_shops(call: CallbackQuery):
     if not city:
         await call.message.answer("📍 Shaharingizni tanlang:", reply_markup=_city_picker())
         return
-    await call.message.answer(
-        f"🛍 <b>Do'konlar</b>   📍 {city}\nBitta do'konni tanlang:",
-        parse_mode="HTML", reply_markup=_shops_keyboard(city)
-    )
+    await _show_market(call.message, city)
 
 
 # ─── Mahsulot detail ─────────────────────────────────────────────────────────
