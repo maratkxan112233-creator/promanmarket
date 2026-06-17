@@ -79,6 +79,21 @@ def product_emoji(p) -> str:
     return "📦"
 
 
+def product_sort_key(p) -> int:
+    """Mahsulotni toifa tartibiga soladi (do'kon ro'yxatini guruhlash uchun).
+
+    [product_emoji] bilan BIR XIL kalit so'z mantig'idan foydalanadi — shuning
+    uchun bir xil emoji'li (bir toifadagi) mahsulotlar yonma-yon keladi va
+    aralash chiqmaydi. Kalit so'z topilmasa — eng oxirga ('📦 Boshqa') tushadi.
+    """
+    name = p.get("name", "") if isinstance(p, dict) else (p or "")
+    low = str(name).lower()
+    for i, (keys, _emoji) in enumerate(_NAME_EMOJI):
+        if any(k in low for k in keys):
+            return i
+    return len(_NAME_EMOJI)
+
+
 def money(value) -> str:
     """Narxni bir xil ko'rinishda formatlash: 150 000 so'm (probel bilan).
 

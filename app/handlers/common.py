@@ -25,7 +25,7 @@ from app.states.seller_application import SearchState, OrderState
 from app.app.config.settings import settings
 from app.ui import (
     money, divider, title, category_label, product_category,
-    product_emoji,
+    product_emoji, product_sort_key,
 )
 
 router = Router()
@@ -288,6 +288,11 @@ def _shop_menu_chunks(seller_id: int):
                 [InlineKeyboardButton(text="‹  Do'konlarga qaytish", callback_data="back_shops")]
             ])]
         )
+
+    # Mahsulotlarni TOIFA bo'yicha guruhlaymiz — aralash chiqmasligi uchun
+    # (masalan konditsionerlar ketma-ket, kir yuvishlar ketma-ket). Toifa ichida
+    # nom bo'yicha tartiblanadi. (qo'shilgan tartib emas — xaridor zerikmaydi.)
+    products = sorted(products, key=lambda p: (product_sort_key(p), str(p.get("name", "")).lower()))
 
     total = len(products)
     rows = []
