@@ -9,7 +9,6 @@ from app.seed_cars import seed_cars
 from app.seed_conditioners import seed_conditioners
 from app.seed_strollers import seed_strollers
 from app.seed_bravo_video import seed_bravo_video
-from app.seed_fix_photos import fix_photos
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -50,12 +49,6 @@ async def main():
         seed_bravo_video()
     except Exception:
         logger.exception("Seed (video mahsulotlari) bajarilmadi")
-    # Yomon (Telegram) rasmli mahsulotlarni Uzum rasmlariga almashtiradi.
-    # /restore zip o'rniga — GitHub'ga yuklash kifoya.
-    try:
-        fix_photos()
-    except Exception:
-        logger.exception("Rasm tuzatish bajarilmadi")
     await dp.start_polling(
         bot,
         allowed_updates=dp.resolve_used_update_types(),

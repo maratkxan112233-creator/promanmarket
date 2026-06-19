@@ -1,43 +1,41 @@
-# Man Market
+# Proman Market
 
-Telegram Marketplace Bot
+Telegram Marketplace Bot — ko'p sotuvchili (multi-seller) bozor.
 
-## Features
+## Imkoniyatlar
 
-- Multi Seller Marketplace
-- Seller Verification (FSM based application flow)
-- Shopping Cart
-- Order Management
-- Receipt Verification
-- Admin Panel
-- Reports
-- AI Search
-- Recommendation System
+- Ko'p sotuvchili bozor (har shahar bo'yicha do'konlar)
+- Sotuvchi arizasi (FSM oqimi) va admin tasdig'i
+- Mahsulot katalogi, qidiruv, ❤️ istaklar
+- Buyurtma berish + 10% oldi-to'lov (platforma komissiyasi)
+- To'lov chekini admin tasdiqlashi
+- Kurier tizimi (yetkazib berish — shu bugunoq)
+- Xaridor ma'lumotlari sotuvchidan yashirin (faqat kurierga ochiladi)
+- Admin panel: sotuvchilar, buyurtmalar, kurierlar, hisobotlar (Excel/Word), audit jurnali
 
-## Stack
+## Texnologiyalar
 
-- Python 3.12
-- Aiogram 3.4.1
-- PostgreSQL + asyncpg
-- SQLAlchemy 2.0 (async)
-- Redis
-- Railway (deployment)
+- Python 3.11
+- aiogram 3.7
+- Ma'lumotlar: JSON fayllar (`data/` papkada) — `app/storage.py`
+- Deploy: Docker / Railway
 
-## Setup
+## Sozlash
 
-1. Clone the repo
-2. Copy `.env.example` to `.env` and fill in your values:
+1. Reponi clone qiling
+2. `.env.example` faylidan `.env` yarating va qiymatlarni to'ldiring:
    ```
-   BOT_TOKEN=your_telegram_bot_token
-   DATABASE_URL=postgresql+asyncpg://user:password@host:5432/man_market
-   REDIS_URL=redis://localhost:6379
-   OWNER_ID=your_telegram_user_id
+   BOT_TOKEN=telegram_bot_tokeningiz
+   OWNER_ID=telegram_id_raqamingiz
+   ADMIN_USERNAME=admin_username
+   PLATFORM_CARD=karta_raqami
+   COMMISSION_RATE=0.10
    ```
-3. Install dependencies:
+3. Kutubxonalarni o'rnating:
    ```bash
    pip install -r requirements.txt
    ```
-4. Run the bot:
+4. Botni ishga tushiring:
    ```bash
    python -m app.main
    ```
@@ -45,32 +43,45 @@ Telegram Marketplace Bot
 ## Docker
 
 ```bash
-docker build -t man-market .
-docker run --env-file .env man-market
+docker build -t proman-market .
+docker run --env-file .env -v proman_data:/app/data proman-market
 ```
 
-## Project Structure
+## ⚠️ Muhim — ma'lumotlarni saqlash (Railway / Docker)
+
+Bot barcha ma'lumotni (sotuvchilar, buyurtmalar, mahsulotlar) `data/` papkasidagi
+JSON fayllarga yozadi. Bu papka **doimiy diskka (persistent volume) ulanmasa**,
+har deploy / qayta ishga tushirishda **o'chib ketadi**.
+
+- **Railway:** loyihaga **Volume** qo'shing va uni `/app/data` ga ulang.
+- **Docker:** `-v proman_data:/app/data` bilan ishga tushiring (yuqoridagidek).
+
+Aks holda yangilanish qilganingizda barcha buyurtma va do'konlar yo'qoladi.
+
+## Loyiha tuzilishi
 
 ```
 app/
-├── main.py                  # Entry point (bot polling)
+├── main.py                  # Kirish nuqtasi (bot polling) + seed
 ├── storage.py               # JSON fayl asosidagi ma'lumotlar saqlovchi
 ├── album.py                 # Albom (media group) rasmlarini yig'uvchi
+├── ui.py                    # Matn/format yordamchilari
+├── seed_*.py                # Do'konlarga boshlang'ich mahsulot qo'shuvchilar
 ├── bot/
 │   ├── bot.py               # Bot instance
-│   └── dispatcher.py        # Dispatcher + routers
+│   └── dispatcher.py        # Dispatcher + routerlar + menyu middleware
 ├── handlers/
-│   ├── start.py             # /start command
-│   ├── common.py            # Bozor, qidiruv, zakaz oqimi, profil
+│   ├── start.py             # /start komandasi
+│   ├── common.py            # Bozor, qidiruv, buyurtma oqimi, profil
 │   ├── admin.py             # Admin panel
-│   ├── seller_panel.py      # Seller panel
+│   ├── seller_panel.py      # Sotuvchi paneli
 │   └── seller/
-│       └── application.py   # Seller application FSM
+│       └── application.py   # Sotuvchi arizasi (FSM)
 ├── keyboards/
-│   └── seller.py            # All keyboards
+│   └── seller.py            # Klaviaturalar
 ├── states/
-│   └── seller_application.py # FSM states
+│   └── seller_application.py # FSM holatlari
 └── app/
     └── config/
-        └── settings.py      # Pydantic settings (.env)
+        └── settings.py      # Pydantic sozlamalar (.env)
 ```

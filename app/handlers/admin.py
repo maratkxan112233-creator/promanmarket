@@ -167,6 +167,8 @@ class AdminEditShop(StatesGroup):
 class AdminEditProduct(StatesGroup):
     waiting_field = State()
     waiting_value = State()
+    waiting_photo = State()
+    waiting_video = State()
 
 
 # ─── Menus ───────────────────────────────────────────────────────────────────
@@ -646,39 +648,81 @@ async def admin_restart_menu_confirm(call: CallbackQuery):
     if not targets:
         await call.answer("Foydalanuvchilar yo'q.", show_alert=True); return
     await call.message.answer(
-        f"🔄 <b>Restart</b>\n\n"
-        f"<b>{len(targets)}</b> ta foydalanuvchining har biriga yangi menyu "
-        f"yuboriladi (xuddi /start bosgandek).\n\n"
-        f"Tasdiqlaysizmi?",
+        f"🔄 <b>Restart — tarixni tozalash</b>\n\n"
+        f"Bu amal <b>{len(targets)}</b> ta foydalanuvchi uchun bajariladi:\n"
+        f"🧹 Barcha <b>buyurtmalar</b>, <b>sharhlar (reytinglar)</b> va "
+        f"<b>xaridor profillari</b> o'chiriladi — bot bo'sh holatga qaytadi.\n"
+        f"❤️ <b>Istaklar (sevimlilar) saqlanadi.</b>\n"
+        f"🏪 Do'konlar va mahsulotlar saqlanadi.\n"
+        f"👋 Har bir foydalanuvchiga avtomatik yangi /start ekrani yuboriladi.\n\n"
+        f"⚠️ <b>Bu amalni ortga qaytarib bo'lmaydi.</b> Tasdiqlaysizmi?",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="✅ Ha, hammaga yuborish", callback_data="admin_restart_go")],
+            [InlineKeyboardButton(text="✅ Ha, tozalab yuborish", callback_data="admin_restart_go")],
             [InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_back")],
         ])
     )
     await _ack(call)
 
 
+async def _send_start_screen(bot, uid: int):
+    """Foydalanuvchiga /start ekranini yuboradi (restartdan keyin avtomatik).
+    Seller bo'lsa — seller menyusi; xaridor bo'lsa — salomlashish + "Seller
+    bo'lish" tugmasi + pastki menyu (xuddi /start bosgandek)."""
+    from app.handlers.common import FREE_DELIVERY_BANNER, SELLER_INVITE_BANNER
+    from app.keyboards.seller import menu_for, seller_main_menu
+    from app.storage import is_shop_member
+    if is_shop_member(uid):
+        await bot.send_message(
+            uid, "🔄 Bot yangilandi. Quyidagi menyudan foydalaning:",
+            reply_markup=seller_main_menu,
+        )
+    else:
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🏪 Seller bo'lish", callback_data="become_seller")],
+            [InlineKeyboardButton(text="💬 Adminga yozish",
+                                  url=f"https://t.me/{settings.ADMIN_USERNAME}")],
+        ])
+        await bot.send_message(
+            uid,
+            "👋 Salom!\n<b>Proman Market</b> botiga xush kelibsiz!\n\n"
+            f"{FREE_DELIVERY_BANNER}\n{SELLER_INVITE_BANNER}",
+            parse_mode="HTML", reply_markup=kb,
+        )
+        await bot.send_message(
+            uid, "👇 Yoki quyidagi menyudan tanlang:", reply_markup=menu_for(uid),
+        )
+    set_user_field(uid, "menu_ver", MENU_VERSION)
+
+
 @router.callback_query(F.data == "admin_restart_go")
 async def admin_restart_menu_go(call: CallbackQuery):
     if not is_owner(call.from_user.id): return
     await _ack(call)
-    targets = sorted(set(get_users().keys()) | set(get_sellers().keys()))
-    status = await call.message.answer(f"🔄 Yuborilmoqda...  0/{len(targets)}")
     from app.bot.bot import bot
+    from app.storage import reset_buyer_data, pop_all_view_msgs
+
+    # 1) Foydalanuvchilar ro'yxatini TOZALASHDAN OLDIN yig'ib olamiz
+    #    (reset_buyer_data users.json'ni bo'shatadi — keyin ro'yxat yo'qoladi).
+    targets = sorted(set(get_users().keys()) | set(get_sellers().keys()))
+    status = await call.message.answer(f"🔄 Tozalanmoqda...  0/{len(targets)}")
+
+    # 2) Chatlardagi ko'rsatilgan mahsulot kartochkalarini o'chiramiz
+    #    ("ko'rgan narsalari" — chat imkon qadar tozalanadi).
+    for chat_id, ids in pop_all_view_msgs().items():
+        await asyncio.gather(
+            *(bot.delete_message(chat_id, mid) for mid in ids),
+            return_exceptions=True,
+        )
+
+    # 3) Xaridor tarixini tozalaymiz (istaklar/do'konlar/mahsulotlar saqlanadi)
+    counts = reset_buyer_data()
+
+    # 4) Har bir foydalanuvchiga avtomatik yangi /start ekrani yuboramiz
     sent, failed = 0, 0
     for i, uid in enumerate(targets, 1):
         try:
-            # MUHIM: reply-klaviatura uni olib kelgan xabarga bog'langan bo'ladi.
-            # Agar xabarni o'chirsak, klaviatura ham yo'qoladi (xaridorlarda panel
-            # ko'rinmay qolardi). Shuning uchun xabarni O'CHIRMAYMIZ — qisqa,
-            # foydali matn bilan qoldiramiz va klaviatura barqaror turadi.
-            await bot.send_message(
-                int(uid),
-                "🖐🏻🖐🏻 Eson-omonmisiz, men uchun qadrdon inson.",
-                reply_markup=menu_for(int(uid)),
-            )
-            set_user_field(int(uid), "menu_ver", MENU_VERSION)
+            await _send_start_screen(bot, int(uid))
             sent += 1
         except Exception:
             failed += 1
@@ -686,14 +730,19 @@ async def admin_restart_menu_go(call: CallbackQuery):
         await asyncio.sleep(0.1)
         if i % 25 == 0:
             try:
-                await status.edit_text(f"🔄 Yuborilmoqda...  {i}/{len(targets)}")
+                await status.edit_text(f"🔄 Tozalanmoqda...  {i}/{len(targets)}")
             except Exception:
                 pass
-    _log(call.from_user, "Restart: hammaga yangi menyu",
-         f"yetdi: {sent}, yetmadi: {failed}")
+
+    _log(call.from_user, "Restart: tarix tozalandi + start",
+         f"buyurtma:{counts['orders']}, sharh:{counts['reviews']}, "
+         f"profil:{counts['users']}; yetdi:{sent}, yetmadi:{failed}")
     result = (
         f"🔄 <b>Restart yakunlandi!</b>\n"
-        f"✅ Yangi menyu yetib bordi: <b>{sent}</b> ta\n"
+        f"🧹 O'chirildi: <b>{counts['orders']}</b> buyurtma, "
+        f"<b>{counts['reviews']}</b> sharh, <b>{counts['users']}</b> profil\n"
+        f"❤️ Istaklar saqlandi.\n"
+        f"✅ Yangi start yetib bordi: <b>{sent}</b> ta\n"
     )
     if failed:
         result += (
@@ -894,18 +943,24 @@ async def admin_products_page(call: CallbackQuery):
 def _admin_product_card(p: dict, pid: int):
     """Admin uchun mahsulot kartochkasi matni va tugmalari."""
     colors_line = f"\n🎨 Ranglar: {', '.join(p['colors'])}" if p.get("colors") else ""
+    photo_line = f"\n🖼 Rasm: {len(product_photos(p))} ta"
+    video_line = "\n🎬 Video: bor" if p.get("video") else "\n🎬 Video: yo'q"
     text = (
         f"📦 <b>{p['name']}</b>\n"
         f"🏪 {p.get('shop_name','—')}\n"
         f"📝 {p.get('description','—')}\n"
         f"💰 {p['price']:,} so'm"
         f"{colors_line}"
+        f"{photo_line}{video_line}"
     )
+    vid_btn = "🎬 Videoni o'zgartirish" if p.get("video") else "🎬 Video qo'shish"
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✏️ Nomini o'zgartirish",    callback_data=f"eprod_name_{pid}")],
         [InlineKeyboardButton(text="✏️ Narxini o'zgartirish",   callback_data=f"eprod_price_{pid}")],
         [InlineKeyboardButton(text="✏️ Tavsifini o'zgartirish", callback_data=f"eprod_desc_{pid}")],
         [InlineKeyboardButton(text="🎨 Ranglarini o'zgartirish", callback_data=f"eprod_colors_{pid}")],
+        [InlineKeyboardButton(text="🖼 Rasmlarni o'zgartirish",  callback_data=f"admphoto_{pid}")],
+        [InlineKeyboardButton(text=vid_btn,                      callback_data=f"admvideo_{pid}")],
         [InlineKeyboardButton(text="🗑 O'chirish",               callback_data=f"dprod_{pid}")],
         [InlineKeyboardButton(text="🔙 Orqaga",                  callback_data="admin_products")],
     ])
@@ -985,6 +1040,143 @@ async def edit_product_save(message: Message, state: FSMContext):
     # Yangilangan mahsulotni rasm bilan qayta ko'rsatamiz.
     if p:
         await _admin_send_product(message, p, pid)
+
+
+# ─── Admin: mahsulot RASMLARINI o'zgartirish ─────────────────────────────────
+def _admphoto_save_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Saqlash", callback_data="admphoto_save")],
+        [InlineKeyboardButton(text="❌ Bekor qilish", callback_data="admphoto_cancel")],
+    ])
+
+
+@router.callback_query(F.data.startswith("admphoto_") & ~F.data.in_({"admphoto_save", "admphoto_cancel"}))
+async def admin_edit_photo_start(call: CallbackQuery, state: FSMContext):
+    if not is_owner(call.from_user.id): return
+    pid = int(call.data.split("_")[1])
+    await state.set_state(AdminEditProduct.waiting_photo)
+    await state.update_data(pid=pid, new_photos=[])
+    await call.message.answer(
+        "🖼 Yangi rasm(lar)ni yuboring — albom qilib yoki bittalab.\n"
+        "Tugagach «✅ Saqlash» tugmasini bosing.\n"
+        "⚠️ Eski rasmlar yangilari bilan to'liq almashtiriladi."
+    )
+    await call.answer()
+
+
+@router.message(AdminEditProduct.waiting_photo, F.media_group_id, F.photo)
+async def admin_edit_photo_album(message: Message, state: FSMContext):
+    key = (message.from_user.id, message.media_group_id)
+
+    async def done(photos):
+        d = await state.get_data()
+        allp = (d.get("new_photos") or []) + photos
+        await state.update_data(new_photos=allp)
+        await message.answer(f"✅ {len(allp)} ta rasm qabul qilindi.", reply_markup=_admphoto_save_kb())
+
+    collect(key, message.photo[-1].file_id, 1.5, done)
+
+
+@router.message(AdminEditProduct.waiting_photo, F.photo)
+async def admin_edit_photo_single(message: Message, state: FSMContext):
+    data = await state.get_data()
+    allp = (data.get("new_photos") or []) + [message.photo[-1].file_id]
+    await state.update_data(new_photos=allp)
+    await message.answer(f"✅ {len(allp)} ta rasm qabul qilindi.", reply_markup=_admphoto_save_kb())
+
+
+@router.message(AdminEditProduct.waiting_photo)
+async def admin_edit_photo_other(message: Message, state: FSMContext):
+    if (message.text or "").strip() in ("/cancel", "❌ Bekor qilish"):
+        await state.clear()
+        await message.answer("Bekor qilindi.")
+        return
+    await message.answer("🖼 Iltimos, rasm yuboring (yoki «✅ Saqlash» / /cancel).")
+
+
+@router.callback_query(AdminEditProduct.waiting_photo, F.data == "admphoto_save")
+async def admin_edit_photo_save(call: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    pid = data.get("pid")
+    photos = data.get("new_photos") or []
+    if not photos:
+        await call.answer("Avval kamida 1 ta rasm yuboring.", show_alert=True); return
+    update_product(pid, {"photos": photos})
+    _log(call.from_user, "Mahsulot rasmlari o'zgartirildi", f"ID:{pid}, {len(photos)} ta rasm")
+    await state.clear()
+    await call.answer("✅ Rasmlar saqlandi")
+    p = get_product_by_id(pid)
+    if p:
+        await _admin_send_product(call.message, p, pid)
+
+
+@router.callback_query(AdminEditProduct.waiting_photo, F.data == "admphoto_cancel")
+async def admin_edit_photo_cancel(call: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    pid = data.get("pid")
+    await state.clear()
+    await call.answer("Bekor qilindi")
+    p = get_product_by_id(pid)
+    if p:
+        await _admin_send_product(call.message, p, pid)
+
+
+# ─── Admin: mahsulot VIDEOSINI o'zgartirish ──────────────────────────────────
+@router.callback_query(F.data.startswith("admvideo_") & ~F.data.in_({"admvideo_del"}))
+async def admin_edit_video_start(call: CallbackQuery, state: FSMContext):
+    if not is_owner(call.from_user.id): return
+    pid = int(call.data.split("_")[1])
+    p = get_product_by_id(pid)
+    await state.set_state(AdminEditProduct.waiting_video)
+    await state.update_data(pid=pid)
+    kb = None
+    if p and p.get("video"):
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🗑 Videoni o'chirish", callback_data="admvideo_del")],
+        ])
+    await call.message.answer(
+        "🎬 Qisqa videoni yuboring (mahsulot kartochkasida ko'rinadi).\n"
+        "Bekor qilish: /cancel",
+        reply_markup=kb,
+    )
+    await call.answer()
+
+
+@router.message(AdminEditProduct.waiting_video, F.video)
+async def admin_edit_video_save(message: Message, state: FSMContext):
+    if not is_owner(message.from_user.id):
+        await state.clear(); return
+    data = await state.get_data()
+    pid = data.get("pid")
+    update_product(pid, {"video": message.video.file_id})
+    _log(message.from_user, "Mahsulot videosi o'zgartirildi", f"ID:{pid}")
+    await state.clear()
+    await message.answer("✅ Video saqlandi!")
+    p = get_product_by_id(pid)
+    if p:
+        await _admin_send_product(message, p, pid)
+
+
+@router.callback_query(AdminEditProduct.waiting_video, F.data == "admvideo_del")
+async def admin_edit_video_del(call: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    pid = data.get("pid")
+    update_product(pid, {"video": None})
+    _log(call.from_user, "Mahsulot videosi o'chirildi", f"ID:{pid}")
+    await state.clear()
+    await call.answer("🗑 Video o'chirildi")
+    p = get_product_by_id(pid)
+    if p:
+        await _admin_send_product(call.message, p, pid)
+
+
+@router.message(AdminEditProduct.waiting_video)
+async def admin_edit_video_other(message: Message, state: FSMContext):
+    if (message.text or "").strip() in ("/cancel", "❌ Bekor qilish"):
+        await state.clear()
+        await message.answer("Bekor qilindi.")
+        return
+    await message.answer("🎬 Iltimos, video yuboring (yoki /cancel).")
 
 
 @router.callback_query(F.data.startswith("dprod_"))

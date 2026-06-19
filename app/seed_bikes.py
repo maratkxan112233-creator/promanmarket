@@ -308,10 +308,11 @@ def seed_products(products, finder, label: str) -> int:
         photos = _photos_from(img_ids)
         ex = by_name.get(name.strip().lower())
         if ex is not None:
-            # Mavjud mahsulot — faqat rasmlari farq qilsa yangilaymiz.
-            if photos and ex.get("photos") != photos:
-                ex["photos"] = photos
-                updated += 1
+            # Mavjud mahsulotga TEGMAYMIZ — rasm/ma'lumotini qayta yozmaymiz.
+            # (Avval mavjud mahsulot rasmlari farq qilsa ustiga yozilardi; shu
+            # sabab admin/seller qo'lda o'zgartirgan yoki /restore bilan tiklangan
+            # asl rasmlar har restartda Uzum rasmiga qaytib ketardi. Endi seed
+            # faqat YANGI mahsulot qo'shadi, mavjudini o'zgartirmaydi.)
             continue
         next_id += 1
         new_p = {

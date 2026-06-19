@@ -1,7 +1,12 @@
-
 .env
 __pycache__/
 *.pyc
 .venv/
 .idea/
 .vscode/
+
+# Scratch / vaqtinchalik ishchi fayllar (git'ga tushmasin)
+_inspect/
+
+# Bot ma'lumotlari (lokal) — serverda doimiy disk/volume'da saqlanadi
+data/

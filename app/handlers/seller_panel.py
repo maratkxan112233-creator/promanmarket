@@ -49,10 +49,13 @@ class AddProductState(StatesGroup):
     price       = State()
     photo       = State()
     colors      = State()
+    video       = State()   # ixtiyoriy qisqa video (yoki /skip)
     preview     = State()   # saqlashdan oldin ko'rib chiqish/tasdiq
 
 class EditProductState(StatesGroup):
     waiting_value = State()
+    waiting_photo = State()
+    waiting_video = State()
 
 
 class EditCardState(StatesGroup):
@@ -195,17 +198,22 @@ async def seller_product_detail(call: CallbackQuery):
     await _ack(call)
     finished = bool(p.get("is_finished"))
     status_line = "❌ Tugagan" if finished else "✅ Sotuvda"
+    video_line = "\n🎬 Video: bor" if p.get("video") else ""
     text = (
         f"📦 <b>{p['name']}</b>\n"
         f"📝 {p.get('description','—')}\n"
         f"💰 {p['price']:,} so'm\n"
         f"📌 Holati: {status_line}"
+        f"{video_line}"
     )
     toggle_text = "✅ Bor deb belgilash" if finished else "❌ Tugadi deb belgilash"
+    vid_btn = "🎬 Videoni o'zgartirish" if p.get("video") else "🎬 Video qo'shish"
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✏️ Nomini o'zgartirish",  callback_data=f"seprod_name_{pid}")],
         [InlineKeyboardButton(text="✏️ Narxini o'zgartirish", callback_data=f"seprod_price_{pid}")],
         [InlineKeyboardButton(text="✏️ Tavsifini o'zgartirish", callback_data=f"seprod_desc_{pid}")],
+        [InlineKeyboardButton(text="🖼 Rasmlarni o'zgartirish", callback_data=f"sphoto_{pid}")],
+        [InlineKeyboardButton(text=vid_btn,                     callback_data=f"svideo_{pid}")],
         [InlineKeyboardButton(text=toggle_text,                callback_data=f"pfin_{pid}")],
         [InlineKeyboardButton(text="🗑 O'chirish",             callback_data=f"del_product_{pid}")],
         [InlineKeyboardButton(text="🔙 Orqaga",                callback_data="seller_products")],
@@ -249,6 +257,154 @@ async def seller_edit_product_save(message: Message, state: FSMContext):
     update_product(pid, {mapping[field]: value})
     await state.clear()
     await message.answer("✅ Mahsulot yangilandi!", reply_markup=seller_menu_kb(message.from_user.id))
+
+
+# ─── Seller: mahsulot RASMLARINI o'zgartirish ────────────────────────────────
+def _sphoto_save_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Saqlash", callback_data="sphoto_save")],
+        [InlineKeyboardButton(text="❌ Bekor qilish", callback_data="sphoto_cancel")],
+    ])
+
+
+def _own_product(user_id: int, pid: int):
+    """Mahsulotni egasi (yoki yordamchisi) ekanini tekshirib qaytaradi."""
+    from app.storage import get_product_by_id
+    p = get_product_by_id(pid)
+    if not p or p["seller_id"] != get_owner_id(user_id):
+        return None
+    return p
+
+
+@router.callback_query(F.data.startswith("sphoto_") & ~F.data.in_({"sphoto_save", "sphoto_cancel"}))
+async def seller_edit_photo_start(call: CallbackQuery, state: FSMContext):
+    pid = int(call.data.split("_")[1])
+    if not _own_product(call.from_user.id, pid):
+        await call.answer("Topilmadi."); return
+    await _ack(call)
+    await state.set_state(EditProductState.waiting_photo)
+    await state.update_data(pid=pid, new_photos=[])
+    await call.message.answer(
+        "🖼 Yangi rasm(lar)ni yuboring — albom qilib yoki bittalab.\n"
+        "Tugagach «✅ Saqlash» tugmasini bosing.\n"
+        "⚠️ Eski rasmlar yangilari bilan to'liq almashtiriladi."
+    )
+
+
+@router.message(EditProductState.waiting_photo, F.media_group_id, F.photo)
+async def seller_edit_photo_album(message: Message, state: FSMContext):
+    key = (message.from_user.id, message.media_group_id)
+
+    async def done(photos):
+        d = await state.get_data()
+        allp = (d.get("new_photos") or []) + photos
+        await state.update_data(new_photos=allp)
+        await message.answer(f"✅ {len(allp)} ta rasm qabul qilindi.", reply_markup=_sphoto_save_kb())
+
+    collect(key, message.photo[-1].file_id, 1.5, done)
+
+
+@router.message(EditProductState.waiting_photo, F.photo)
+async def seller_edit_photo_single(message: Message, state: FSMContext):
+    data = await state.get_data()
+    allp = (data.get("new_photos") or []) + [message.photo[-1].file_id]
+    await state.update_data(new_photos=allp)
+    await message.answer(f"✅ {len(allp)} ta rasm qabul qilindi.", reply_markup=_sphoto_save_kb())
+
+
+@router.message(EditProductState.waiting_photo)
+async def seller_edit_photo_other(message: Message, state: FSMContext):
+    if (message.text or "").strip() in ("/cancel", "❌ Bekor qilish"):
+        await state.clear()
+        await message.answer("Bekor qilindi.", reply_markup=seller_main_menu)
+        return
+    await message.answer("🖼 Iltimos, rasm yuboring (yoki «✅ Saqlash» / /cancel).")
+
+
+@router.callback_query(EditProductState.waiting_photo, F.data == "sphoto_save")
+async def seller_edit_photo_save(call: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    pid = data.get("pid")
+    photos = data.get("new_photos") or []
+    if not photos:
+        await call.answer("Avval kamida 1 ta rasm yuboring.", show_alert=True); return
+    if not _own_product(call.from_user.id, pid):
+        await state.clear(); await call.answer("Ruxsat yo'q."); return
+    update_product(pid, {"photos": photos})
+    await state.clear()
+    await call.answer("✅ Rasmlar saqlandi")
+    await call.message.answer(
+        f"✅ Rasmlar yangilandi! ({len(photos)} ta)",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📦 Mahsulotni ko'rish", callback_data=f"sprod_{pid}")],
+            [InlineKeyboardButton(text="📦 Mahsulotlarim", callback_data="seller_products")],
+        ])
+    )
+
+
+@router.callback_query(EditProductState.waiting_photo, F.data == "sphoto_cancel")
+async def seller_edit_photo_cancel(call: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await call.answer("Bekor qilindi")
+    await call.message.answer("❌ Rasm o'zgartirish bekor qilindi.", reply_markup=seller_main_menu)
+
+
+# ─── Seller: mahsulot VIDEOSINI o'zgartirish ─────────────────────────────────
+@router.callback_query(F.data.startswith("svideo_") & ~F.data.in_({"svideo_del"}))
+async def seller_edit_video_start(call: CallbackQuery, state: FSMContext):
+    pid = int(call.data.split("_")[1])
+    p = _own_product(call.from_user.id, pid)
+    if not p:
+        await call.answer("Topilmadi."); return
+    await _ack(call)
+    await state.set_state(EditProductState.waiting_video)
+    await state.update_data(pid=pid)
+    kb = None
+    if p.get("video"):
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🗑 Videoni o'chirish", callback_data="svideo_del")],
+        ])
+    await call.message.answer(
+        "🎬 Qisqa videoni yuboring (mahsulot kartochkasida ko'rinadi).\n"
+        "Bekor qilish: /cancel",
+        reply_markup=kb,
+    )
+
+
+@router.message(EditProductState.waiting_video, F.video)
+async def seller_edit_video_save(message: Message, state: FSMContext):
+    data = await state.get_data()
+    pid = data.get("pid")
+    if not _own_product(message.from_user.id, pid):
+        await state.clear(); await message.answer("Ruxsat yo'q."); return
+    update_product(pid, {"video": message.video.file_id})
+    await state.clear()
+    await message.answer(
+        "✅ Video saqlandi!",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📦 Mahsulotni ko'rish", callback_data=f"sprod_{pid}")],
+            [InlineKeyboardButton(text="📦 Mahsulotlarim", callback_data="seller_products")],
+        ])
+    )
+
+
+@router.callback_query(EditProductState.waiting_video, F.data == "svideo_del")
+async def seller_edit_video_del(call: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    pid = data.get("pid")
+    update_product(pid, {"video": None})
+    await state.clear()
+    await call.answer("🗑 Video o'chirildi")
+    await call.message.answer("🗑 Video o'chirildi.", reply_markup=seller_main_menu)
+
+
+@router.message(EditProductState.waiting_video)
+async def seller_edit_video_other(message: Message, state: FSMContext):
+    if (message.text or "").strip() in ("/cancel", "❌ Bekor qilish"):
+        await state.clear()
+        await message.answer("Bekor qilindi.", reply_markup=seller_main_menu)
+        return
+    await message.answer("🎬 Iltimos, video yuboring (yoki /cancel).")
 
 
 @router.callback_query(F.data.startswith("del_product_"))
@@ -298,7 +454,7 @@ ADD_PRODUCT_STATES = StateFilter(
     AddProductState.name, AddProductState.description,
     AddProductState.price,
     AddProductState.photo, AddProductState.colors,
-    AddProductState.preview,
+    AddProductState.video, AddProductState.preview,
 )
 
 # Rasm bosqichi uchun matn (bir necha joyda ishlatiladi)
@@ -374,6 +530,7 @@ def _build_product(user_id: int, data: dict, photos: list) -> dict:
         "old_price":   data.get("old_price"),
         "photos":      photos,
         "colors":      data.get("colors", []),
+        "video":       data.get("video"),
     }
 
 
@@ -430,7 +587,7 @@ async def product_photo_wrong(message: Message, state: FSMContext):
 @router.message(AddProductState.colors, F.text == "/skip")
 async def product_colors_skip(message: Message, state: FSMContext):
     await state.update_data(colors=[])
-    await _show_preview(message, state)
+    await _ask_video(message, state)
 
 
 @router.message(AddProductState.colors, F.text)
@@ -440,7 +597,33 @@ async def product_colors_enter(message: Message, state: FSMContext):
         await message.answer("❌ Ranglarni vergul bilan ajratib yozing yoki /skip yozing:")
         return
     await state.update_data(colors=colors)
+    await _ask_video(message, state)
+
+
+# ─── Qisqa video (ixtiyoriy) ─────────────────────────────────────────────────
+async def _ask_video(message: Message, state: FSMContext):
+    await state.set_state(AddProductState.video)
+    await message.answer(
+        "🎬 Mahsulot uchun qisqa video yuboring (mahsulot kartochkasida ko'rinadi),\n"
+        "yoki video kerak bo'lmasa /skip yozing."
+    )
+
+
+@router.message(AddProductState.video, F.text == "/skip")
+async def product_video_skip(message: Message, state: FSMContext):
+    await state.update_data(video=None)
     await _show_preview(message, state)
+
+
+@router.message(AddProductState.video, F.video)
+async def product_video_add(message: Message, state: FSMContext):
+    await state.update_data(video=message.video.file_id)
+    await _show_preview(message, state)
+
+
+@router.message(AddProductState.video)
+async def product_video_wrong(message: Message, state: FSMContext):
+    await message.answer("🎬 Video yuboring yoki /skip yozing:")
 
 
 # ─── Saqlashdan oldin ko'rib chiqish (preview) ───────────────────────────────
@@ -456,6 +639,7 @@ def _preview_text(data: dict) -> str:
         lines.append(f"\n🎨 Ranglar: {', '.join(colors)}")
     photos = data.get("pending_photos") or []
     lines.append(f"\n🖼 {len(photos)} ta rasm" if photos else "\n🖼 Rasmsiz")
+    lines.append("🎬 Video: bor" if data.get("video") else "🎬 Video: yo'q")
     return "\n".join(lines)
 
 

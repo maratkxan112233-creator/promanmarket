@@ -12,7 +12,7 @@ from app.storage import (
     get_sellers, get_seller_rating, get_buyer_orders, get_order_by_id,
     search_products, register_user, get_product_by_id,
     save_order, update_order_fields,
-    get_user, set_user_field, get_cities, product_photos,
+    get_user, set_user_field, get_cities, product_photos, product_video,
     set_view_msgs, pop_view_msgs, get_view_msgs,
     get_favorites, is_favorite, toggle_favorite,
     is_shop_member, get_shop_seller, get_owner_id, shop_notify_ids,
@@ -543,6 +543,15 @@ async def product_detail(call: CallbackQuery):
     else:
         sent = await call.message.answer(text, parse_mode="HTML", reply_markup=kb)
         ids.append(sent.message_id)
+
+    # Qisqa video (bo'lsa) — rasmlardan keyin alohida yuboriladi.
+    video = product_video(p)
+    if video:
+        try:
+            vmsg = await call.message.answer_video(video, caption=f"🎬 {p.get('name','')}")
+            ids.append(vmsg.message_id)
+        except Exception:
+            pass
 
     set_view_msgs(chat_id, ids)
 

@@ -335,6 +335,13 @@ def product_photos(p: dict) -> list:
     one = p.get("photo")
     return [one] if one else []
 
+def product_video(p: dict) -> str | None:
+    """Mahsulotning qisqa video file_id'si (bo'lsa). Yo'q bo'lsa None."""
+    if not p:
+        return None
+    v = p.get("video")
+    return v if v else None
+
 def add_product(product: dict):
     products = get_all_products()
     product["id"] = (max((p["id"] for p in products), default=0) + 1)
@@ -551,3 +558,31 @@ def set_view_msgs(chat_id: int, ids: list):
 
 def pop_view_msgs(chat_id: int) -> list:
     return _VIEW_MSGS.pop(chat_id, [])
+
+def pop_all_view_msgs() -> dict:
+    """Barcha chatlardagi ko'rsatilgan mahsulot xabar id'larini qaytaradi va
+    xotirani tozalaydi. Restart paytida chatlarni tozalashda (ko'rilgan mahsulot
+    kartochkalarini o'chirishda) ishlatiladi."""
+    data = dict(_VIEW_MSGS)
+    _VIEW_MSGS.clear()
+    return data
+
+
+# ─── Restart: xaridor tarixini tozalash ──────────────────────────────────────
+def reset_buyer_data() -> dict:
+    """Admin "Restart" bosganda chaqiriladi: xaridorlarning buyurtma, sharh
+    (reyting) va profil tarixini to'liq tozalaydi — bot "bo'sh" holatga qaytadi.
+
+    SAQLANADI: ❤️ istaklar (favorites), do'konlar (sellers), mahsulotlar
+    (products), adminlar, kurierlar, shaharlar. O'chirilgan yozuvlar sonini
+    qaytaradi (hisobot uchun)."""
+    counts = {
+        "orders":  len(get_orders()),
+        "reviews": len(get_reviews()),
+        "users":   len(get_users()),
+    }
+    _write(ORDERS_FILE, [])
+    _write(REVIEWS_FILE, [])
+    _write(USERS_FILE, {})
+    _VIEW_MSGS.clear()
+    return counts
