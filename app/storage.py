@@ -203,16 +203,6 @@ def set_user_field(user_id: int, field: str, value):
     users[str(user_id)] = u
     _write(USERS_FILE, users)
 
-def get_lang(user_id: int) -> str:
-    """Foydalanuvchi tanlagan til kodi ("uz"/"ru"). Tanlanmagan bo'lsa "uz".
-
-    Til /start da tanlanadi va shu yerda saqlanadi (xuddi "city" kabi).
-    Kelajakda ko'p tilli matnlar uchun markaziy nuqta.
-    """
-    u = get_user(user_id)
-    lang = u.get("lang") if u else None
-    return lang if lang in ("uz", "ru") else "uz"
-
 
 # ─── Istaklar (sevimli mahsulotlar, ❤️) ─────────────────────────────────────
 def get_favorites(user_id: int) -> list:
