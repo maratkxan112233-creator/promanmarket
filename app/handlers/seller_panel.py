@@ -12,7 +12,7 @@ from app.storage import (
 )
 from app.album import collect
 from app.keyboards.seller import main_menu, seller_main_menu, stars_kb, cancel_keyboard
-from app.ui import money, divider, product_emoji
+from app.ui import money, divider, product_emoji, product_sort_key, product_group_label
 
 router = Router()
 
@@ -143,12 +143,22 @@ def _seller_products_content(owner_id: int, page: int):
                 [InlineKeyboardButton(text="🔙 Orqaga",    callback_data="seller_back")],
             ])
         )
+    # Kategoriya bo'yicha guruhlab, har guruh ichida arzonidan qimmatiga.
+    products = sorted(products, key=lambda p: (product_sort_key(p), p.get("price", 0)))
     total = len(products)
     pages = max(1, (total + _SELLER_PER_PAGE - 1) // _SELLER_PER_PAGE)
     page = max(0, min(page, pages - 1))
     start = page * _SELLER_PER_PAGE
     rows = []
+    cur_group = object()
     for p in products[start:start + _SELLER_PER_PAGE]:
+        grp = product_sort_key(p)
+        if grp != cur_group:
+            cur_group = grp
+            rows.append([InlineKeyboardButton(
+                text=f"➖  {product_emoji(p)} {product_group_label(p)}",
+                callback_data="noop"
+            )])
         finished = "❌ " if p.get("is_finished") else ""
         rows.append([
             InlineKeyboardButton(text=f"{finished}{product_emoji(p)} {p['name']} — {p['price']:,} so'm",

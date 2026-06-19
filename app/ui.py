@@ -34,64 +34,86 @@ def product_category(p: dict) -> str:
     return code if code in _CATEGORY_MAP else "other"
 
 
-# Mahsulot nomidagi kalit so'z → emoji (lotin va kirill yozuvlari).
-# Tartib muhim: aniqroq so'zlar oldinroq turadi, birinchi mos kelgani olinadi.
-_NAME_EMOJI = [
-    (("kir yuvish", "стирал"),                            "🧺"),
-    # "vintel/ventel" — keng tarqalgan xato yozilishlar ham qabul qilinadi
-    (("ventil", "vintel", "ventel", "вентил"),            "🌀"),
-    (("kondits", "kondis", "кондиц"),                     "❄️"),
-    (("muzlatgich", "xolodil", "холодильник", "morozil"), "🧊"),
-    (("televizor", "телевизор"),                          "📺"),
-    (("kuller", "кулер", "dispenser", "диспенсер"),       "🚰"),
-    (("mikrovoln", "mikroto", "микроволн"),               "♨️"),
-    (("plita", "плита", "pech", "духовка", "oven"),       "🍳"),
-    (("chang yutgich", "changyutgich", "pyleso", "пылесос"), "🧹"),
-    (("choynak", "чайник", "termopot"),                   "🫖"),
-    (("blender", "mikser", "блендер", "миксер"),          "🥣"),
-    (("telefon", "smartfon", "смартфон", "iphone", "redmi"), "📱"),
-    (("noutbuk", "kompyuter", "ноутбук", "компьютер"),    "💻"),
-    (("planshet", "планшет", "ipad"),                     "📲"),
-    (("quloqchin", "naushnik", "наушник"),                "🎧"),
-    (("kolonka", "колонка", "muzika", "speaker"),         "🔊"),
-    (("kamera", "камера"),                                "📷"),
-    (("soat", "часы", "watch"),                           "⌚"),
-    (("isitgich", "obogrev", "обогрев"),                  "🔥"),
-    (("dazmol", "утюг"),                                  "👔"),
-    (("velosiped", "велосипед"),                          "🚲"),
+# Mahsulot guruhlari: (kalit so'zlar, emoji, guruh nomi). Lotin + kirill + keng
+# tarqalgan xato yozilishlar. TARTIB MUHIM: bu ham katalogdagi kategoriya
+# ketma-ketligini belgilaydi, ham birinchi mos kelgan guruh tanlanadi —
+# shuning uchun aniqroq/torroq so'zlar oldinroq turadi (masalan "kir yuvish"
+# "mashina" dan oldin, aks holda mashina guruhiga tushib ketardi).
+_PRODUCT_GROUPS = [
+    (("kir yuvish", "стирал", "yarim avtomat", "avtomat kir"),          "🧺", "Kir yuvish mashinalari"),
+    (("kondits", "kondis", "кондиц", "split", "spilit"),                "❄️", "Konditsionerlar"),
+    (("muzlatgich", "xolodil", "холодильник", "morozil", "sovutkich", "vitrina sovut"), "🧊", "Muzlatgich va sovutgichlar"),
+    (("televizor", "телевизор", "smart tv"),                            "📺", "Televizorlar"),
+    (("mikrovoln", "mikroto", "микроволн"),                             "♨️", "Mikroto'lqin pechlar"),
+    (("gaz plita", "plita", "плита", "pech", "духовка", "oven", "gaz panel", "pishirish panel"), "🍳", "Plita va pishirish"),
+    (("chang yutgich", "changyutgich", "pyleso", "пылесос"),            "🧹", "Chang yutgichlar"),
+    (("kuller", "кулер", "dispenser", "диспенсер", "suv sovutgich", "suv apparat"), "🚰", "Suv kulerlari"),
+    (("choynak", "чайник", "termopot"),                                 "🫖", "Choynak va termopotlar"),
+    (("blender", "mikser", "блендер", "миксер"),                        "🥣", "Blender va mikserlar"),
+    (("dazmol", "утюг"),                                                "👔", "Dazmollar"),
+    (("ventil", "vintel", "ventel", "вентил"),                          "🌀", "Ventilyatorlar"),
+    (("isitgich", "obogrev", "обогрев", "obogrevatel"),                 "🔥", "Isitgichlar"),
+    (("soch quritgich", "fen", "фен", "kir quritgich", "quritgich"),    "💨", "Quritgichlar"),
+    (("tarozi", "весы", "scale"),                                       "⚖️", "Tarozilar"),
+    (("telefon", "smartfon", "смартфон", "iphone", "redmi"),            "📱", "Telefonlar"),
+    (("noutbuk", "kompyuter", "ноутбук", "компьютер", "laptop"),        "💻", "Noutbuk va kompyuterlar"),
+    (("planshet", "планшет", "ipad"),                                   "📲", "Planshetlar"),
+    (("quloqchin", "aquloqchin", "naushnik", "наушник", "tarjimon"),    "🎧", "Quloqchinlar"),
+    (("kolonka", "kalonka", "колонка", "muzika", "speaker"),            "🔊", "Kolonkalar"),
+    (("kamera", "камера"),                                              "📷", "Kameralar"),
+    (("soat", "часы", "watch"),                                         "⌚", "Soatlar"),
+    (("velosiped", "велосипед"),                                        "🚲", "Velosipedlar"),
+    (("elektromobil", "tolokar", "minadigan mashina", "bolalar mashina", "akkumulyatorli mashina", "elektr mashina", "jip", "jeep"), "🚗", "Bolalar mashinalari"),
+    (("aravacha", "kolyaska", "коляска", "stroller"),                   "👶", "Bolalar aravachalari"),
+    (("basseyn", "bassen", "бассейн", "pool"),                          "🏊", "Basseynlar"),
+    (("trimmer", "trimo", "триммер"),                                   "✂️", "Trimmerlar"),
+    (("atirgul", "atir gul", "роза", "gullar", "buket"),               "🌸", "Gullar"),
+    (("organayzer", "органайзер", "organizer"),                         "🗂️", "Organayzerlar"),
+    (("kabel", "кабель", "зарядка", "charger", "quvvatlash"),           "🔌", "Kabel va quvvatlagichlar"),
+    (("etajerka", "stellaj", "polka", "стеллаж"),                       "🪜", "Javon va etajerkalar"),
+    (("chivin to'r", "chivin tor", "deraza to'r", "setka"),            "🦟", "Chivin to'rlari"),
 ]
+
+# Guruhga mos kelmaganlar uchun (eng oxirda turadi).
+_OTHER_LABEL = "Boshqa mahsulotlar"
+
+
+def _match_group(p):
+    """Mahsulotga mos guruhni (kalitlar, emoji, nom) qaytaradi yoki None."""
+    name = p.get("name", "") if isinstance(p, dict) else (p or "")
+    low = str(name).lower()
+    for g in _PRODUCT_GROUPS:
+        if any(k in low for k in g[0]):
+            return g
+    return None
 
 
 def product_emoji(p) -> str:
-    """Mahsulot nomiga qarab avtomatik emoji.
-
-    Nomda kalit so'z topilmasa — bo'lim emojisi, u ham bo'lmasa 📦.
-    `p` — mahsulot dict'i yoki shunchaki nom (str).
-    """
-    name = p.get("name", "") if isinstance(p, dict) else (p or "")
-    low = str(name).lower()
-    for keys, emoji in _NAME_EMOJI:
-        if any(k in low for k in keys):
-            return emoji
+    """Mahsulot nomiga qarab mos emoji. Topilmasa — bo'lim emojisi, u ham
+    bo'lmasa 📦. `p` — mahsulot dict'i yoki nom (str)."""
+    g = _match_group(p)
+    if g:
+        return g[1]
     if isinstance(p, dict):
-        # Bo'lim nomining birinchi qismi — uning emojisi.
         return category_label(product_category(p)).split()[0]
     return "📦"
 
 
-def product_sort_key(p) -> int:
-    """Mahsulotni toifa tartibiga soladi (do'kon ro'yxatini guruhlash uchun).
+def product_group_label(p) -> str:
+    """Mahsulot guruhining ko'rinadigan nomi (katalog sarlavhalari uchun)."""
+    g = _match_group(p)
+    return g[2] if g else _OTHER_LABEL
 
-    [product_emoji] bilan BIR XIL kalit so'z mantig'idan foydalanadi — shuning
-    uchun bir xil emoji'li (bir toifadagi) mahsulotlar yonma-yon keladi va
-    aralash chiqmaydi. Kalit so'z topilmasa — eng oxirga ('📦 Boshqa') tushadi.
-    """
+
+def product_sort_key(p) -> int:
+    """Mahsulotni kategoriya tartibiga soladi (katalog guruhlash uchun).
+    Bir guruhdagilar yonma-yon keladi, aralash chiqmaydi. Topilmasa — oxirga."""
     name = p.get("name", "") if isinstance(p, dict) else (p or "")
     low = str(name).lower()
-    for i, (keys, _emoji) in enumerate(_NAME_EMOJI):
-        if any(k in low for k in keys):
+    for i, g in enumerate(_PRODUCT_GROUPS):
+        if any(k in low for k in g[0]):
             return i
-    return len(_NAME_EMOJI)
+    return len(_PRODUCT_GROUPS)
 
 
 def money(value) -> str:

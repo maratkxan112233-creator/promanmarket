@@ -25,7 +25,7 @@ from app.states.seller_application import SearchState, OrderState
 from app.app.config.settings import settings
 from app.ui import (
     money, divider, title, category_label, product_category,
-    product_emoji, product_sort_key,
+    product_emoji, product_sort_key, product_group_label,
 )
 
 router = Router()
@@ -289,14 +289,23 @@ def _shop_menu_chunks(seller_id: int):
             ])]
         )
 
-    # Mahsulotlarni TOIFA bo'yicha guruhlaymiz — aralash chiqmasligi uchun
-    # (masalan konditsionerlar ketma-ket, kir yuvishlar ketma-ket). Toifa ichida
-    # nom bo'yicha tartiblanadi. (qo'shilgan tartib emas — xaridor zerikmaydi.)
-    products = sorted(products, key=lambda p: (product_sort_key(p), str(p.get("name", "")).lower()))
+    # Mahsulotlarni KATEGORIYA bo'yicha guruhlaymiz — aralash chiqmasligi uchun
+    # (konditsionerlar ketma-ket, kir yuvishlar ketma-ket). Har kategoriya ichida
+    # ARZONIDAN QIMMATIGA (narx bo'yicha) tartiblanadi. Har guruh boshida
+    # chiroyli sarlavha (bosilmaydigan) ko'rsatiladi.
+    products = sorted(products, key=lambda p: (product_sort_key(p), p.get("price", 0)))
 
     total = len(products)
     rows = []
+    cur_group = object()
     for p in products:
+        grp = product_sort_key(p)
+        if grp != cur_group:
+            cur_group = grp
+            rows.append([InlineKeyboardButton(
+                text=f"➖➖  {product_emoji(p)} {product_group_label(p)}  ➖➖",
+                callback_data="noop"
+            )])
         name = p.get("name", "—")
         if len(name) > 30:
             name = name[:30].rstrip() + "…"
@@ -347,6 +356,8 @@ async def _send_category_products(message: Message, seller_id: int, code: str):
         )
         return
 
+    # Bo'lim ichida arzonidan qimmatiga tartiblaymiz.
+    products = sorted(products, key=lambda p: p.get("price", 0))
     rows = []
     for p in products:
         name = p.get("name", "—")
