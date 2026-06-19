@@ -451,6 +451,13 @@ def _product_caption(p: dict) -> str:
     if desc:
         lines.append(f"{divider()}\n📝 {desc}")
 
+    # Rasm haqida ogohlantirish — ba'zi rasmlar mahsulotga o'xshash, lekin aynan
+    # shu rasmdagi mahsulot bo'lmasligi mumkin (xaridor noto'g'ri kutmasligi uchun).
+    lines.append(
+        "ℹ️ <i>Eslatma: rasm namunaviy bo'lishi mumkin — mahsulot rasmga "
+        "o'xshash, lekin aynan shu rasmdagi bo'lmasligi mumkin.</i>"
+    )
+
     # Reyting
     if rev_cnt:
         stars = "⭐" * min(int(rating), 5)
