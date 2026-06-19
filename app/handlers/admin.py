@@ -15,7 +15,8 @@ from app.storage import (
     product_photos,
     update_seller, delete_seller, delete_user, get_orders, get_seller_reviews,
     get_order_by_id, update_order_status, update_order_fields, get_seller_orders, get_seller,
-    get_seller_products, add_product,
+    get_seller_products, add_product, decrement_stock, to_int,
+    get_promos, get_promo, add_promo, delete_promo,
     get_admins, add_admin, remove_admin, is_sub_admin,
     get_couriers, add_courier, remove_courier, is_courier,
     add_audit, get_audit,
@@ -72,6 +73,16 @@ class AdminMsgSeller(StatesGroup):
 
 class AdminBroadcast(StatesGroup):
     text = State()
+
+
+class AdminPromo(StatesGroup):
+    code    = State()
+    percent = State()
+    limit   = State()
+
+
+class AdminRestartConfirm(StatesGroup):
+    word = State()
 
 
 def _sellers_keyboard(items):
@@ -178,18 +189,17 @@ def admin_menu_kb(uid: int):
             [InlineKeyboardButton(text="📋 Arizalar",        callback_data="admin_applications")],
             [InlineKeyboardButton(text="🏪 Sellerlar",        callback_data="admin_sellers")],
             [InlineKeyboardButton(text="📢 Ommaviy xabar / e'lon", callback_data="admin_broadcast")],
-            [InlineKeyboardButton(text="📄 Sellerlar (Word)", callback_data="admin_sellers_word")],
             [InlineKeyboardButton(text="➕ Mahsulot qo'shish", callback_data="admin_addprod")],
             [InlineKeyboardButton(text="📦 Mahsulotlar",      callback_data="admin_products")],
+            [InlineKeyboardButton(text="🎁 Promo-kodlar",     callback_data="admin_promos")],
             [InlineKeyboardButton(text="👥 Foydalanuvchilar", callback_data="admin_users")],
             [InlineKeyboardButton(text="🚫 Bloklaganlar",     callback_data="admin_blocked")],
             [InlineKeyboardButton(text="🏙 Shaharlar",        callback_data="admin_cities")],
             [InlineKeyboardButton(text="📊 Statistika",       callback_data="admin_stats")],
-            [InlineKeyboardButton(text="📈 Excel hisobot",    callback_data="admin_excel_menu")],
+            [InlineKeyboardButton(text="📑 Hisobotlar",       callback_data="admin_reports")],
             [InlineKeyboardButton(text="👮 Adminlar",         callback_data="admin_admins")],
             [InlineKeyboardButton(text="🚚 Kurierlar",        callback_data="admin_couriers")],
             [InlineKeyboardButton(text="💾 Zaxira (backup)",  callback_data="admin_backup")],
-            [InlineKeyboardButton(text="📜 Jurnal (Word)",    callback_data="admin_log")],
             [InlineKeyboardButton(text="🔄 Restart (hammaga yangi menyu)", callback_data="admin_restart_menu")],
         ])
     # Sub-admin: faqat seller qo'shish (arizalar) + mahsulot qo'shish
@@ -340,6 +350,12 @@ async def confirm_payment(call: CallbackQuery):
         return
 
     update_order_status(oid, "paid")
+    # To'lov tasdiqlandi — zaxiradan buyurtma miqdorini ayiramiz (cheksiz bo'lsa
+    # tegmaydi; 0 ga yetsa mahsulot avtomatik "tugagan" bo'ladi).
+    try:
+        decrement_stock(o.get("product_id"), o.get("quantity", 1))
+    except Exception:
+        pass
     try:
         _log(call.from_user, "To'lov tasdiqlandi", f"Buyurtma #{oid}")
     except Exception:
@@ -475,6 +491,128 @@ async def reject_payment(call: CallbackQuery):
         )
     except Exception:
         pass
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  PROMO-KODLAR (chegirma)
+# ═══════════════════════════════════════════════════════════════════════════
+def _promos_view():
+    promos = get_promos()
+    if not promos:
+        text = "🎁 <b>Promo-kodlar</b>\n\nHozircha promo-kod yo'q."
+    else:
+        text = f"🎁 <b>Promo-kodlar</b> — {len(promos)} ta\n\n"
+        for code, p in promos.items():
+            limit = int(p.get("limit", 0))
+            used  = int(p.get("used", 0))
+            limit_txt = f"{used}/{limit}" if limit else f"{used}/∞"
+            text += f"• <code>{code}</code> — −{p.get('percent',0)}%  (ishlatilgan: {limit_txt})\n"
+        text += "\nO'chirish uchun tugmani bosing."
+    rows = [[InlineKeyboardButton(text=f"🗑 {code}", callback_data=f"delpromo_{code}")]
+            for code in get_promos()]
+    rows.append([InlineKeyboardButton(text="➕ Promo-kod qo'shish", callback_data="addpromo")])
+    rows.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_back")])
+    return text, InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+@router.callback_query(F.data == "admin_promos")
+async def admin_promos(call: CallbackQuery):
+    if not is_owner(call.from_user.id): return
+    await _ack(call)
+    text, kb = _promos_view()
+    await _admin_nav(call, text, kb)
+
+
+@router.callback_query(F.data == "addpromo")
+async def add_promo_start(call: CallbackQuery, state: FSMContext):
+    if not is_owner(call.from_user.id): return
+    await _ack(call)
+    await state.set_state(AdminPromo.code)
+    await call.message.answer(
+        "🎁 Yangi promo-kod nomini kiriting (masalan: SAYL10):"
+    )
+
+
+@router.message(AdminPromo.code)
+async def add_promo_code(message: Message, state: FSMContext):
+    code = "".join((message.text or "").split()).upper()
+    if not code or len(code) > 24:
+        await message.answer("❌ Kodni to'g'ri kiriting (probelsiz, 24 belgigacha):"); return
+    if get_promo(code):
+        await message.answer("❌ Bu kod allaqachon bor. Boshqa nom kiriting:"); return
+    await state.update_data(code=code)
+    await state.set_state(AdminPromo.percent)
+    await message.answer("💯 Chegirma foizini kiriting (1–90):")
+
+
+@router.message(AdminPromo.percent)
+async def add_promo_percent(message: Message, state: FSMContext):
+    pct = to_int(message.text, -1)
+    if pct < 1 or pct > 90:
+        await message.answer("❌ Foizni 1 dan 90 gacha kiriting:"); return
+    await state.update_data(percent=pct)
+    await state.set_state(AdminPromo.limit)
+    await message.answer(
+        "🔢 Necha marta ishlatish mumkin? Sonini kiriting,\n"
+        "yoki cheksiz uchun /skip yozing:"
+    )
+
+
+@router.message(AdminPromo.limit)
+async def add_promo_limit(message: Message, state: FSMContext):
+    txt = (message.text or "").strip()
+    if txt == "/skip":
+        limit = 0
+    else:
+        limit = to_int(txt, -1)
+        if limit < 0:
+            await message.answer("❌ Sonni to'g'ri kiriting yoki /skip yozing:"); return
+    data = await state.get_data()
+    ok = add_promo(data["code"], data["percent"], limit)
+    await state.clear()
+    if not ok:
+        await message.answer("❌ Saqlab bo'lmadi (kod allaqachon bor bo'lishi mumkin).",
+                             reply_markup=main_menu)
+        return
+    _log(message.from_user, "Promo-kod qo'shildi",
+         f"{data['code']} −{data['percent']}% limit={limit or '∞'}")
+    limit_txt = str(limit) if limit else "cheksiz"
+    await message.answer(
+        f"✅ Promo-kod qo'shildi!\n\n"
+        f"🎁 <code>{data['code']}</code>\n"
+        f"💯 Chegirma: −{data['percent']}%\n"
+        f"🔢 Limit: {limit_txt}",
+        parse_mode="HTML", reply_markup=main_menu
+    )
+
+
+@router.callback_query(F.data.startswith("delpromo_"))
+async def del_promo_cb(call: CallbackQuery):
+    if not is_owner(call.from_user.id): return
+    code = call.data.split("_", 1)[1]
+    if delete_promo(code):
+        await call.answer(f"🗑 {code} o'chirildi")
+        _log(call.from_user, "Promo-kod o'chirildi", code)
+    else:
+        await call.answer("Topilmadi.")
+    text, kb = _promos_view()
+    await _admin_nav(call, text, kb)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  HISOBOTLAR (Excel / Word eksportlari bitta joyda)
+# ═══════════════════════════════════════════════════════════════════════════
+@router.callback_query(F.data == "admin_reports")
+async def admin_reports(call: CallbackQuery):
+    if not is_owner(call.from_user.id): return
+    await _ack(call)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📈 Excel hisobot",    callback_data="admin_excel_menu")],
+        [InlineKeyboardButton(text="📄 Sellerlar (Word)", callback_data="admin_sellers_word")],
+        [InlineKeyboardButton(text="📜 Jurnal (Word)",    callback_data="admin_log")],
+        [InlineKeyboardButton(text="🔙 Orqaga",           callback_data="admin_back")],
+    ])
+    await _admin_nav(call, "📑 <b>Hisobotlar</b>\n\nKerakli hisobotni tanlang:", kb)
 
 
 # ─── Sellerlar (ko'rish + tahrirlash + o'chirish) ────────────────────────────
@@ -695,17 +833,46 @@ async def _send_start_screen(bot, uid: int):
     set_user_field(uid, "menu_ver", MENU_VERSION)
 
 
+# ── Restart: ikki bosqichli tasdiq ──
+# 1-bosqich: tasdiq ekrani (tugma) → 2-bosqich: "TOZALA" so'zini yozib tasdiqlash.
+# Bitta tugma bilan adashib o'chirib yuborilmasligi uchun yozma tasdiq talab qilamiz.
 @router.callback_query(F.data == "admin_restart_go")
-async def admin_restart_menu_go(call: CallbackQuery):
+async def admin_restart_ask_word(call: CallbackQuery, state: FSMContext):
     if not is_owner(call.from_user.id): return
     await _ack(call)
+    await state.set_state(AdminRestartConfirm.word)
+    await call.message.answer(
+        "⚠️ <b>Oxirgi tasdiq.</b>\n"
+        "Bu amal barcha buyurtma, sharh va xaridor profillarini o'chiradi.\n\n"
+        "Davom etish uchun katta harflar bilan <b>TOZALA</b> deb yozing.\n"
+        "Bekor qilish: /cancel",
+        parse_mode="HTML"
+    )
+
+
+@router.message(AdminRestartConfirm.word)
+async def admin_restart_confirm_word(message: Message, state: FSMContext):
+    if not is_owner(message.from_user.id):
+        await state.clear(); return
+    txt = (message.text or "").strip()
+    await state.clear()
+    if txt != "TOZALA":
+        await message.answer(
+            "❌ Restart bekor qilindi (tasdiqlash so'zi noto'g'ri).",
+            reply_markup=main_menu
+        )
+        return
+    await _run_restart(message.from_user, message)
+
+
+async def _run_restart(actor, message):
     from app.bot.bot import bot
     from app.storage import reset_buyer_data, pop_all_view_msgs
 
     # 1) Foydalanuvchilar ro'yxatini TOZALASHDAN OLDIN yig'ib olamiz
     #    (reset_buyer_data users.json'ni bo'shatadi — keyin ro'yxat yo'qoladi).
     targets = sorted(set(get_users().keys()) | set(get_sellers().keys()))
-    status = await call.message.answer(f"🔄 Tozalanmoqda...  0/{len(targets)}")
+    status = await message.answer(f"🔄 Tozalanmoqda...  0/{len(targets)}")
 
     # 2) Chatlardagi ko'rsatilgan mahsulot kartochkalarini o'chiramiz
     #    ("ko'rgan narsalari" — chat imkon qadar tozalanadi).
@@ -734,7 +901,7 @@ async def admin_restart_menu_go(call: CallbackQuery):
             except Exception:
                 pass
 
-    _log(call.from_user, "Restart: tarix tozalandi + start",
+    _log(actor, "Restart: tarix tozalandi + start",
          f"buyurtma:{counts['orders']}, sharh:{counts['reviews']}, "
          f"profil:{counts['users']}; yetdi:{sent}, yetmadi:{failed}")
     result = (
@@ -752,7 +919,7 @@ async def admin_restart_menu_go(call: CallbackQuery):
     try:
         await status.edit_text(result, parse_mode="HTML")
     except Exception:
-        await call.message.answer(result, parse_mode="HTML")
+        await message.answer(result, parse_mode="HTML")
 
 
 # ─── Ommaviy xabar / e'lon (sellerlar, xaridorlar yoki hammaga) ──────────────

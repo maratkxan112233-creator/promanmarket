@@ -47,6 +47,7 @@ class AddProductState(StatesGroup):
     name        = State()
     description = State()
     price       = State()
+    stock       = State()   # ombordagi son (yoki /skip = cheksiz)
     photo       = State()
     colors      = State()
     video       = State()   # ixtiyoriy qisqa video (yoki /skip)
@@ -71,6 +72,7 @@ def seller_menu_kb(user_id: int | None = None):
         [InlineKeyboardButton(text="📦 Mahsulotlarim",    callback_data="seller_products")],
         [InlineKeyboardButton(text="➕ Mahsulot qo'shish", callback_data="seller_add_product")],
         [InlineKeyboardButton(text="🛒 Buyurtmalar",          callback_data="seller_orders")],
+        [InlineKeyboardButton(text="📊 Statistika",           callback_data="seller_stats")],
     ]
     # Yordamchilarni faqat do'kon egasi boshqaradi
     if user_id is not None and is_seller(user_id):
@@ -209,11 +211,14 @@ async def seller_product_detail(call: CallbackQuery):
     finished = bool(p.get("is_finished"))
     status_line = "❌ Tugagan" if finished else "✅ Sotuvda"
     video_line = "\n🎬 Video: bor" if p.get("video") else ""
+    stock = p.get("stock")
+    stock_line = f"\n📦 Omborda: {to_int(stock, 0)} dona" if stock is not None else "\n📦 Ombor: cheksiz"
     text = (
         f"📦 <b>{p['name']}</b>\n"
         f"📝 {p.get('description','—')}\n"
         f"💰 {p['price']:,} so'm\n"
         f"📌 Holati: {status_line}"
+        f"{stock_line}"
         f"{video_line}"
     )
     toggle_text = "✅ Bor deb belgilash" if finished else "❌ Tugadi deb belgilash"
@@ -222,6 +227,7 @@ async def seller_product_detail(call: CallbackQuery):
         [InlineKeyboardButton(text="✏️ Nomini o'zgartirish",  callback_data=f"seprod_name_{pid}")],
         [InlineKeyboardButton(text="✏️ Narxini o'zgartirish", callback_data=f"seprod_price_{pid}")],
         [InlineKeyboardButton(text="✏️ Tavsifini o'zgartirish", callback_data=f"seprod_desc_{pid}")],
+        [InlineKeyboardButton(text="📦 Zaxira (sonini) o'zgartirish", callback_data=f"seprod_stock_{pid}")],
         [InlineKeyboardButton(text="🖼 Rasmlarni o'zgartirish", callback_data=f"sphoto_{pid}")],
         [InlineKeyboardButton(text=vid_btn,                     callback_data=f"svideo_{pid}")],
         [InlineKeyboardButton(text=toggle_text,                callback_data=f"pfin_{pid}")],
@@ -237,10 +243,16 @@ async def seller_edit_product_start(call: CallbackQuery, state: FSMContext):
     field = parts[1]
     pid   = int(parts[2])
     await _ack(call)
-    labels = {"name": "Nom", "price": "Narx (raqam)", "desc": "Tavsif"}
+    labels = {"name": "Nom", "price": "Narx (raqam)", "desc": "Tavsif",
+              "stock": "Ombordagi son (raqam)"}
     await state.set_state(EditProductState.waiting_value)
     await state.update_data(field=field, pid=pid)
-    await call.message.answer(f"✏️ Yangi <b>{labels.get(field,'qiymat')}</b>ni kiriting:", parse_mode="HTML")
+    hint = ""
+    if field == "stock":
+        hint = "\n(0 — tugagan; cheksiz qilish uchun «cheksiz» deb yozing)"
+    await call.message.answer(
+        f"✏️ Yangi <b>{labels.get(field,'qiymat')}</b>ni kiriting:{hint}",
+        parse_mode="HTML")
 
 
 @router.message(EditProductState.waiting_value)
@@ -257,14 +269,24 @@ async def seller_edit_product_save(message: Message, state: FSMContext):
     txt = (message.text or "").strip()
     if not txt:
         await message.answer("❌ Matn ko'rinishida kiriting:"); return
-    mapping = {"name": "name", "price": "price", "desc": "description"}
+    mapping = {"name": "name", "price": "price", "desc": "description", "stock": "stock"}
     if field == "price":
         value = to_int(txt, -1)
         if value <= 0:
             await message.answer("❌ Narxni to'g'ri kiriting (masalan: 150000 yoki 150 000):"); return
+        update_product(pid, {"price": value})
+    elif field == "stock":
+        if txt.lower() in ("cheksiz", "∞", "-"):
+            # Cheksiz: zaxira hisobini o'chiramiz, tugagan belgisini ham olib tashlaymiz
+            update_product(pid, {"stock": None, "is_finished": False})
+        else:
+            value = to_int(txt, -1)
+            if value < 0:
+                await message.answer("❌ Sonni to'g'ri kiriting (masalan: 10) yoki «cheksiz»:"); return
+            # Zaxira 0 → tugagan; >0 → yana sotuvda
+            update_product(pid, {"stock": value, "is_finished": (value == 0)})
     else:
-        value = txt
-    update_product(pid, {mapping[field]: value})
+        update_product(pid, {mapping[field]: txt})
     await state.clear()
     await message.answer("✅ Mahsulot yangilandi!", reply_markup=seller_menu_kb(message.from_user.id))
 
@@ -462,7 +484,7 @@ MENU_BUTTONS = {
 
 ADD_PRODUCT_STATES = StateFilter(
     AddProductState.name, AddProductState.description,
-    AddProductState.price,
+    AddProductState.price, AddProductState.stock,
     AddProductState.photo, AddProductState.colors,
     AddProductState.video, AddProductState.preview,
 )
@@ -523,6 +545,26 @@ async def product_price(message: Message, state: FSMContext):
     if price <= 0:
         await message.answer("❌ Narxni to'g'ri kiriting (masalan: 150000 yoki 150 000):"); return
     await state.update_data(price=price)
+    await state.set_state(AddProductState.stock)
+    await message.answer(
+        "📦 Omborda nechta bor? Sonini kiriting (masalan: 10),\n"
+        "yoki hisob yuritmasangiz /skip yozing (cheksiz):"
+    )
+
+
+@router.message(AddProductState.stock, F.text == "/skip")
+async def product_stock_skip(message: Message, state: FSMContext):
+    await state.update_data(stock=None)
+    await state.set_state(AddProductState.photo)
+    await message.answer(_PHOTO_PROMPT)
+
+
+@router.message(AddProductState.stock)
+async def product_stock_enter(message: Message, state: FSMContext):
+    stock = to_int(message.text, -1)
+    if stock < 0:
+        await message.answer("❌ Sonni to'g'ri kiriting (masalan: 10) yoki /skip yozing:"); return
+    await state.update_data(stock=stock)
     await state.set_state(AddProductState.photo)
     await message.answer(_PHOTO_PROMPT)
 
@@ -530,6 +572,7 @@ async def product_price(message: Message, state: FSMContext):
 def _build_product(user_id: int, data: dict, photos: list) -> dict:
     owner = get_owner_id(user_id)
     seller = get_seller(owner)
+    stock = data.get("stock")
     return {
         "seller_id":   owner,
         "shop_name":   seller["shop_name"],
@@ -541,6 +584,9 @@ def _build_product(user_id: int, data: dict, photos: list) -> dict:
         "photos":      photos,
         "colors":      data.get("colors", []),
         "video":       data.get("video"),
+        "stock":       stock,
+        # Zaxira 0 bo'lsa — darhol "tugagan" deb belgilaymiz
+        "is_finished": (stock == 0),
     }
 
 
@@ -647,6 +693,8 @@ def _preview_text(data: dict) -> str:
     colors = data.get("colors") or []
     if colors:
         lines.append(f"\n🎨 Ranglar: {', '.join(colors)}")
+    stock = data.get("stock")
+    lines.append(f"\n📦 Omborda: {stock} dona" if stock is not None else "\n📦 Ombor: cheksiz")
     photos = data.get("pending_photos") or []
     lines.append(f"\n🖼 {len(photos)} ta rasm" if photos else "\n🖼 Rasmsiz")
     lines.append("🎬 Video: bor" if data.get("video") else "🎬 Video: yo'q")
@@ -871,6 +919,65 @@ async def update_order(call: CallbackQuery):
         pass
 
     await seller_order_detail(call)
+
+
+# ─── Statistika (sotuvchi uchun) ─────────────────────────────────────────────
+@router.callback_query(F.data == "seller_stats")
+async def seller_stats(call: CallbackQuery):
+    if not is_shop_member(call.from_user.id):
+        await call.answer("Siz seller emassiz."); return
+    await _ack(call)
+    owner_id = get_owner_id(call.from_user.id)
+    orders   = get_seller_orders(owner_id)
+    products = get_seller_products(owner_id)
+
+    # Holatlar bo'yicha sanab chiqamiz
+    by_status = {}
+    for o in orders:
+        by_status[o.get("status", "")] = by_status.get(o.get("status", ""), 0) + 1
+    delivered = [o for o in orders if o.get("status") == "delivered"]
+    active    = [o for o in orders if o.get("status") in ("paid", "processing", "shipped")]
+
+    # Daromad: yetkazilgan buyurtmalar summasi (komissiyadan keyingi qism sellerга)
+    gross    = sum(to_int(o.get("total", 0)) for o in delivered)
+    commission = sum(to_int(o.get("commission", 0)) for o in delivered)
+    net = max(gross - commission, 0)
+
+    # Eng ko'p sotilgan mahsulot (yetkazilgan + faol buyurtmalar bo'yicha)
+    sold = {}
+    for o in orders:
+        if o.get("status") in ("paid", "processing", "shipped", "delivered"):
+            name = o.get("product_name", "—")
+            sold[name] = sold.get(name, 0) + to_int(o.get("quantity", 1))
+    top_line = "—"
+    if sold:
+        top_name, top_qty = max(sold.items(), key=lambda x: x[1])
+        top_line = f"{top_name} ({top_qty} dona)"
+
+    from app.storage import get_seller_rating
+    rating, cnt = get_seller_rating(owner_id)
+
+    text = (
+        f"📊 <b>Statistika</b>\n"
+        f"{divider()}\n"
+        f"📦 Mahsulotlar:  {len(products)} ta\n"
+        f"🛒 Jami buyurtma:  {len(orders)} ta\n"
+        f"   ✅ Yetkazilgan:  {len(delivered)} ta\n"
+        f"   🔄 Jarayonda:  {len(active)} ta\n"
+        f"   ⏳ Kutilmoqda:  {by_status.get('pending', 0)} ta\n"
+        f"   ❌ Bekor:  {by_status.get('cancelled', 0)} ta\n"
+        f"{divider()}\n"
+        f"💰 Sotuv (yetkazilgan):  {gross:,} so'm\n"
+        f"💵 Platforma xizmat haqi:  {commission:,} so'm\n"
+        f"🟢 Sof tushum:  <b>{net:,} so'm</b>\n"
+        f"{divider()}\n"
+        f"🔥 Eng ko'p sotilgan:  {top_line}\n"
+        f"⭐ Reyting:  {rating} ({cnt} ta baho)"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 Orqaga", callback_data="seller_back")],
+    ])
+    await call.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
 
 
 # ─── Do'kon info ─────────────────────────────────────────────────────────────

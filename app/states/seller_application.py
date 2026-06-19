@@ -21,6 +21,7 @@ class EditProductState(StatesGroup):
 
 class OrderState(StatesGroup):
     quantity    = State()
+    promo       = State()
     color       = State()
     fulfillment = State()
     delivery    = State()

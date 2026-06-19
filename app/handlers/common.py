@@ -16,6 +16,7 @@ from app.storage import (
     set_view_msgs, pop_view_msgs, get_view_msgs,
     get_favorites, is_favorite, toggle_favorite,
     is_shop_member, get_shop_seller, get_owner_id, shop_notify_ids,
+    product_stock, validate_promo, use_promo,
 )
 from app.keyboards.seller import (
     main_menu, seller_main_menu, menu_for, phone_keyboard, cancel_keyboard,
@@ -447,6 +448,11 @@ def _product_caption(p: dict) -> str:
 
     if p.get("is_finished"):
         lines.append("❌ <b>Mahsulot tugagan</b> — hozircha buyurtma qilib bo'lmaydi")
+    else:
+        stock = product_stock(p)
+        # Kam qolganda xaridorni shoshirtirish uchun ogohlantiramiz.
+        if stock is not None and stock <= 5:
+            lines.append(f"🔥 <b>Shoshiling — atigi {stock} dona qoldi!</b>")
 
     if desc:
         lines.append(f"{divider()}\n📝 {desc}")
@@ -656,18 +662,34 @@ async def choose_color(call: CallbackQuery, state: FSMContext):
 
 
 # ─── Buyurtma qilish: yetkazib berish (yagona usul) → manzil so'raymiz ─────────
+def _unit_price(p: dict, data: dict) -> int:
+    """Mahsulotning chegirmali birlik narxi (promo-kod qo'llangan bo'lsa)."""
+    price = p.get("price", 0)
+    pct = int(data.get("promo_percent", 0) or 0)
+    return int(price * (100 - pct) / 100) if pct else price
+
+
 async def _start_delivery(message: Message, state: FSMContext, p: dict):
     """Endi yagona usul — yetkazib berish (19 000 so'm). Pickup olib tashlangan."""
     await state.update_data(pid=p["id"], fulfillment="delivery", delivery="taxi")
     await state.set_state(OrderState.address)
     data = await state.get_data()
     qty   = data.get("quantity", 1)
-    total = p["price"] * qty
+    unit  = _unit_price(p, data)
+    total = unit * qty
     fee   = delivery_fee_for(total)
     color_line = f"🎨 Rang: <b>{data['selected_color']}</b>\n" if data.get("selected_color") else ""
+    promo_line = ""
+    if data.get("promo_percent"):
+        full = p.get("price", 0) * qty
+        promo_line = (
+            f"🎁 Promo <b>{data['promo_code']}</b>: −{data['promo_percent']}%  "
+            f"(<s>{full:,}</s> → <b>{total:,}</b>)\n"
+        )
     await message.answer(
         f"🛒 <b>{p['name']}</b>\n"
         f"🔢 Miqdor: {qty} dona\n"
+        f"{promo_line}"
         f"💰 Jami: <b>{total:,} so'm</b>\n"
         f"{color_line}"
         f"🚚 Yetkazib berish: <b>{delivery_text(fee)}</b>\n\n"
@@ -688,12 +710,18 @@ def _qty_text(p: dict, qty: int) -> str:
     )
 
 
-def _qty_kb(qty: int) -> InlineKeyboardMarkup:
+def _max_qty(p: dict) -> int:
+    """Buyurtma uchun ruxsat etilgan eng ko'p miqdor (zaxiraga qarab, ≤99)."""
+    s = product_stock(p)
+    return min(99, s) if (s is not None and s > 0) else 99
+
+
+def _qty_kb(qty: int, max_qty: int = 99) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="➖",          callback_data=f"qset_{max(1, qty - 1)}"),
             InlineKeyboardButton(text=f"{qty} dona", callback_data="noop"),
-            InlineKeyboardButton(text="➕",          callback_data=f"qset_{min(99, qty + 1)}"),
+            InlineKeyboardButton(text="➕",          callback_data=f"qset_{min(max_qty, qty + 1)}"),
         ],
         [InlineKeyboardButton(text="✅ Davom etish", callback_data=f"qok_{qty}")],
     ])
@@ -711,19 +739,21 @@ async def start_order(call: CallbackQuery, state: FSMContext):
     await state.clear()
     await state.update_data(pid=pid)
     await state.set_state(OrderState.quantity)
-    await call.message.answer(_qty_text(p, 1), parse_mode="HTML", reply_markup=_qty_kb(1))
+    mx = _max_qty(p)
+    await call.message.answer(_qty_text(p, 1), parse_mode="HTML", reply_markup=_qty_kb(1, mx))
     await call.answer()
 
 
 @router.callback_query(OrderState.quantity, F.data.startswith("qset_"))
 async def order_qty_set(call: CallbackQuery, state: FSMContext):
-    qty  = max(1, min(99, int(call.data.split("_")[1])))
     data = await state.get_data()
     p = get_product_by_id(data.get("pid"))
     if not p:
         await call.answer("Mahsulot topilmadi."); return
+    mx = _max_qty(p)
+    qty  = max(1, min(mx, int(call.data.split("_")[1])))
     try:
-        await call.message.edit_text(_qty_text(p, qty), parse_mode="HTML", reply_markup=_qty_kb(qty))
+        await call.message.edit_text(_qty_text(p, qty), parse_mode="HTML", reply_markup=_qty_kb(qty, mx))
     except Exception:
         pass
     await call.answer()
@@ -731,14 +761,81 @@ async def order_qty_set(call: CallbackQuery, state: FSMContext):
 
 @router.callback_query(OrderState.quantity, F.data.startswith("qok_"))
 async def order_qty_ok(call: CallbackQuery, state: FSMContext):
-    qty = max(1, min(99, int(call.data.split("_")[1])))
+    data0 = await state.get_data()
+    p0 = get_product_by_id(data0.get("pid"))
+    mx = _max_qty(p0) if p0 else 99
+    qty = max(1, min(mx, int(call.data.split("_")[1])))
     await state.update_data(quantity=qty)
     data = await state.get_data()
     p = get_product_by_id(data.get("pid"))
     if not p:
         await call.answer("Mahsulot topilmadi."); return
-    await _ask_color(call.message, state, p)
+    await _ask_promo(call.message, state, p)
     await call.answer()
+
+
+# ─── Buyurtma qilish: promo-kod (ixtiyoriy) ──────────────────────────────────
+def _promo_skip_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⏭ Promo-kodim yo'q", callback_data="promoskip")],
+    ])
+
+
+async def _ask_promo(message: Message, state: FSMContext, p: dict):
+    await state.set_state(OrderState.promo)
+    await state.update_data(pid=p["id"])
+    await message.answer(
+        "🎁 <b>Promo-kodingiz bo'lsa yuboring</b> — chegirma qo'llanadi.\n"
+        "Bo'lmasa pastdagi tugmani bosing.",
+        parse_mode="HTML", reply_markup=_promo_skip_kb()
+    )
+
+
+async def _after_promo(message: Message, state: FSMContext):
+    data = await state.get_data()
+    p = get_product_by_id(data.get("pid"))
+    if not p:
+        await state.clear()
+        await message.answer("❌ Mahsulot topilmadi.", reply_markup=main_menu)
+        return
+    await _ask_color(message, state, p)
+
+
+@router.callback_query(OrderState.promo, F.data == "promoskip")
+async def order_promo_skip(call: CallbackQuery, state: FSMContext):
+    await call.answer()
+    try:
+        await call.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    await _after_promo(call.message, state)
+
+
+@router.message(OrderState.promo, F.text == "❌ Bekor qilish")
+async def order_promo_cancel(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer("❌ Buyurtma bekor qilindi.", reply_markup=main_menu)
+
+
+@router.message(OrderState.promo)
+async def order_promo_enter(message: Message, state: FSMContext):
+    code = (message.text or "").strip()
+    if not code:
+        await message.answer("🎁 Promo-kodni yuboring yoki tugmani bosing.",
+                             reply_markup=_promo_skip_kb())
+        return
+    promo = validate_promo(code)
+    if not promo:
+        await message.answer(
+            "❌ Bu promo-kod yaroqsiz yoki muddati tugagan.\n"
+            "Boshqa kod yuboring yoki tugmani bosing.",
+            reply_markup=_promo_skip_kb()
+        )
+        return
+    await state.update_data(promo_code=promo["code"], promo_percent=promo["percent"])
+    await message.answer(f"✅ Promo-kod qabul qilindi: <b>−{promo['percent']}%</b> chegirma!",
+                         parse_mode="HTML")
+    await _after_promo(message, state)
 
 
 # ─── Bekor qilish (har qanday buyurtma bosqichida) ──────────────────────────
@@ -806,9 +903,11 @@ async def order_phone(message: Message, state: FSMContext):
         return
 
     qty   = data.get("quantity", 1)
-    total = p["price"] * qty
+    unit  = _unit_price(p, data)
+    total = unit * qty
     fee   = delivery_fee_for(total)   # 300 000 dan yuqori xaridga — bepul
     commission = int(total * settings.COMMISSION_RATE)
+    promo_code = data.get("promo_code")
     order_id = save_order({
         "buyer_id":     message.from_user.id,
         "buyer_name":   message.from_user.full_name,
@@ -817,7 +916,7 @@ async def order_phone(message: Message, state: FSMContext):
         "product_id":   pid,
         "product_name": p["name"],
         "quantity":     qty,
-        "unit_price":   p["price"],
+        "unit_price":   unit,
         "total":        total,
         "prepay":       commission,       # 10% = platforma komissiyasi
         "commission":   commission,
@@ -827,9 +926,17 @@ async def order_phone(message: Message, state: FSMContext):
         "address":      data.get("address", "—"),
         "phone":        phone,
         "color":        data.get("selected_color", ""),
+        "promo_code":   promo_code or "",
+        "promo_percent": data.get("promo_percent", 0) or 0,
         "status":       "pending",
         "receipt":      None,
     })
+    # Promo-kod ishlatildi deb belgilaymiz (limit hisobi uchun).
+    if promo_code:
+        try:
+            use_promo(promo_code)
+        except Exception:
+            pass
     await state.update_data(order_id=order_id)
     await state.set_state(OrderState.receipt)
 
@@ -852,12 +959,16 @@ async def order_phone(message: Message, state: FSMContext):
         f"<b>{money(remain)}</b>{fee_note}.\n"
         f"💳 Karta orqali to'lamoqchi bo'lsangiz — kurierdan so'raysiz.\n\n"
     )
+    promo_summary = (
+        f"🎁 Promo {promo_code}: −{data.get('promo_percent',0)}%\n" if promo_code else ""
+    )
     await message.answer(
         f"✅ <b>Buyurtmangiz qabul qilindi!</b>  (#{order_id})\n"
         f"Boshlang'ich <b>{pct}%</b> to'lovni qiling.\n"
         f"{divider()}\n"
         f"📦 Mahsulot:  {p['name']}\n"
-        f"🔢 Miqdor:  {qty} dona × {money(p['price'])}\n"
+        f"🔢 Miqdor:  {qty} dona × {money(unit)}\n"
+        f"{promo_summary}"
         f"💰 Narxi:  <b>{money(total)}</b>\n"
         f"💳 Oldindan to'lov ({pct}%):  <b>{money(commission)}</b>\n"
         f"➡️ Karta:  <code>{platform_card}</code>\n"
@@ -878,7 +989,7 @@ async def order_phone(message: Message, state: FSMContext):
     seller_msg = (
         f"🛒 <b>Yangi buyurtma #{order_id}!</b>\n\n"
         f"📦 {p['name']}\n"
-        f"🔢 Miqdor: {qty} dona × {p['price']:,} so'm\n"
+        f"🔢 Miqdor: {qty} dona × {unit:,} so'm\n"
         f"💰 Jami: {total:,} so'm\n"
         f"🚚 Yetkazib berish: {delivery_text(fee)}\n\n"
         f"🔒 <b>Xaridor ma'lumotlari kurierда.</b>\n"
@@ -905,7 +1016,8 @@ async def order_phone(message: Message, state: FSMContext):
             settings.OWNER_ID,
             f"🆕 <b>Yangi buyurtma #{order_id}</b>\n\n"
             f"📦 {p['name']}\n"
-            f"🔢 {qty} dona × {p['price']:,} = <b>{total:,} so'm</b>\n"
+            f"🔢 {qty} dona × {unit:,} = <b>{total:,} so'm</b>\n"
+            f"{promo_summary}"
             f"💵 Komissiya ({pct}%): {commission:,} so'm\n"
             f"👤 {message.from_user.full_name} (ID: {message.from_user.id})\n"
             f"📱 {phone}\n"
@@ -1040,15 +1152,58 @@ async def search_start(message: Message, state: FSMContext):
     await message.answer("🔍 Mahsulot nomini kiriting:")
 
 
+# Foydalanuvchining oxirgi qidiruv so'zi — narx bo'yicha qayta saralash uchun
+# (sort tugmasi bosilganda qidiruvni qaytadan ishlatamiz). Faqat xotirada.
+_LAST_SEARCH: dict[int, str] = {}
+
+
+def _sorted_search_kb(results: list, order: str) -> InlineKeyboardMarkup:
+    """Natijalarni narx bo'yicha saralab, tugmalar ro'yxati + saralash tugmalari."""
+    items = sorted(results, key=lambda p: p.get("price", 0), reverse=(order == "exp"))
+    rows = []
+    for p in items[:30]:
+        price = p.get("price", 0)
+        fin = "  ·  ❌" if p.get("is_finished") else ""
+        rows.append([InlineKeyboardButton(
+            text=f"{product_emoji(p)} {p['name']} — {price:,} so'm{fin}",
+            callback_data=f"prod_{p['id']}"
+        )])
+    cheap_lbl = ("✅ " if order == "cheap" else "") + "💰 Arzondan"
+    exp_lbl   = ("✅ " if order == "exp" else "") + "💸 Qimmatdan"
+    rows.append([
+        InlineKeyboardButton(text=cheap_lbl, callback_data="srtcheap"),
+        InlineKeyboardButton(text=exp_lbl,   callback_data="srtexp"),
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+@router.callback_query(F.data.in_({"srtcheap", "srtexp"}))
+async def search_sort(call: CallbackQuery):
+    query = _LAST_SEARCH.get(call.from_user.id)
+    if not query:
+        await call.answer("Avval qaytadan qidiring.", show_alert=True); return
+    results = search_products(query)
+    if not results:
+        await call.answer("Natija qolmadi."); return
+    order = "cheap" if call.data == "srtcheap" else "exp"
+    await call.answer("💰 Arzondan" if order == "cheap" else "💸 Qimmatdan")
+    try:
+        await call.message.edit_reply_markup(reply_markup=_sorted_search_kb(results, order))
+    except Exception:
+        pass
+
+
 @router.message(SearchState.query)
 async def do_search(message: Message, state: FSMContext):
     await state.clear()
     # Oldin ochilgan mahsulot albomini tozalaymiz (chatda rasmlar aralashmasligi uchun).
     await _clear_last_product(message.bot, message.chat.id)
-    results = search_products(message.text or "")
+    query = (message.text or "").strip()
+    results = search_products(query)
     if not results:
         await message.answer("😔 Hech narsa topilmadi. Boshqa so'z bilan sinab ko'ring.", reply_markup=main_menu)
         return
+    _LAST_SEARCH[message.from_user.id] = query
 
     await message.answer(
         f"🔍 <b>{len(results)} ta natija topildi</b>",
@@ -1078,20 +1233,13 @@ async def do_search(message: Message, state: FSMContext):
     if photo_ids:
         set_view_msgs(message.chat.id, photo_ids)
 
-    if len(results) > 5:
-        rows = []
-        for p in results[5:15]:
-            price = p.get("price", 0)
-            old   = p.get("old_price", 0)
-            disc  = f" ↓{round((old-price)/old*100)}%" if old and old > price else ""
-            rows.append([InlineKeyboardButton(
-                text=f"{product_emoji(p)} {p['name']} — {price:,} so'm{disc}",
-                callback_data=f"prod_{p['id']}"
-            )])
+    # Narx bo'yicha saralab ko'rsatish — barcha natijalar bitta ro'yxatda
+    # (saralash tugmalari bilan). Bittadan ortiq natija bo'lsa ma'noli.
+    if len(results) > 1:
         await message.answer(
-            f"📋 Qolgan natijalar:",
+            "📋 <b>Barcha natijalar</b> — narx bo'yicha saralang:",
             parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=rows)
+            reply_markup=_sorted_search_kb(results, "cheap")
         )
 
 

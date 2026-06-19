@@ -19,6 +19,7 @@ CITIES_FILE       = f"{DATA_DIR}/cities.json"
 VIEW_STATE_FILE   = f"{DATA_DIR}/view_state.json"
 FAVORITES_FILE    = f"{DATA_DIR}/favorites.json"
 BLOCKED_FILE      = f"{DATA_DIR}/blocked.json"
+PROMOS_FILE       = f"{DATA_DIR}/promos.json"
 
 DEFAULT_CITIES = ["Olmaliq", "Angren", "Bekobod", "Ohangaron", "Chirchiq", "Yangiyo'l", "Toshkent"]
 
@@ -401,6 +402,32 @@ def search_products(query: str) -> list:
     return [p for _, p in results]
 
 
+# ─── Zaxira (ombordagi son) ──────────────────────────────────────────────────
+# Mahsulotning 'stock' maydoni: butun son — omborda nechta bor. None bo'lsa
+# (yoki maydon yo'q bo'lsa) — sotuvchi hisob yuritmaydi, cheksiz deb qaraladi.
+def product_stock(p: dict):
+    """Mahsulot zaxirasi. None — cheksiz (hisob yuritilmaydi)."""
+    if not p:
+        return None
+    s = p.get("stock")
+    return None if s is None else to_int(s, 0)
+
+def decrement_stock(product_id: int, qty: int) -> None:
+    """Zaxirani qty taga kamaytiradi. Cheksiz (stock=None) bo'lsa tegmaydi.
+    0 ga yetsa — mahsulot avtomatik 'tugagan' deb belgilanadi."""
+    products = get_all_products()
+    changed = False
+    for p in products:
+        if p.get("id") == product_id and p.get("stock") is not None:
+            new = max(to_int(p.get("stock"), 0) - max(int(qty), 0), 0)
+            p["stock"] = new
+            if new == 0:
+                p["is_finished"] = True
+            changed = True
+    if changed:
+        _write(PRODUCTS_FILE, products)
+
+
 # ─── Orders ──────────────────────────────────────────────────────────────────
 def _normalize_order(o: dict) -> dict:
     """Buyurtma summalarini int'ga keltiradi (formatlashda crash bo'lmasligi uchun)."""
@@ -479,6 +506,67 @@ def get_seller_rating(seller_id: int) -> tuple[float, int]:
         return 0.0, 0
     avg = sum(r["stars"] for r in reviews) / len(reviews)
     return round(avg, 1), len(reviews)
+
+
+# ─── Promo-kodlar (chegirma) ─────────────────────────────────────────────────
+# code (UPPER) -> {"code", "percent", "limit", "used", "active", "created_at"}
+# limit = 0 → cheksiz ishlatish mumkin. percent → mahsulot narxidan chegirma %.
+def _norm_code(code: str) -> str:
+    return "".join(str(code or "").split()).upper()
+
+def get_promos() -> dict:
+    data = _read(PROMOS_FILE)
+    return data if isinstance(data, dict) else {}
+
+def get_promo(code: str) -> dict | None:
+    return get_promos().get(_norm_code(code))
+
+def add_promo(code: str, percent: int, limit: int = 0) -> bool:
+    """Yangi promo-kod qo'shadi. Allaqachon mavjud bo'lsa False qaytaradi."""
+    code = _norm_code(code)
+    if not code:
+        return False
+    promos = get_promos()
+    if code in promos:
+        return False
+    promos[code] = {
+        "code":    code,
+        "percent": max(1, min(int(percent), 90)),
+        "limit":   max(int(limit), 0),
+        "used":    0,
+        "active":  True,
+        "created_at": datetime.now().isoformat(),
+    }
+    _write(PROMOS_FILE, promos)
+    return True
+
+def delete_promo(code: str) -> bool:
+    promos = get_promos()
+    if _norm_code(code) in promos:
+        del promos[_norm_code(code)]
+        _write(PROMOS_FILE, promos)
+        return True
+    return False
+
+def validate_promo(code: str) -> dict | None:
+    """Kod yaroqli (faol va limit tugamagan) bo'lsa promo yozuvini qaytaradi,
+    aks holda None."""
+    p = get_promo(code)
+    if not p or not p.get("active", True):
+        return None
+    limit = int(p.get("limit", 0))
+    if limit and int(p.get("used", 0)) >= limit:
+        return None
+    return p
+
+def use_promo(code: str) -> None:
+    """Promo ishlatilganini belgilaydi (used +1). Limitga yetsa o'chmaydi —
+    validate_promo keyingi safar None qaytaradi."""
+    promos = get_promos()
+    code = _norm_code(code)
+    if code in promos:
+        promos[code]["used"] = int(promos[code].get("used", 0)) + 1
+        _write(PROMOS_FILE, promos)
 
 
 # ─── Sub-adminlar ────────────────────────────────────────────────────────────
