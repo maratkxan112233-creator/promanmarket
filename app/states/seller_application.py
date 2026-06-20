@@ -31,6 +31,13 @@ class OrderState(StatesGroup):
     confirm     = State()
 
 
+class CartCheckoutState(StatesGroup):
+    promo   = State()
+    address = State()
+    phone   = State()
+    receipt = State()
+
+
 class ReviewState(StatesGroup):
     stars = State()
     comment = State()

@@ -20,6 +20,7 @@ VIEW_STATE_FILE   = f"{DATA_DIR}/view_state.json"
 FAVORITES_FILE    = f"{DATA_DIR}/favorites.json"
 BLOCKED_FILE      = f"{DATA_DIR}/blocked.json"
 PROMOS_FILE       = f"{DATA_DIR}/promos.json"
+CART_FILE         = f"{DATA_DIR}/carts.json"
 
 DEFAULT_CITIES = ["Olmaliq", "Angren", "Bekobod", "Ohangaron", "Chirchiq", "Yangiyo'l", "Toshkent"]
 
@@ -478,6 +479,65 @@ def get_buyer_orders(user_id: int) -> list:
 
 def get_seller_orders(seller_id: int) -> list:
     return [o for o in get_orders() if o.get("seller_id") == seller_id]
+
+def get_orders_by_group(group_id: str) -> list:
+    """Bitta savatdan yaratilgan barcha buyurtmalar (umumiy group_id)."""
+    if not group_id:
+        return []
+    return [o for o in get_orders() if o.get("group_id") == group_id]
+
+
+# ─── Savat (korzina) ─────────────────────────────────────────────────────────
+# carts.json: {"<user_id>": [{"product_id": int, "quantity": int, "color": str}, ...]}
+# Savatga qo'shilgan mahsulot zaxirani band qilmaydi — zaxira faqat admin
+# to'lovni tasdiqlaganda (decrement_stock) ayiriladi.
+def get_cart(user_id: int) -> list:
+    cart = _read(CART_FILE)
+    if not isinstance(cart, dict):
+        return []
+    items = cart.get(str(user_id), [])
+    return items if isinstance(items, list) else []
+
+def _save_cart(user_id: int, items: list):
+    cart = _read(CART_FILE)
+    if not isinstance(cart, dict):
+        cart = {}
+    if items:
+        cart[str(user_id)] = items
+    else:
+        cart.pop(str(user_id), None)
+    _write(CART_FILE, cart)
+
+def add_to_cart(user_id: int, product_id: int, qty: int = 1, color: str = ""):
+    """Mahsulotni savatga qo'shadi. Shu mahsulot (+rang) allaqachon bo'lsa —
+    miqdorini oshiradi (99 dan oshmaydi)."""
+    items = get_cart(user_id)
+    for it in items:
+        if it.get("product_id") == product_id and (it.get("color") or "") == (color or ""):
+            it["quantity"] = min(99, to_int(it.get("quantity"), 1) + max(int(qty), 1))
+            _save_cart(user_id, items)
+            return
+    items.append({"product_id": product_id, "quantity": max(int(qty), 1), "color": color or ""})
+    _save_cart(user_id, items)
+
+def set_cart_item_qty(user_id: int, idx: int, qty: int):
+    items = get_cart(user_id)
+    if 0 <= idx < len(items):
+        items[idx]["quantity"] = max(1, min(99, int(qty)))
+        _save_cart(user_id, items)
+
+def remove_cart_item(user_id: int, idx: int):
+    items = get_cart(user_id)
+    if 0 <= idx < len(items):
+        items.pop(idx)
+        _save_cart(user_id, items)
+
+def clear_cart(user_id: int):
+    _save_cart(user_id, [])
+
+def cart_count(user_id: int) -> int:
+    """Savatdagi umumiy dona soni."""
+    return sum(to_int(it.get("quantity"), 1) for it in get_cart(user_id))
 
 
 # ─── Reviews ─────────────────────────────────────────────────────────────────

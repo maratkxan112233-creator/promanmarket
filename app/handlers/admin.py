@@ -15,6 +15,7 @@ from app.storage import (
     product_photos,
     update_seller, delete_seller, delete_user, get_orders, get_seller_reviews,
     get_order_by_id, update_order_status, update_order_fields, get_seller_orders, get_seller,
+    get_orders_by_group,
     get_seller_products, add_product, decrement_stock, to_int,
     get_promos, get_promo, add_promo, delete_promo,
     get_admins, add_admin, remove_admin, is_sub_admin,
@@ -33,7 +34,7 @@ router = Router()
 # Mahsulot qo'shishni bo'lib yuboruvchi menyu tugmalari
 _MENU_BUTTONS = {
     "🛒 Market", "🛍 Bozor", "🔎 Qidirish", "🏪 Sotuvchi bo'lish", "📦 Buyurtmalarim",
-    "❤️ Istaklarim",
+    "🛍 Savatim", "❤️ Istaklarim",
     "👤 Profil", "ℹ️ Ma'lumot", "📞 Aloqa", "🛍 Do'kon (ilova)", "❌ Bekor qilish",
 }
 
@@ -335,36 +336,17 @@ async def reject_seller_cb(call: CallbackQuery):
 
 
 # ─── To'lov chekini tasdiqlash / rad etish ───────────────────────────────────
-@router.callback_query(F.data.startswith("paycfm_"))
-async def confirm_payment(call: CallbackQuery):
-    if not is_owner(call.from_user.id):
-        await call.answer("Ruxsat yo'q.", show_alert=True); return
-    # Tugma spinnerini DARHOL to'xtatamiz — "qotib qolish" oldini oladi
-    await call.answer("✅ To'lov tasdiqlandi!")
-
-    oid = int(call.data.split("_")[1])
-    o = get_order_by_id(oid)
-    if not o:
-        try: await call.message.answer("❌ Buyurtma topilmadi.")
-        except Exception: pass
-        return
-
+async def _confirm_single_order(o: dict, notify_buyer: bool = True):
+    """Bitta buyurtmani 'paid' qiladi: zaxira ayiriladi, seller va kurier(lar)
+    xabardor qilinadi. Xaridorga xabar notify_buyer=True bo'lsa yuboriladi —
+    savat guruhida xaridorга bitta umumiy xabar borgani uchun guruhda
+    notify_buyer=False bilan chaqiriladi."""
+    oid = o["id"]
     update_order_status(oid, "paid")
     # To'lov tasdiqlandi — zaxiradan buyurtma miqdorini ayiramiz (cheksiz bo'lsa
     # tegmaydi; 0 ga yetsa mahsulot avtomatik "tugagan" bo'ladi).
     try:
         decrement_stock(o.get("product_id"), o.get("quantity", 1))
-    except Exception:
-        pass
-    try:
-        _log(call.from_user, "To'lov tasdiqlandi", f"Buyurtma #{oid}")
-    except Exception:
-        pass
-
-    try:
-        await call.message.edit_caption(
-            caption=(call.message.caption or "") + "\n\n✅ TO'LOV TASDIQLANDI",
-        )
     except Exception:
         pass
 
@@ -387,20 +369,21 @@ async def confirm_payment(call: CallbackQuery):
         shop_city = shop.get("city", "—")
 
         # Xaridorga — do'kon kontakti ochiladi
-        try:
-            await bot.send_message(
-                o["buyer_id"],
-                f"✅ <b>Buyurtma #{oid} to'lovi tasdiqlandi!</b>\n"
-                f"📦 {o.get('product_name','—')}\n\n"
-                f"🚶 <b>Mahsulotni o'zingiz olib ketasiz.</b>\n"
-                f"🏪 Do'kon: {shop_name}\n"
-                f"🏙 Shahar: {shop_city}\n"
-                f"📱 Do'kon tel: {shop_phone}\n\n"
-                f"Do'kon bilan bog'lanib, mahsulotni olib keting.",
-                parse_mode="HTML"
-            )
-        except Exception:
-            pass
+        if notify_buyer:
+            try:
+                await bot.send_message(
+                    o["buyer_id"],
+                    f"✅ <b>Buyurtma #{oid} to'lovi tasdiqlandi!</b>\n"
+                    f"📦 {o.get('product_name','—')}\n\n"
+                    f"🚶 <b>Mahsulotni o'zingiz olib ketasiz.</b>\n"
+                    f"🏪 Do'kon: {shop_name}\n"
+                    f"🏙 Shahar: {shop_city}\n"
+                    f"📱 Do'kon tel: {shop_phone}\n\n"
+                    f"Do'kon bilan bog'lanib, mahsulotni olib keting.",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
 
         # Sellerga (ega + yordamchilar) — XARIDOR MA'LUMOTLARI KO'RSATILMAYDI
         seller_msg = (
@@ -422,17 +405,18 @@ async def confirm_payment(call: CallbackQuery):
     else:
         # ── TAKSI/YETKAZIB BERISH: xaridor ma'lumotlari ENDI ochiladi (to'lov tasdiqlangani uchun) ──
         # Xaridorga
-        try:
-            await bot.send_message(
-                o["buyer_id"],
-                f"✅ <b>Buyurtma #{oid} to'lovi tasdiqlandi!</b>\n"
-                f"📦 {o.get('product_name','—')}\n"
-                f"🚕 Yetkazib berish: SHU BUGUNOQ (taksi pochta)\n"
-                f"Buyurtmangiz tayyorlanmoqda. 🔄",
-                parse_mode="HTML"
-            )
-        except Exception:
-            pass
+        if notify_buyer:
+            try:
+                await bot.send_message(
+                    o["buyer_id"],
+                    f"✅ <b>Buyurtma #{oid} to'lovi tasdiqlandi!</b>\n"
+                    f"📦 {o.get('product_name','—')}\n"
+                    f"🚕 Yetkazib berish: SHU BUGUNOQ (taksi pochta)\n"
+                    f"Buyurtmangiz tayyorlanmoqda. 🔄",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
 
         # Sellerga (ega + yordamchilar) — XARIDOR MA'LUMOTLARI KO'RSATILMAYDI.
         # Endi xaridor bilan to'g'ridan-to'g'ri aloqa yo'q — hamma narsa kurier
@@ -464,6 +448,114 @@ async def confirm_payment(call: CallbackQuery):
             except Exception:
                 # Kurier botga /start bosmagan yoki bloklagan bo'lsa — o'tkazib yuboramiz
                 pass
+
+
+@router.callback_query(F.data.startswith("paycfm_"))
+async def confirm_payment(call: CallbackQuery):
+    if not is_owner(call.from_user.id):
+        await call.answer("Ruxsat yo'q.", show_alert=True); return
+    # Tugma spinnerini DARHOL to'xtatamiz — "qotib qolish" oldini oladi
+    await call.answer("✅ To'lov tasdiqlandi!")
+
+    oid = int(call.data.split("_")[1])
+    o = get_order_by_id(oid)
+    if not o:
+        try: await call.message.answer("❌ Buyurtma topilmadi.")
+        except Exception: pass
+        return
+
+    try:
+        _log(call.from_user, "To'lov tasdiqlandi", f"Buyurtma #{oid}")
+    except Exception:
+        pass
+    try:
+        await call.message.edit_caption(
+            caption=(call.message.caption or "") + "\n\n✅ TO'LOV TASDIQLANDI",
+        )
+    except Exception:
+        pass
+
+    await _confirm_single_order(o)
+
+
+@router.callback_query(F.data.startswith("paycfmg_"))
+async def confirm_payment_group(call: CallbackQuery):
+    """Savat buyurtmasi (guruh) — barcha mahsulotlar to'lovini bir bosishda tasdiqlaydi."""
+    if not is_owner(call.from_user.id):
+        await call.answer("Ruxsat yo'q.", show_alert=True); return
+    await call.answer("✅ To'lov tasdiqlandi!")
+
+    group_id = call.data.split("_", 1)[1]
+    orders = get_orders_by_group(group_id)
+    if not orders:
+        try: await call.message.answer("❌ Buyurtmalar topilmadi.")
+        except Exception: pass
+        return
+
+    try:
+        _log(call.from_user, "Savat to'lovi tasdiqlandi",
+             f"Guruh {group_id} — {len(orders)} ta buyurtma")
+    except Exception:
+        pass
+    try:
+        await call.message.edit_caption(
+            caption=(call.message.caption or "") + "\n\n✅ TO'LOV TASDIQLANDI",
+        )
+    except Exception:
+        pass
+
+    # Har bir buyurtmani alohida tasdiqlaymiz (seller/kurier xabarlari), lekin
+    # xaridorга bitta umumiy xabar yuboramiz.
+    for o in orders:
+        await _confirm_single_order(o, notify_buyer=False)
+
+    items_txt = "".join(
+        f"• {o.get('product_name','—')} — {o.get('quantity',1)} dona\n"
+        for o in orders
+    )
+    try:
+        from app.bot.bot import bot
+        await bot.send_message(
+            orders[0]["buyer_id"],
+            f"✅ <b>Buyurtmangiz to'lovi tasdiqlandi!</b>  ({len(orders)} ta mahsulot)\n\n"
+            f"{items_txt}\n"
+            f"🚕 Yetkazib berish: SHU BUGUNOQ (taksi pochta)\n"
+            f"Buyurtmangiz tayyorlanmoqda. 🔄",
+            parse_mode="HTML",
+        )
+    except Exception:
+        pass
+
+
+@router.callback_query(F.data.startswith("payrejg_"))
+async def reject_payment_group(call: CallbackQuery):
+    """Savat buyurtmasi (guruh) chekini rad etadi."""
+    if not is_owner(call.from_user.id): return
+    group_id = call.data.split("_", 1)[1]
+    orders = get_orders_by_group(group_id)
+    if not orders:
+        await call.answer("Buyurtmalar topilmadi.", show_alert=True); return
+    await call.answer("❌ Rad etildi.")
+    try:
+        await call.message.edit_caption(
+            caption=(call.message.caption or "") + "\n\n❌ CHEK RAD ETILDI",
+        )
+    except Exception:
+        pass
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🧾 Chekni qayta yuborish",
+                             callback_data=f"gsendrcpt_{group_id}")
+    ]])
+    try:
+        from app.bot.bot import bot
+        await bot.send_message(
+            orders[0]["buyer_id"],
+            f"❌ <b>Savat buyurtmangiz cheki rad etildi.</b>\n"
+            f"Iltimos, to'g'ri to'lov chekini qayta yuboring:",
+            parse_mode="HTML", reply_markup=kb,
+        )
+    except Exception:
+        pass
 
 
 @router.callback_query(F.data.startswith("payrej_"))
