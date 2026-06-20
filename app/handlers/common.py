@@ -167,6 +167,7 @@ async def profile_handler(message: Message):
             "/seller — sotuvchi paneli"
         )
         role = "🏪 Sotuvchi" if is_seller(user.id) else "🏪 Sotuvchi (yordamchi)"
+        profile_kb = admin_contact_kb()
     else:
         role  = "🛍 Xaridor"
         u = get_user(user.id)
@@ -175,8 +176,14 @@ async def profile_handler(message: Message):
             f"{divider()}\n"
             f"📍 Shahar:  {city}\n"
             f"{divider()}\n"
-            f"🤝 Sotuvchi bo'lib hamkorlik qilish uchun adminga yozing: @{settings.ADMIN_USERNAME}"
+            f"🤝 Sotuvchi bo'lib hamkorlik qilmoqchimisiz? Pastdagi tugmani bosing:"
         )
+        # Xaridorga seller bo'lish taklifi — mavjud `become_seller` oqimini ochadi.
+        profile_kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🏪 Seller bo'lish", callback_data="become_seller")],
+            [InlineKeyboardButton(text="💬 Adminga yozish",
+                                  url=f"https://t.me/{settings.ADMIN_USERNAME}")],
+        ])
 
     await message.answer(
         f"{title('👤', 'Profilingiz')}\n"
@@ -185,7 +192,7 @@ async def profile_handler(message: Message):
         f"🔗 Username:  @{user.username or 'yoq'}\n"
         f"🆔 ID:  {user.id}\n"
         f"🎭 Rol:  {role}\n{extra}",
-        parse_mode="HTML", reply_markup=admin_contact_kb()
+        parse_mode="HTML", reply_markup=profile_kb
     )
 
 

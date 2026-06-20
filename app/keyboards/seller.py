@@ -6,7 +6,7 @@ from aiogram.types import (
 # Menyu versiyasi: menyu tugmalari o'zgarganda shu raqamni 1 taga oshiring.
 # Shunda foydalanuvchilar /start bosmasdan ham yangi menyuni avtomatik oladi
 # (dispatcher.py dagi MenuRefreshMiddleware orqali).
-MENU_VERSION = 3
+MENU_VERSION = 4
 
 
 def _build_main_menu() -> ReplyKeyboardMarkup:
@@ -14,6 +14,7 @@ def _build_main_menu() -> ReplyKeyboardMarkup:
         [KeyboardButton(text="🛒 Market"),         KeyboardButton(text="🔎 Qidirish")],
         [KeyboardButton(text="🛍 Savatim"),        KeyboardButton(text="📦 Buyurtmalarim")],
         [KeyboardButton(text="❤️ Istaklarim"),     KeyboardButton(text="👤 Profil")],
+        [KeyboardButton(text="🏪 Sotuvchi bo'lish")],
     ]
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
 
