@@ -433,9 +433,17 @@ async def _confirm_single_order(o: dict, notify_buyer: bool = True):
             f"xaridorning oldi-to'lovidan olingan.</i>\n"
             f"/orders"
         )
+        # «🚚 Kurierga berdim» tugmasi — seller mahsulotni kurierga berganda
+        # bosadi. Bosilganda buyurtma "Yo'lda" bo'lib, xaridorга "mahsulotingiz
+        # yo'lda" xabari ketadi (handler: seller_panel.update_order).
+        ship_kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="🚚 Kurierga berdim",
+                                 callback_data=f"ostatus_{oid}_shipped"),
+        ]])
         for nid in shop_notify_ids(o["seller_id"]):
             try:
-                await bot.send_message(nid, seller_msg, parse_mode="HTML")
+                await bot.send_message(nid, seller_msg, parse_mode="HTML",
+                                       reply_markup=ship_kb)
             except Exception:
                 pass
 

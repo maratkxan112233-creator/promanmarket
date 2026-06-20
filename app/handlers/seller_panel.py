@@ -820,8 +820,8 @@ async def seller_order_detail(call: CallbackQuery):
         # xaridorga qolgan to'lov so'rovi va baholash ikki marta borardi.
         next_statuses = {
             "pending":    ["cancelled"],
-            "paid":       ["processing","cancelled"],
-            "processing": ["shipped"],
+            "paid":       ["shipped","cancelled"],
+            "processing": ["shipped"],   # eski (legacy) processing buyurtmalar uchun
         }
     rows = []
     if o.get("receipt"):
