@@ -336,13 +336,29 @@ async def reject_seller_cb(call: CallbackQuery):
 
 
 # ─── To'lov chekini tasdiqlash / rad etish ───────────────────────────────────
-async def _confirm_single_order(o: dict, notify_buyer: bool = True):
+def _speed_text(speed: str) -> str:
+    """Yetkazib berish vaqti matni — admin tugma bilan tanlagan turga qarab."""
+    if speed == "24h":
+        return "🟡 Yetkazib berish: 24 SOAT ichida"
+    return "🟢 Yetkazib berish: BUGUN (taksi pochta)"
+
+
+async def _confirm_single_order(o: dict, notify_buyer: bool = True, speed: str = "today"):
     """Bitta buyurtmani 'paid' qiladi: zaxira ayiriladi, seller va kurier(lar)
     xabardor qilinadi. Xaridorga xabar notify_buyer=True bo'lsa yuboriladi —
     savat guruhida xaridorга bitta umumiy xabar borgani uchun guruhda
-    notify_buyer=False bilan chaqiriladi."""
+    notify_buyer=False bilan chaqiriladi.
+
+    speed — admin tugma orqali tanlagan yetkazib berish vaqti ("today"|"24h").
+    Mahsulot turiga qarab admin tanlaydi va xaridorга shu vaqt ko'rsatiladi."""
     oid = o["id"]
     update_order_status(oid, "paid")
+    # Tanlangan yetkazib berish vaqtini buyurtmaga yozamiz (keyin /orders va
+    # boshqa joylarda ham ko'rsatish mumkin).
+    try:
+        update_order_fields(oid, {"delivery_speed": speed})
+    except Exception:
+        pass
     # To'lov tasdiqlandi — zaxiradan buyurtma miqdorini ayiramiz (cheksiz bo'lsa
     # tegmaydi; 0 ga yetsa mahsulot avtomatik "tugagan" bo'ladi).
     try:
@@ -411,7 +427,7 @@ async def _confirm_single_order(o: dict, notify_buyer: bool = True):
                     o["buyer_id"],
                     f"✅ <b>Buyurtma #{oid} to'lovi tasdiqlandi!</b>\n"
                     f"📦 {o.get('product_name','—')}\n"
-                    f"🚕 Yetkazib berish: SHU BUGUNOQ (taksi pochta)\n"
+                    f"{_speed_text(speed)}\n"
                     f"Buyurtmangiz tayyorlanmoqda. 🔄",
                     parse_mode="HTML"
                 )
@@ -462,28 +478,39 @@ async def _confirm_single_order(o: dict, notify_buyer: bool = True):
 async def confirm_payment(call: CallbackQuery):
     if not is_owner(call.from_user.id):
         await call.answer("Ruxsat yo'q.", show_alert=True); return
+    # Yetkazib berish vaqtini tugma suffiksidan o'qiymiz: paycfm_{oid}_today|_24h
+    data = call.data
+    if data.endswith("_24h"):
+        speed = "24h"; data = data[:-4]
+    elif data.endswith("_today"):
+        speed = "today"; data = data[:-6]
+    else:
+        speed = "today"   # eski xabarlar uchun (vaqt belgilanmagan) — bugun
     # Tugma spinnerini DARHOL to'xtatamiz — "qotib qolish" oldini oladi
     await call.answer("✅ To'lov tasdiqlandi!")
 
-    oid = int(call.data.split("_")[1])
+    oid = int(data.split("_")[1])
     o = get_order_by_id(oid)
     if not o:
         try: await call.message.answer("❌ Buyurtma topilmadi.")
         except Exception: pass
         return
 
+    speed_label = "24 soat ichida" if speed == "24h" else "BUGUN"
     try:
-        _log(call.from_user, "To'lov tasdiqlandi", f"Buyurtma #{oid}")
+        _log(call.from_user, "To'lov tasdiqlandi",
+             f"Buyurtma #{oid} — yetkazish: {speed_label}")
     except Exception:
         pass
     try:
         await call.message.edit_caption(
-            caption=(call.message.caption or "") + "\n\n✅ TO'LOV TASDIQLANDI",
+            caption=(call.message.caption or "")
+                    + f"\n\n✅ TO'LOV TASDIQLANDI — 🚚 {speed_label}",
         )
     except Exception:
         pass
 
-    await _confirm_single_order(o)
+    await _confirm_single_order(o, speed=speed)
 
 
 @router.callback_query(F.data.startswith("paycfmg_"))
@@ -491,9 +518,18 @@ async def confirm_payment_group(call: CallbackQuery):
     """Savat buyurtmasi (guruh) — barcha mahsulotlar to'lovini bir bosishda tasdiqlaydi."""
     if not is_owner(call.from_user.id):
         await call.answer("Ruxsat yo'q.", show_alert=True); return
+    # Yetkazib berish vaqti suffiksi: paycfmg_{group_id}_today|_24h
+    # (group_id ichida ham "_" bor, shuning uchun suffiks bo'yicha ajratamiz.)
+    data = call.data
+    if data.endswith("_24h"):
+        speed = "24h"; data = data[:-4]
+    elif data.endswith("_today"):
+        speed = "today"; data = data[:-6]
+    else:
+        speed = "today"
     await call.answer("✅ To'lov tasdiqlandi!")
 
-    group_id = call.data.split("_", 1)[1]
+    group_id = data.split("_", 1)[1]
     orders = get_orders_by_group(group_id)
     if not orders:
         try: await call.message.answer("❌ Buyurtmalar topilmadi.")
@@ -505,9 +541,11 @@ async def confirm_payment_group(call: CallbackQuery):
              f"Guruh {group_id} — {len(orders)} ta buyurtma")
     except Exception:
         pass
+    speed_label = "24 soat ichida" if speed == "24h" else "BUGUN"
     try:
         await call.message.edit_caption(
-            caption=(call.message.caption or "") + "\n\n✅ TO'LOV TASDIQLANDI",
+            caption=(call.message.caption or "")
+                    + f"\n\n✅ TO'LOV TASDIQLANDI — 🚚 {speed_label}",
         )
     except Exception:
         pass
@@ -515,7 +553,7 @@ async def confirm_payment_group(call: CallbackQuery):
     # Har bir buyurtmani alohida tasdiqlaymiz (seller/kurier xabarlari), lekin
     # xaridorга bitta umumiy xabar yuboramiz.
     for o in orders:
-        await _confirm_single_order(o, notify_buyer=False)
+        await _confirm_single_order(o, notify_buyer=False, speed=speed)
 
     items_txt = "".join(
         f"• {o.get('product_name','—')} — {o.get('quantity',1)} dona\n"
@@ -527,7 +565,7 @@ async def confirm_payment_group(call: CallbackQuery):
             orders[0]["buyer_id"],
             f"✅ <b>Buyurtmangiz to'lovi tasdiqlandi!</b>  ({len(orders)} ta mahsulot)\n\n"
             f"{items_txt}\n"
-            f"🚕 Yetkazib berish: SHU BUGUNOQ (taksi pochta)\n"
+            f"{_speed_text(speed)}\n"
             f"Buyurtmangiz tayyorlanmoqda. 🔄",
             parse_mode="HTML",
         )

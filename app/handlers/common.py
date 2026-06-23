@@ -710,34 +710,6 @@ async def _start_delivery(message: Message, state: FSMContext, p: dict):
     )
 
 
-async def _notify_seller_new_order(order_id, p, qty, unit, total, fee, commission):
-    """Do'kon egasi + yordamchilariga yangi buyurtma xabari. Xaridor kontakti
-    YASHIRIN — faqat mahsulot ma'lumotlari ko'rsatiladi."""
-    from app.bot.bot import bot
-    pct = int(settings.COMMISSION_RATE * 100)
-    seller_msg = (
-        f"🛒 <b>Yangi buyurtma #{order_id}!</b>\n\n"
-        f"📦 {p['name']}\n"
-        f"🔢 Miqdor: {qty} dona × {unit:,} so'm\n"
-        f"💰 Jami: {total:,} so'm\n"
-        f"🚚 Yetkazib berish: {delivery_text(fee)}\n\n"
-        f"🔒 <b>Xaridor ma'lumotlari kurierда.</b>\n"
-        f"Mahsulotni kurier do'koningizdan olib, xaridorga yetkazadi.\n\n"
-        f"💡 <b>Eslatma:</b> Bot orqali sotilgan har bir buyurtma uchun "
-        f"mahsulot narxining {pct}% qismi platforma xizmat haqi sifatida olinadi.\n"
-        f"Bu summa ({commission:,} so'm) xaridorning oldi-to'lovidan to'g'ridan-to'g'ri "
-        f"platformaga o'tadi — sizdan keyinchalik alohida hech narsa so'ralmaydi. "
-        f"Hamkorligingiz uchun rahmat! 🙏\n\n"
-        f"⏳ Holat: to'lov tasdig'i kutilmoqda.\n"
-        f"Buyurtmalar: /orders"
-    )
-    for nid in shop_notify_ids(p["seller_id"]):
-        try:
-            await bot.send_message(nid, seller_msg, parse_mode="HTML")
-        except Exception:
-            pass
-
-
 # ─── Buyurtma qilish: miqdor (nechta dona) ───────────────────────────────────
 def _qty_text(p: dict, qty: int) -> str:
     total = p["price"] * qty
@@ -1020,11 +992,12 @@ async def order_phone(message: Message, state: FSMContext):
         parse_mode="HTML", reply_markup=cancel_keyboard
     )
 
-    # ── Sellerga: faqat MAHSULOT haqida. Xaridor kontakti YASHIRIN! ──
-    # Telefon/manzil faqat admin 10% to'lovni tasdiqlagandan keyin ochiladi.
-    # Bu seller bilan xaridor to'g'ridan-to'g'ri kelishib, komissiyani
-    # chetlab o'tishining oldini oladi.
-    await _notify_seller_new_order(order_id, p, qty, unit, total, fee, commission)
+    # ── Sellerga xabar HOZIR YUBORILMAYDI ──
+    # Xaridor boshlang'ich (10%) to'lovni qilib, admin uni tasdiqlamaguncha
+    # sellerga hech qanday xabar bormaydi. Aks holda xaridor oxirgi bosqichda
+    # buyurtmani bekor qilsa ham sellerga "yangi zakaz" kelib, chalg'itadi.
+    # Seller xabari admin to'lovni tasdiqlaganda yuboriladi
+    # (app/handlers/admin.py → _confirm_single_order).
 
     # ── Adminga: yangi buyurtma xabari (to'liq) ──
     try:
@@ -1078,11 +1051,18 @@ async def order_receipt(message: Message, state: FSMContext):
 
     # Adminga chek + tasdiqlash tugmalari
     pct = int(settings.COMMISSION_RATE * 100)
+    # To'lovni tasdiqlash + yetkazib berish vaqtini tanlash (mahsulot turiga qarab):
+    #   🟢 Bugun  —  juda tez (kichik/yengil mahsulotlar)
+    #   🟡 24 soat — ertaga (katta/og'ir maishiy texnika)
+    # Tanlangan vaqt xaridorga yuboriladigan xabarда ko'rsatiladi.
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="✅ To'lovni tasdiqlash", callback_data=f"paycfm_{order_id}"),
+            InlineKeyboardButton(text="✅ Tasdiq + 🟢 Bugun",   callback_data=f"paycfm_{order_id}_today"),
+            InlineKeyboardButton(text="✅ Tasdiq + 🟡 24 soat", callback_data=f"paycfm_{order_id}_24h"),
+        ],
+        [
             InlineKeyboardButton(text="❌ Rad etish",            callback_data=f"payrej_{order_id}"),
-        ]
+        ],
     ])
     caption = (
         f"🧾 <b>Buyurtma #{order_id} — to'lov cheki</b>\n\n"
@@ -1472,9 +1452,10 @@ async def cart_phone(message: Message, state: FSMContext):
     await state.set_state(CartCheckoutState.receipt)
     await state.update_data(group_id=group_id)
 
-    # ── Sellerlarga (har do'konga alohida) ──
-    for oid, p, qty, unit, total, commission in created:
-        await _notify_seller_new_order(oid, p, qty, unit, total, fee, commission)
+    # ── Sellerlarga xabar HOZIR YUBORILMAYDI ──
+    # Xaridor boshlang'ich to'lovni qilib, admin tasdiqlamaguncha kutiladi.
+    # Har bir buyurtma uchun seller xabari admin to'lovni tasdiqlaganda
+    # yuboriladi (app/handlers/admin.py → _confirm_single_order).
 
     # ── Xaridorga: BITTA umumiy oldi-to'lov xabari ──
     platform_card = settings.PLATFORM_CARD or "⚠️ admin kartani sozlamagan"
@@ -1575,10 +1556,15 @@ async def cart_receipt(message: Message, state: FSMContext):
         f"📱 {o0.get('phone','—')}\n"
         f"📍 {o0.get('address','—')}"
     )
-    kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="✅ To'lovni tasdiqlash", callback_data=f"paycfmg_{group_id}"),
-        InlineKeyboardButton(text="❌ Rad etish",            callback_data=f"payrejg_{group_id}"),
-    ]])
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ Tasdiq + 🟢 Bugun",   callback_data=f"paycfmg_{group_id}_today"),
+            InlineKeyboardButton(text="✅ Tasdiq + 🟡 24 soat", callback_data=f"paycfmg_{group_id}_24h"),
+        ],
+        [
+            InlineKeyboardButton(text="❌ Rad etish",            callback_data=f"payrejg_{group_id}"),
+        ],
+    ])
     try:
         from app.bot.bot import bot
         await bot.send_photo(settings.OWNER_ID, receipt_id, caption=caption,
