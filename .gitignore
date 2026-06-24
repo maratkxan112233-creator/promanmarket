@@ -10,3 +10,6 @@ _inspect/
 
 # Bot ma'lumotlari (lokal) — serverda doimiy disk/volume'da saqlanadi
 data/
+
+# ProMan botga aloqasi yo'q — alohida loyiha
+bus_fare_detector/

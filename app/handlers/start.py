@@ -26,8 +26,7 @@ async def cmd_start(message: Message, state: FSMContext):
                               url=f"https://t.me/{settings.ADMIN_USERNAME}")],
     ])
     await message.answer(
-        "👋 Salom!\n"
-        "<b>Proman Market</b> botiga xush kelibsiz!\n\n"
+        "✨ <b>Proman Market</b>ga xush kelibsiz!\n\n"
         f"{FREE_DELIVERY_BANNER}\n"
         f"{SELLER_INVITE_BANNER}",
         parse_mode="HTML",
@@ -35,6 +34,6 @@ async def cmd_start(message: Message, state: FSMContext):
     )
     # Pastdagi doimiy menyuni ham qoldiramiz (Buyurtmalarim, Profil va h.k.)
     await message.answer(
-        "👇 Yoki quyidagi menyudan tanlang:",
+        "Boshlash uchun menyudan tanlang 👇",
         reply_markup=menu_for(message.from_user.id),
     )

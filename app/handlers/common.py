@@ -68,16 +68,15 @@ def delivery_text(fee: int) -> str:
     return "BEPUL 🎉" if fee == 0 else money(fee)
 
 
-# Xaridorni qiziqtirish uchun har joyda chiqadigan doimiy reklama yozuvi.
+# Yetkazib berish haqida BITTA ixcham qator (har sahifani to'ldirib yubormaslik
+# uchun — avval 3 qatorli "gazeta" banneri edi).
 FREE_DELIVERY_BANNER = (
-    f"🚚 <b>Yetkazib berish — atigi {money(DELIVERY_FEE)}!</b>\n"
-    f"🎉 <b>{money(FREE_DELIVERY_THRESHOLD)} dan yuqori xaridga — BEPUL!</b>\n"
-    f"Bugun buyurtma bering — bugun yetkazamiz."
+    f"🚚 Yetkazish {money(DELIVERY_FEE)} · "
+    f"<b>{money(FREE_DELIVERY_THRESHOLD)}+ xaridga BEPUL 🎉</b>"
 )
-# Sellerlarni jalb qilish uchun doimiy ko'rinib turadigan taklif yozuvi.
+# Sellerlarni jalb qilish (faqat /start salomida ko'rsatiladi, har market'da emas).
 SELLER_INVITE_BANNER = (
-    "🤝 <b>Sellerlarni hamkorlikka taklif qilamiz!</b>\n"
-    f"Murojaat: @{settings.ADMIN_USERNAME}"
+    f"🤝 O'z do'koningizni ochmoqchimisiz? Murojaat: @{settings.ADMIN_USERNAME}"
 )
 
 
@@ -301,13 +300,10 @@ async def _show_market(message: Message, city: str):
         meta = f"⭐{rating} · {len(prods)} ta mahsulot" if cnt else f"{len(prods)} ta mahsulot"
         lines.append(f"{i}. 🏪 {s['shop_name']} — {meta}")
     await message.answer(
-        f"{FREE_DELIVERY_BANNER}\n"
-        f"{SELLER_INVITE_BANNER}\n"
-        f"{divider()}\n"
-        f"🛍 <b>Do'konlar</b>   📍 {city}\n"
-        + "\n".join(lines) + "\n"
-        f"{divider()}\n"
-        "Bitta do'konni tanlang:",
+        f"🛍 <b>Do'konlar</b>   ·   📍 {city}\n"
+        f"{FREE_DELIVERY_BANNER}\n\n"
+        + "\n".join(lines) + "\n\n"
+        "Do'konni tanlang 👇",
         parse_mode="HTML",
         reply_markup=_shops_keyboard(sellers)
     )
@@ -509,49 +505,48 @@ def _product_caption(p: dict) -> str:
     # Reyting
     rating, rev_cnt = get_seller_rating(p.get("seller_id", 0))
 
-    lines = []
-    lines.append(title(product_emoji(p), name))
-    lines.append(f"🏪 {shop}" + (f"  ·  📍 {city}" if city else ""))
+    # ── Sarlavha + narx (eng muhimi yuqorida, bitta nigohda ko'rinadi) ──
+    lines = [title(product_emoji(p), name)]
 
-    # Narx qatori
     price_line = f"💰 <b>{money(price)}</b>"
     if disc_pct:
-        price_line += f"   <b>−{disc_pct}%</b>"
-    if old_price and disc_pct:
-        price_line += f"   <s>{money(old_price)}</s>"
+        price_line += f"   🔻<b>{disc_pct}%</b>"
+        if old_price:
+            price_line += f"  <s>{money(old_price)}</s>"
     lines.append(price_line)
 
+    # Do'kon · shahar · reyting — bitta ixcham qatorda
+    meta = f"🏪 {shop}"
+    if city:
+        meta += f"  ·  📍 {city}"
+    if rev_cnt:
+        meta += f"  ·  ⭐ {rating} ({rev_cnt})"
+    lines.append(meta)
+
+    # ── Holat (faqat kerak bo'lganda) ──
     if p.get("is_finished"):
-        lines.append("❌ <b>Mahsulot tugagan</b> — hozircha buyurtma qilib bo'lmaydi")
+        lines.append("\n❌ <b>Mahsulot tugagan</b>")
     else:
         stock = product_stock(p)
-        # Kam qolganda xaridorni shoshirtirish uchun ogohlantiramiz.
         if stock is not None and stock <= 5:
-            lines.append(f"🔥 <b>Shoshiling — atigi {stock} dona qoldi!</b>")
+            lines.append(f"\n🔥 <b>Shoshiling — atigi {stock} dona qoldi!</b>")
 
+    # ── Tavsif ──
     if desc:
-        lines.append(f"{divider()}\n📝 {desc}")
+        lines.append(f"\n📝 {desc}")
 
-    # Rasm haqida ogohlantirish — ba'zi rasmlar mahsulotga o'xshash, lekin aynan
-    # shu rasmdagi mahsulot bo'lmasligi mumkin (xaridor noto'g'ri kutmasligi uchun).
-    lines.append(
-        "ℹ️ <i>Eslatma: rasm namunaviy bo'lishi mumkin — mahsulot rasmga "
-        "o'xshash, lekin aynan shu rasmdagi bo'lmasligi mumkin.</i>"
-    )
-
-    # Reyting
-    if rev_cnt:
-        stars = "⭐" * min(int(rating), 5)
-        lines.append(f"{divider()}\n{stars} {rating}  ·  💬 {rev_cnt} ta sharh")
-
-    lines.append(divider())
-    # Yetkazib berish narxi mahsulot narxiga qarab: 300 000 dan yuqori — BEPUL,
-    # aks holda 19 000 so'm.
+    # ── Yetkazib berish (bitta qator) ──
     fee = delivery_fee_for(price)
-    lines.append(f"🚚 Yetkazib berish: <b>{delivery_text(fee)}</b>  ·  🚕 Bugun yetkazamiz")
     if fee:
-        # Hali bepulga yetmagan — xaridorni rag'batlantirish uchun eslatma.
-        lines.append(f"🎉 <b>{money(FREE_DELIVERY_THRESHOLD)} dan yuqori xaridga — BEPUL</b>")
+        lines.append(
+            f"\n🚚 Yetkazish: <b>{money(fee)}</b> · "
+            f"{money(FREE_DELIVERY_THRESHOLD)}+ xaridga BEPUL · bugun yetkazamiz"
+        )
+    else:
+        lines.append("\n🚚 <b>Yetkazish BEPUL 🎉</b> · bugun yetkazamiz")
+
+    # Qisqa eslatma (avval 2 qatorli edi).
+    lines.append("ℹ️ <i>Rasm namunaviy bo'lishi mumkin.</i>")
     return "\n".join(lines)
 
 
