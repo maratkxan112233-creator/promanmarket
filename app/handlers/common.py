@@ -81,6 +81,37 @@ SELLER_INVITE_BANNER = (
 )
 
 
+async def _send_to_auction(photo_id: str | None, caption: str):
+    """Yangi buyurtmani "AUKSION" guruhiga yuboradi (rasm + matn).
+
+    Guruh ID sozlanmagan (0) bo'lsa — hech narsa qilmaydi. Xato bo'lsa
+    asosiy buyurtma jarayoniga to'sqinlik qilmaydi (jim o'tkazib yuboriladi)."""
+    gid = settings.AUCTION_GROUP_ID
+    if not gid:
+        return
+    try:
+        from app.bot.bot import bot
+        if photo_id:
+            await bot.send_photo(gid, photo_id, caption=caption, parse_mode="HTML")
+        else:
+            await bot.send_message(gid, caption, parse_mode="HTML")
+    except Exception:
+        pass
+
+
+# ─── /id — joriy chatning ID sini ko'rsatadi (AUKSION guruhini sozlash uchun) ──
+@router.message(F.text.regexp(r"^/id(@\w+)?\b"))
+async def show_chat_id(message: Message):
+    chat = message.chat
+    await message.answer(
+        f"🆔 <b>Chat ID:</b> <code>{chat.id}</code>\n"
+        f"📛 Turi: {chat.type}\n\n"
+        "Buyurtmalar shu guruhga tushishi uchun bu raqamni .env faylidagi "
+        "<code>AUCTION_GROUP_ID</code> ga yozing.",
+        parse_mode="HTML",
+    )
+
+
 def _city_sellers(city: str) -> list[tuple[str, dict]]:
     """Shu shahardagi sellerlar ro'yxati (uid, yozuv) — tartibi saqlangan holda.
     Matn ro'yxati va tugmalar BIR XIL ketma-ketlikda bo'lishi uchun ishlatiladi."""
@@ -1019,6 +1050,18 @@ async def order_phone(message: Message, state: FSMContext):
     except Exception:
         pass
 
+    # ── "AUKSION" guruhiga: yangi buyurtma (rasm + raqam + tel) ──
+    photos = product_photos(p)
+    await _send_to_auction(
+        photos[0] if photos else None,
+        f"🆕 <b>Yangi buyurtma #{order_id}</b>\n"
+        f"📦 {p['name']}\n"
+        f"🔢 {qty} dona × {money(unit)} = <b>{money(total)}</b>\n"
+        f"👤 {message.from_user.full_name}\n"
+        f"📱 {phone}\n"
+        f"📍 {data.get('address', '—')}"
+    )
+
 
 # ─── 5) chek rasmi qabul qilinadi → admin tasdig'iga yuboriladi ─────────────
 @router.message(OrderState.receipt, F.photo)
@@ -1496,6 +1539,20 @@ async def cart_phone(message: Message, state: FSMContext):
         f"Chek tasdiqlangach buyurtmangiz tayyorlanadi.\n"
         f"❓ Muammo bo'lsa — admin: @{settings.ADMIN_USERNAME}",
         parse_mode="HTML", reply_markup=cancel_keyboard,
+    )
+
+    # ── "AUKSION" guruhiga: yangi savat buyurtmasi (rasm + raqamlar + tel) ──
+    first_p = created[0][1]
+    first_photos = product_photos(first_p)
+    ids_txt = ", ".join(f"#{oid}" for oid, *_ in created)
+    await _send_to_auction(
+        first_photos[0] if first_photos else None,
+        f"🆕 <b>Yangi buyurtma (savat)</b>  {ids_txt}\n"
+        f"{items_txt}"
+        f"💰 Umumiy: <b>{money(combined_total)}</b>\n"
+        f"👤 {message.from_user.full_name}\n"
+        f"📱 {phone}\n"
+        f"📍 {address}"
     )
 
 
