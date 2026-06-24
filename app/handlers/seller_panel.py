@@ -846,7 +846,10 @@ async def seller_view_receipt(call: CallbackQuery):
     if not o.get("receipt"):
         await call.answer("Chek yo'q.", show_alert=True); return
     try:
-        await call.message.answer_photo(o["receipt"], caption=f"🧾 Buyurtma #{oid} cheki")
+        if o.get("receipt_type") == "document":
+            await call.message.answer_document(o["receipt"], caption=f"🧾 Buyurtma #{oid} cheki")
+        else:
+            await call.message.answer_photo(o["receipt"], caption=f"🧾 Buyurtma #{oid} cheki")
     except Exception:
         await call.answer("Chekni ko'rsatib bo'lmadi.", show_alert=True)
     await call.answer()

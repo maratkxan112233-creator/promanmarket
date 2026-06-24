@@ -81,6 +81,30 @@ SELLER_INVITE_BANNER = (
 )
 
 
+def _extract_receipt(message: Message):
+    """Chekni xabardan ajratadi → (file_id, 'photo'|'document') yoki (None, None).
+
+    Rasm (screenshot) yoki PDF fayl qabul qilinadi."""
+    if message.photo:
+        return message.photo[-1].file_id, "photo"
+    doc = message.document
+    if doc and (doc.mime_type == "application/pdf"
+                or (doc.file_name or "").lower().endswith(".pdf")):
+        return doc.file_id, "document"
+    return None, None
+
+
+async def _send_receipt(chat_id, file_id, rtype, caption, reply_markup=None):
+    """Chekni turiga qarab yuboradi: rasm bo'lsa send_photo, PDF bo'lsa send_document."""
+    from app.bot.bot import bot
+    if rtype == "document":
+        await bot.send_document(chat_id, file_id, caption=caption,
+                                parse_mode="HTML", reply_markup=reply_markup)
+    else:
+        await bot.send_photo(chat_id, file_id, caption=caption,
+                             parse_mode="HTML", reply_markup=reply_markup)
+
+
 async def _send_photo_or_text(chat_id: int, photo_id: str | None, caption: str):
     """Chatga rasm+matn (yoki rasm bo'lmasa — faqat matn) yuboradi.
 
@@ -1027,7 +1051,7 @@ async def order_phone(message: Message, state: FSMContext):
         f"{card_name_line}"
         f"{divider()}\n"
         f"{deliver_line}"
-        f"🧾 <b>To'lov chekining rasmini (skrinshot) shu yerga yuboring.</b>\n"
+        f"🧾 <b>To'lov chekining rasmini (skrinshot) yoki PDF faylini shu yerga yuboring.</b>\n"
         f"Chek tasdiqlangach buyurtmangiz tayyorlanadi.\n"
         f"❓ Muammo bo'lsa — admin: @{settings.ADMIN_USERNAME}",
         parse_mode="HTML", reply_markup=cancel_keyboard
@@ -1047,7 +1071,7 @@ async def order_phone(message: Message, state: FSMContext):
 
 
 # ─── 5) chek rasmi qabul qilinadi → admin tasdig'iga yuboriladi ─────────────
-@router.message(OrderState.receipt, F.photo)
+@router.message(OrderState.receipt, F.photo | F.document)
 async def order_receipt(message: Message, state: FSMContext):
     data = await state.get_data()
     order_id = data.get("order_id")
@@ -1057,8 +1081,15 @@ async def order_receipt(message: Message, state: FSMContext):
         await message.answer("❌ Buyurtma topilmadi.", reply_markup=main_menu)
         return
 
-    receipt_id = message.photo[-1].file_id
-    update_order_fields(order_id, {"receipt": receipt_id})
+    receipt_id, rtype = _extract_receipt(message)
+    if receipt_id is None:
+        await message.answer(
+            "🧾 Iltimos, to'lov chekining <b>rasmini yoki PDF faylini</b> yuboring "
+            "(yoki ❌ Bekor qilish).",
+            parse_mode="HTML"
+        )
+        return
+    update_order_fields(order_id, {"receipt": receipt_id, "receipt_type": rtype})
     await state.clear()
 
     # Chek rasmini xaridor chatidan o'chiramiz — aks holda Telegram rasm
@@ -1099,9 +1130,7 @@ async def order_receipt(message: Message, state: FSMContext):
         f"📍 {o.get('address','—')}"
     )
     try:
-        from app.bot.bot import bot
-        await bot.send_photo(settings.OWNER_ID, receipt_id, caption=caption,
-                             parse_mode="HTML", reply_markup=kb)
+        await _send_receipt(settings.OWNER_ID, receipt_id, rtype, caption, kb)
     except Exception:
         pass
 
@@ -1109,7 +1138,7 @@ async def order_receipt(message: Message, state: FSMContext):
 @router.message(OrderState.receipt)
 async def order_receipt_invalid(message: Message):
     await message.answer(
-        "🧾 Iltimos, to'lov chekining <b>rasmini</b> yuboring "
+        "🧾 Iltimos, to'lov chekining <b>rasmini yoki PDF faylini</b> yuboring "
         "(yoki ❌ Bekor qilish).",
         parse_mode="HTML"
     )
@@ -1518,7 +1547,7 @@ async def cart_phone(message: Message, state: FSMContext):
         f"<b>🟢 Yetkazib berish: SHU BUGUNOQ</b>\n\n"
         f"💵 Yetkazilganda <b>kurierga naqd</b> to'laysiz: qolgan mahsulot puli "
         f"<b>{money(remain)}</b>{fee_note}.\n\n"
-        f"🧾 <b>To'lov chekining rasmini (skrinshot) shu yerga yuboring.</b>\n"
+        f"🧾 <b>To'lov chekining rasmini (skrinshot) yoki PDF faylini shu yerga yuboring.</b>\n"
         f"Chek tasdiqlangach buyurtmangiz tayyorlanadi.\n"
         f"❓ Muammo bo'lsa — admin: @{settings.ADMIN_USERNAME}",
         parse_mode="HTML", reply_markup=cancel_keyboard,
@@ -1540,7 +1569,7 @@ async def cart_receipt_cancel(message: Message, state: FSMContext):
     )
 
 
-@router.message(CartCheckoutState.receipt, F.photo)
+@router.message(CartCheckoutState.receipt, F.photo | F.document)
 async def cart_receipt(message: Message, state: FSMContext):
     data = await state.get_data()
     group_id = data.get("group_id")
@@ -1550,9 +1579,16 @@ async def cart_receipt(message: Message, state: FSMContext):
         await message.answer("❌ Buyurtma topilmadi.", reply_markup=menu_for(message.from_user.id))
         return
 
-    receipt_id = message.photo[-1].file_id
+    receipt_id, rtype = _extract_receipt(message)
+    if receipt_id is None:
+        await message.answer(
+            "🧾 Iltimos, to'lov chekining <b>rasmini yoki PDF faylini</b> yuboring "
+            "(yoki ❌ Bekor qilish).",
+            parse_mode="HTML",
+        )
+        return
     for o in orders:
-        update_order_fields(o["id"], {"receipt": receipt_id})
+        update_order_fields(o["id"], {"receipt": receipt_id, "receipt_type": rtype})
     await state.clear()
 
     # Chek rasmini xaridor chatidan o'chiramiz — aks holda Telegram rasm
@@ -1596,9 +1632,7 @@ async def cart_receipt(message: Message, state: FSMContext):
         ],
     ])
     try:
-        from app.bot.bot import bot
-        await bot.send_photo(settings.OWNER_ID, receipt_id, caption=caption,
-                             parse_mode="HTML", reply_markup=kb)
+        await _send_receipt(settings.OWNER_ID, receipt_id, rtype, caption, kb)
     except Exception:
         pass
 
@@ -1606,7 +1640,7 @@ async def cart_receipt(message: Message, state: FSMContext):
 @router.message(CartCheckoutState.receipt)
 async def cart_receipt_invalid(message: Message):
     await message.answer(
-        "🧾 Iltimos, to'lov chekining <b>rasmini</b> yuboring "
+        "🧾 Iltimos, to'lov chekining <b>rasmini yoki PDF faylini</b> yuboring "
         "(yoki ❌ Bekor qilish).",
         parse_mode="HTML",
     )
@@ -1622,7 +1656,7 @@ async def cart_resend_receipt(call: CallbackQuery, state: FSMContext):
     await state.set_state(CartCheckoutState.receipt)
     await state.update_data(group_id=group_id)
     await call.message.answer(
-        "🧾 Savat buyurtmangiz uchun to'lov chekining rasmini qayta yuboring:",
+        "🧾 Savat buyurtmangiz uchun to'lov chekining rasmini yoki PDF faylini qayta yuboring:",
         reply_markup=cancel_keyboard,
     )
 
@@ -1676,7 +1710,7 @@ async def resend_receipt(call: CallbackQuery, state: FSMContext):
     await state.set_state(OrderState.receipt)
     await state.update_data(order_id=oid)
     await call.message.answer(
-        f"🧾 Buyurtma #{oid} uchun to'lov chekining rasmini yuboring:",
+        f"🧾 Buyurtma #{oid} uchun to'lov chekining rasmini yoki PDF faylini yuboring:",
         reply_markup=cancel_keyboard
     )
     await call.answer()
