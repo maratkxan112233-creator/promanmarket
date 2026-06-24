@@ -10,9 +10,9 @@ class Settings(BaseSettings):
     PLATFORM_CARD_NAME: str = ""     # platforma kartasi egasining ismi
     COMMISSION_RATE: float = 0.10     # platforma komissiyasi (0.10 = 10%)
     # "AUKSION" guruhi — har bir yangi buyurtma (rasm + raqam + tel) shu yerga
-    # to'g'ridan-to'g'ri tushadi. Botni guruhga qo'shib, /id yozib, kelgan
-    # raqamni (manfiy, masalan -1001234567890) shu yerga yozing. 0 — o'chirilgan.
-    AUCTION_GROUP_ID: int = 0
+    # to'g'ridan-to'g'ri tushadi. .env dagi AUCTION_GROUP_ID bilan almashtirish
+    # mumkin; standart qiymat — AUKSION guruhining ID si. 0 — o'chirilgan.
+    AUCTION_GROUP_ID: int = -1004222209334
     DATABASE_URL: Optional[str] = None
     REDIS_URL: Optional[str] = None
 
