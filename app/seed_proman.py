@@ -148,6 +148,133 @@ _PRODUCTS = [
      "Epson L3250 Wi-Fi rangli printer-skaner-kopya (3 in 1) — uy va ofis uchun "
      "tejamkor.",
      2499000, ["d8an1qs9g1ktqmlpldd0", "d7qpv7c9g1ktqmljb3vg", "d7qpv8s9g1ktqmljb41g"]),
+
+    # === 2-to'plam: Uzum'da oxirgi kunlarda eng ko'p sotilgan 200 000–350 000
+    # so'mlik 25 mahsulot (mashhurlik bo'yicha). Narx va 3 rasm Uzum'dan olingan.
+    ("Bug'li dazmol RAF HY, 2600 Vt, keramik",
+     "RAF HY bug'li dazmol, 2600 Vt, keramik qoplamali tovon — kiyimni tez va "
+     "silliq dazmollaydi.",
+     245520, ["d5ii8ijtqdhu87jrmsa0", "cud195c5j42bjc4b6970", "d5ii8irtqdhu87jrmsag"]),
+
+    ("Elektr sharbat siqqich, oshxona kombayni",
+     "Ko'p funksiyali elektr sharbat siqqich — meva va sabzavotdan tezda toza "
+     "sharbat tayyorlaydi.",
+     298900, ["d6kgs5dsp2tohdbcdip0", "d6kgur5sp2tohdbcdk10", "d6kguv21146th72sph7g"]),
+
+    ("Qo'l blenderi Sokany, 5 tasi 1 da",
+     "Sokany qo'l blenderi, 5 ta nasadkali: aralashtirish, maydalash va venchik — "
+     "sho'rva, smuzi va qiyma uchun.",
+     244020, ["d7jvrirsv8vghom28ch0", "d7jvtdk3obpkks11h39g", "d7jvt743obpkks11h390"]),
+
+    ("Multivarka, 21 rejimli",
+     "21 rejimli multivarka: bug'da pishirish, guruch, palov va tez pishirish — "
+     "retseptlar kitobi bilan.",
+     242060, ["d7pgeqs9g1ktqmlipoqg", "cts9b1tht56ksubbh850", "cts9b3mi4n324lr284q0"]),
+
+    ("Induksion plita VITEK V-7031, 3800 Vt",
+     "VITEK V-7031 induksion plita, sensorli, 3800 Vt, 4 rejim — uy va hovli uchun "
+     "tez va xavfsiz pishirish.",
+     262640, ["d4n8n8dsp2tr82i87k0g", "d4n8n6uj76olj6nfes20", "d4n8n6tsp2tr82i87ju0"]),
+
+    ("Marwa elektr plita",
+     "Marwa elektr plita — ixcham va tejamkor, choy qaynatish hamda ovqat pishirish "
+     "uchun qulay.",
+     222332, ["d88uehk9g1ktqmlp3dn0", "d88uehbsv8vo2t0h0oeg", "d88lmdjsv8vo2t0grrh0"]),
+
+    ("Pol ventilyatori 50 sm, 100 Vt",
+     "Polga qo'yiladigan ventilyator, 50 sm, 100 Vt, 5 parrakli, 3 tezlik — kuchli "
+     "va jim sovutish.",
+     246510, ["d84ulua1146tv071136g", "d84uluc9g1ktqmlngva0", "d84uluc9g1ktqmlngvag"]),
+
+    ("Konditsioner deflektori 9-12",
+     "Konditsioner uchun himoya ekran-deflektor (9-12 model) — sovuq havoni "
+     "yo'naltiradi, to'g'ridan shamollashdan saqlaydi.",
+     244530, ["cpe1cbrmdtjnp737v950", "cg9cshnhj8j9g69a3q50", "cg9cshng49devoaapb20"]),
+
+    ("Stol ventilyatori, 3 tezlikli",
+     "Stol ustiga qo'yiladigan ventilyator, 3 tezlik, jim ishlaydi — uy va ofis "
+     "uchun energiya tejamkor.",
+     245025, ["d6vs51a1146ojv988ndg", "d6n61hlsp2tohdbdf0cg", "d3manjrq345l7k05pucg"]),
+
+    ("Vakuumator + 50 ta paket",
+     "Vakuum paket yopishtirgich (vakuumator), 50 ta paket bilan — mahsulotni "
+     "havosiz, uzoq muddat saqlash uchun.",
+     244020, ["d87bm921146tv071uul0", "d87bm93sv8vo2t0gc0gg", "d87bm921146tv071uukg"]),
+
+    ("Portativ mini kir yuvish mashinasi",
+     "Yig'ma portativ mini kir yuvish mashinasi — kichik kiyim, sayohat va ijara "
+     "uy uchun qulay yechim.",
+     296010, ["d846saq1146tv070ohpg", "d846sas9g1ktqmln8fc0", "d35q857iub30vbruct20"]),
+
+    ("Bug'li tozalagich, 17 nasadkali",
+     "Bug'li tozalagich (paroochistitel), 17 nasadka — uy, oshxona va hammomni "
+     "kimyosiz, bug' bilan tozalaydi.",
+     342054, ["d03onec7fd1idpht7sgg", "d03rm6k7fd1idpht8qsg", "d03rm6s7fd1idpht8qtg"]),
+
+    ("Par dazmol SONIFER, bug'li",
+     "SONIFER vertikal bug'li dazmol (parli) — osilgan kiyimni tez tekislaydi va "
+     "dezinfeksiya qiladi.",
+     341550, ["d58pukjtqdhjp1vd42d0", "d58pukbs2tab83s8tqgg", "d58pukgjsv1neacrrh80"]),
+
+    ("Fotoepilyator, sovutish effektli",
+     "Yuz va tana uchun professional fotoepilyator, sovutish effekti bilan — uyda "
+     "ortiqcha tukni yo'qotish uchun.",
+     290030, ["d7a2lsa1146ojv9cfsmg", "d7a2lsjsv8vlb6mmekbg", "d66jgu5sp2tk1m7i28fg"]),
+
+    ("Soch dazmoli, taroqli stayler",
+     "Taroqli soch dazmoli-stayler — sochni to'g'rilash va jingalak qilish uchun "
+     "ko'p funksiyali keramik uskuna.",
+     334640, ["ctbvoglpb7f7ago86al0", "ctbvogmi4n3ehka39keg", "d3dqog52lln30qq4cs50"]),
+
+    ("Fen-taroq VGR V-498, 360 daraja",
+     "VGR V-498 fen-taroq, 360 daraja aylanadi, keramik qoplama — quritish va "
+     "turmaklash bir vaqtning o'zida.",
+     271503, ["csgtruj4nkdhfdv7ffkg", "csb00m3vgbkl7noksong", "csb00m5pq3ghb2qk49bg"]),
+
+    ("Simsiz trimmer VGR 107",
+     "VGR 107 professional simsiz trimmer — soqol, mo'ylov va soch olish uchun, "
+     "akkumulyatorli va ixcham.",
+     252103, ["d4u2eljs2ta3qj5k6ltg", "d4u2el8jsv1o95ci0mjg", "d4u2elbs2ta3qj5k6lt0"]),
+
+    ("Fen-stayler 7 in 1, barcha sochlar uchun",
+     "7 in 1 fen-stayler — barcha turdagi sochlar uchun: quritish, to'g'rilash va "
+     "jingalak nasadkalari bilan.",
+     349200, ["d83v7321146tv070k5h0", "d83v8349g1ktqmln46d0", "d83v8349g1ktqmln46c0"]),
+
+    ("Induksion plita Bosch, sensorli",
+     "Sensorli induksion plita Bosch, 4 rejimli — uy va hovli uchun tez qizadigan "
+     "zamonaviy elektr plita.",
+     290080, ["d64m6bedd7e7njq7t0eg", "d7lnenbsv8vo2t08vtf0", "d7gr6ma1146ojv9f8oe0"]),
+
+    ("Smart Watch x series, aqlli soat",
+     "Aqlli soat (Smart Watch x series) — erkak va ayollar uchun: qadam, yurak "
+     "urishi va telefon bildirishnomalari.",
+     249900, ["d5pr8jmj76og35gk7080", "d52j8crs2tab83s75usg", "d5pr8j6j76og35gk7070"]),
+
+    ("Wi-Fi router CPE 4G/5G, SIM kartali",
+     "CPE Wi-Fi router, 4G/5G, SIM kartali, ikki diapazonli — uy va ofisga simli "
+     "internetsiz tez Wi-Fi.",
+     325710, ["cumtip45j42bjc4e3ql0", "cq72q7s0u44j0e4m79ag", "cq72q9k0u44j0e4m79bg"]),
+
+    ("Tugmali telefon GM-B311V (Gusto 3)",
+     "GM-B311V (Gusto 3) tugmali telefon, 2 SIM, 1.3 MP kamera, 800 mA·soat — sodda "
+     "va ishonchli aloqa.",
+     276210, ["d71aj5c3obpjedc3t380", "d71aj3k3obpjedc3t35g", "d71aj421146ojv98r3r0"]),
+
+    ("Smart TV Box Android 4K, Wi-Fi",
+     "Android Smart TV Box, 4K, Wi-Fi, IPTV — oddiy televizorni smart televizorga "
+     "aylantiradi, ilovalar bilan.",
+     266310, ["d6nq0o21146th72u1un0", "d6npu2i1146th72u1u3g", "d7esu8rsv8vlb6mobud0"]),
+
+    ("O'yin pristavkasi Game Stick M15, 4K",
+     "Game Stick M15 o'yin pristavkasi, 4K Ultra HD, mingdan ortiq retro o'yin — "
+     "televizorga to'g'ridan ulanadi.",
+     303930, ["cp27vf40u44tu6dpmb40", "cjmbkdcjvf2ofbh8a4dg", "cjmbkdcjvf2ofbh8a4d0"]),
+
+    ("Simsiz quloqchin Hoco EQ27, ANC",
+     "Hoco EQ27 simsiz quloqchin — ANC shovqin bostirish va AI tarjimon funksiyasi "
+     "bilan, toza ovoz.",
+     222130, ["d6ltaqi1146th72tc1ag", "d6ltav8s9rf3ubr02020", "d6ltb1i1146th72tc1h0"]),
 ]
 
 
