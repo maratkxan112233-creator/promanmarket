@@ -81,22 +81,32 @@ SELLER_INVITE_BANNER = (
 )
 
 
-async def _send_to_auction(photo_id: str | None, caption: str):
-    """Yangi buyurtmani "AUKSION" guruhiga yuboradi (rasm + matn).
+async def _send_photo_or_text(chat_id: int, photo_id: str | None, caption: str):
+    """Chatga rasm+matn (yoki rasm bo'lmasa — faqat matn) yuboradi.
 
-    Guruh ID sozlanmagan (0) bo'lsa — hech narsa qilmaydi. Xato bo'lsa
-    asosiy buyurtma jarayoniga to'sqinlik qilmaydi (jim o'tkazib yuboriladi)."""
-    gid = settings.AUCTION_GROUP_ID
-    if not gid:
+    chat_id 0 bo'lsa yoki xato chiqsa — jim o'tkazib yuboriladi (asosiy buyurtma
+    jarayoniga to'sqinlik qilmasin)."""
+    if not chat_id:
         return
     try:
         from app.bot.bot import bot
         if photo_id:
-            await bot.send_photo(gid, photo_id, caption=caption, parse_mode="HTML")
+            await bot.send_photo(chat_id, photo_id, caption=caption, parse_mode="HTML")
         else:
-            await bot.send_message(gid, caption, parse_mode="HTML")
+            await bot.send_message(chat_id, caption, parse_mode="HTML")
     except Exception:
         pass
+
+
+async def _send_to_auction(photo_id: str | None, qty: int):
+    """AUKSION guruhiga — barcha a'zolarga FAQAT rasm + soni ko'rsatiladi.
+
+    Xaridor maxfiyligi uchun guruhda ism/telefon/narx/buyurtma raqami
+    ko'rsatilmaydi (ular faqat adminga shaxsiy yuboriladi)."""
+    await _send_photo_or_text(
+        settings.AUCTION_GROUP_ID, photo_id,
+        f"🆕 <b>Yangi buyurtma</b>\n🔢 Soni: <b>{qty} dona</b>"
+    )
 
 
 # ─── /id — joriy chatning ID sini ko'rsatadi (AUKSION guruhini sozlash uchun) ──
@@ -1030,36 +1040,25 @@ async def order_phone(message: Message, state: FSMContext):
     # Seller xabari admin to'lovni tasdiqlaganda yuboriladi
     # (app/handlers/admin.py → _confirm_single_order).
 
-    # ── Adminga: yangi buyurtma xabari (to'liq) ──
-    try:
-        from app.bot.bot import bot
-        await bot.send_message(
-            settings.OWNER_ID,
-            f"🆕 <b>Yangi buyurtma #{order_id}</b>\n\n"
-            f"📦 {p['name']}\n"
-            f"🔢 {qty} dona × {unit:,} = <b>{total:,} so'm</b>\n"
-            f"{promo_summary}"
-            f"💵 Komissiya ({pct}%): {commission:,} so'm\n"
-            f"👤 {message.from_user.full_name} (ID: {message.from_user.id})\n"
-            f"📱 {phone}\n"
-            f"📍 {data['address']}\n"
-            f"🚚 Yetkazib berish: {delivery_text(fee)}\n"
-            f"🧾 To'lov cheki kutilmoqda...",
-            parse_mode="HTML"
-        )
-    except Exception:
-        pass
-
-    # ── "AUKSION" guruhiga: yangi buyurtma (rasm + raqam + tel) ──
     photos = product_photos(p)
-    await _send_to_auction(
-        photos[0] if photos else None,
+    photo_id = photos[0] if photos else None
+
+    # ── AUKSION guruhiga: barcha a'zolarga FAQAT rasm + soni ──
+    await _send_to_auction(photo_id, qty)
+
+    # ── Adminga (shaxsiy): to'liq ma'lumot — raqam, rasm, nomi, telefon ──
+    await _send_photo_or_text(
+        settings.OWNER_ID, photo_id,
         f"🆕 <b>Yangi buyurtma #{order_id}</b>\n"
         f"📦 {p['name']}\n"
         f"🔢 {qty} dona × {money(unit)} = <b>{money(total)}</b>\n"
-        f"👤 {message.from_user.full_name}\n"
+        f"{promo_summary}"
+        f"💵 Komissiya ({pct}%): {money(commission)}\n"
+        f"👤 {message.from_user.full_name} (ID: {message.from_user.id})\n"
         f"📱 {phone}\n"
-        f"📍 {data.get('address', '—')}"
+        f"📍 {data['address']}\n"
+        f"🚚 Yetkazib berish: {delivery_text(fee)}\n"
+        f"🧾 To'lov cheki kutilmoqda..."
     )
 
 
@@ -1541,19 +1540,22 @@ async def cart_phone(message: Message, state: FSMContext):
         parse_mode="HTML", reply_markup=cancel_keyboard,
     )
 
-    # ── "AUKSION" guruhiga: yangi savat buyurtmasi (rasm + raqamlar + tel) ──
-    first_p = created[0][1]
-    first_photos = product_photos(first_p)
-    ids_txt = ", ".join(f"#{oid}" for oid, *_ in created)
-    await _send_to_auction(
-        first_photos[0] if first_photos else None,
-        f"🆕 <b>Yangi buyurtma (savat)</b>  {ids_txt}\n"
-        f"{items_txt}"
-        f"💰 Umumiy: <b>{money(combined_total)}</b>\n"
-        f"👤 {message.from_user.full_name}\n"
-        f"📱 {phone}\n"
-        f"📍 {address}"
-    )
+    # ── Har bir mahsulot uchun alohida: guruhga (rasm+soni), adminga (to'liq) ──
+    for oid, cp, cqty, cunit, ctotal, ccommission in created:
+        cphotos = product_photos(cp)
+        cphoto_id = cphotos[0] if cphotos else None
+        # Guruhga: barcha a'zolarga FAQAT rasm + soni
+        await _send_to_auction(cphoto_id, cqty)
+        # Adminga (shaxsiy): raqam, rasm, nomi, telefon
+        await _send_photo_or_text(
+            settings.OWNER_ID, cphoto_id,
+            f"🆕 <b>Yangi buyurtma #{oid}</b> (savat)\n"
+            f"📦 {cp['name']}\n"
+            f"🔢 {cqty} dona × {money(cunit)} = <b>{money(ctotal)}</b>\n"
+            f"👤 {message.from_user.full_name} (ID: {message.from_user.id})\n"
+            f"📱 {phone}\n"
+            f"📍 {address}"
+        )
 
 
 # ─── Savat cheki qabul qilinadi → admin tasdig'iga (guruh) ───────────────────
