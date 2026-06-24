@@ -98,14 +98,14 @@ async def _send_photo_or_text(chat_id: int, photo_id: str | None, caption: str):
         pass
 
 
-async def _send_to_auction(photo_id: str | None, qty: int):
-    """AUKSION guruhiga — barcha a'zolarga FAQAT rasm + soni ko'rsatiladi.
+async def _send_to_auction(photo_id: str | None, order_id, qty: int):
+    """AUKSION guruhiga — barcha a'zolarga FAQAT rasm + buyurtma raqami + soni.
 
-    Xaridor maxfiyligi uchun guruhda ism/telefon/narx/buyurtma raqami
-    ko'rsatilmaydi (ular faqat adminga shaxsiy yuboriladi)."""
+    Xaridor maxfiyligi uchun guruhda ism/telefon/narx/mahsulot nomi
+    ko'rsatilmaydi."""
     await _send_photo_or_text(
         settings.AUCTION_GROUP_ID, photo_id,
-        f"🆕 <b>Yangi buyurtma</b>\n🔢 Soni: <b>{qty} dona</b>"
+        f"🆕 <b>Yangi buyurtma #{order_id}</b>\n🔢 Soni: <b>{qty} dona</b>"
     )
 
 
@@ -1040,26 +1040,11 @@ async def order_phone(message: Message, state: FSMContext):
     # Seller xabari admin to'lovni tasdiqlaganda yuboriladi
     # (app/handlers/admin.py → _confirm_single_order).
 
+    # ── AUKSION guruhiga: rasm + buyurtma raqami + soni (boshqa ma'lumot yo'q) ──
+    # Adminga buyurtma yaratilganda alohida xabar YUBORILMAYDI (chalg'itmasligi
+    # uchun) — to'liq ma'lumot to'lov cheki kelganda tasdiqlash xabarida keladi.
     photos = product_photos(p)
-    photo_id = photos[0] if photos else None
-
-    # ── AUKSION guruhiga: barcha a'zolarga FAQAT rasm + soni ──
-    await _send_to_auction(photo_id, qty)
-
-    # ── Adminga (shaxsiy): to'liq ma'lumot — raqam, rasm, nomi, telefon ──
-    await _send_photo_or_text(
-        settings.OWNER_ID, photo_id,
-        f"🆕 <b>Yangi buyurtma #{order_id}</b>\n"
-        f"📦 {p['name']}\n"
-        f"🔢 {qty} dona × {money(unit)} = <b>{money(total)}</b>\n"
-        f"{promo_summary}"
-        f"💵 Komissiya ({pct}%): {money(commission)}\n"
-        f"👤 {message.from_user.full_name} (ID: {message.from_user.id})\n"
-        f"📱 {phone}\n"
-        f"📍 {data['address']}\n"
-        f"🚚 Yetkazib berish: {delivery_text(fee)}\n"
-        f"🧾 To'lov cheki kutilmoqda..."
-    )
+    await _send_to_auction(photos[0] if photos else None, order_id, qty)
 
 
 # ─── 5) chek rasmi qabul qilinadi → admin tasdig'iga yuboriladi ─────────────
@@ -1540,22 +1525,11 @@ async def cart_phone(message: Message, state: FSMContext):
         parse_mode="HTML", reply_markup=cancel_keyboard,
     )
 
-    # ── Har bir mahsulot uchun alohida: guruhga (rasm+soni), adminga (to'liq) ──
+    # ── AUKSION guruhiga: har bir mahsulot alohida — rasm + raqami + soni ──
+    # (Adminga buyurtma yaratilganda alohida xabar yuborilmaydi — chalg'itmasin.)
     for oid, cp, cqty, cunit, ctotal, ccommission in created:
         cphotos = product_photos(cp)
-        cphoto_id = cphotos[0] if cphotos else None
-        # Guruhga: barcha a'zolarga FAQAT rasm + soni
-        await _send_to_auction(cphoto_id, cqty)
-        # Adminga (shaxsiy): raqam, rasm, nomi, telefon
-        await _send_photo_or_text(
-            settings.OWNER_ID, cphoto_id,
-            f"🆕 <b>Yangi buyurtma #{oid}</b> (savat)\n"
-            f"📦 {cp['name']}\n"
-            f"🔢 {cqty} dona × {money(cunit)} = <b>{money(ctotal)}</b>\n"
-            f"👤 {message.from_user.full_name} (ID: {message.from_user.id})\n"
-            f"📱 {phone}\n"
-            f"📍 {address}"
-        )
+        await _send_to_auction(cphotos[0] if cphotos else None, oid, cqty)
 
 
 # ─── Savat cheki qabul qilinadi → admin tasdig'iga (guruh) ───────────────────
