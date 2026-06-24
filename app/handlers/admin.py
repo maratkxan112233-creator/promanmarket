@@ -473,6 +473,18 @@ async def _confirm_single_order(o: dict, notify_buyer: bool = True, speed: str =
                 # Kurier botga /start bosmagan yoki bloklagan bo'lsa — o'tkazib yuboramiz
                 pass
 
+    # ── AUKSION guruhiga: rasm + buyurtma raqami + soni ──
+    # FAQAT shu yerda (to'lov admin tomonidan tasdiqlanganda) yuboriladi —
+    # buyurtma yaratilganda emas. Pickup/taksi — ikkalasiga ham tegishli.
+    try:
+        from app.handlers.common import _send_to_auction
+        prod = get_product_by_id(o.get("product_id"))
+        photos = product_photos(prod) if prod else []
+        await _send_to_auction(photos[0] if photos else None,
+                               oid, o.get("quantity", 1))
+    except Exception:
+        pass
+
 
 @router.callback_query(F.data.startswith("paycfm_"))
 async def confirm_payment(call: CallbackQuery):

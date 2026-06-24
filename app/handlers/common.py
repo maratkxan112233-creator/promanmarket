@@ -1040,11 +1040,10 @@ async def order_phone(message: Message, state: FSMContext):
     # Seller xabari admin to'lovni tasdiqlaganda yuboriladi
     # (app/handlers/admin.py → _confirm_single_order).
 
-    # ── AUKSION guruhiga: rasm + buyurtma raqami + soni (boshqa ma'lumot yo'q) ──
-    # Adminga buyurtma yaratilganda alohida xabar YUBORILMAYDI (chalg'itmasligi
-    # uchun) — to'liq ma'lumot to'lov cheki kelganda tasdiqlash xabarida keladi.
-    photos = product_photos(p)
-    await _send_to_auction(photos[0] if photos else None, order_id, qty)
+    # ── AUKSION guruhiga buyurtma SHU YERDA YUBORILMAYDI ──
+    # Faqat admin to'lov chekini ko'rib tasdiqlaganda yuboriladi
+    # (app/handlers/admin.py → _confirm_single_order). Aks holda tasdiqlanmagan
+    # (chek yuborilmagan / bekor qilingan) buyurtmalar ham guruhga tushardi.
 
 
 # ─── 5) chek rasmi qabul qilinadi → admin tasdig'iga yuboriladi ─────────────
@@ -1525,11 +1524,9 @@ async def cart_phone(message: Message, state: FSMContext):
         parse_mode="HTML", reply_markup=cancel_keyboard,
     )
 
-    # ── AUKSION guruhiga: har bir mahsulot alohida — rasm + raqami + soni ──
-    # (Adminga buyurtma yaratilganda alohida xabar yuborilmaydi — chalg'itmasin.)
-    for oid, cp, cqty, cunit, ctotal, ccommission in created:
-        cphotos = product_photos(cp)
-        await _send_to_auction(cphotos[0] if cphotos else None, oid, cqty)
+    # ── AUKSION guruhiga buyurtmalar SHU YERDA YUBORILMAYDI ──
+    # Har bir buyurtma admin to'lovni tasdiqlaganda guruhga tushadi
+    # (app/handlers/admin.py → _confirm_single_order).
 
 
 # ─── Savat cheki qabul qilinadi → admin tasdig'iga (guruh) ───────────────────
