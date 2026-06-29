@@ -28,7 +28,7 @@ from app.keyboards.seller import (
 from app.states.seller_application import SearchState, OrderState, CartCheckoutState
 from app.app.config.settings import settings
 from app.ui import (
-    money, divider, title, category_label, product_category,
+    money, divider, title,
     product_emoji, product_sort_key, product_group_label,
 )
 
@@ -333,135 +333,118 @@ async def buyer_set_city(call: CallbackQuery):
     await _show_market(call.message, city)
 
 
-# Bitta xabardagi (inline-klaviaturadagi) mahsulotlar soni. Telegram bitta
-# klaviaturaga juda ko'p tugmani qabul qilmaydi (mahsulot 100 dan oshsa menyu
-# ochilmay qoladi). Shuning uchun "▶️ keyingi sahifa" tugmasi O'RNIGA mahsulotlar
-# ketma-ket bir nechta xabarga bo'lib yuboriladi — foydalanuvchi shunchaki pastga
-# aylantirib, BITTA UZUN RO'YXATdek ko'radi (hech qanday sahifa tugmasini bosmaydi).
-_SHOP_PER_PAGE = 40
+# Do'konga kirilganda mahsulotlar TO'LIQ KARTOCHKA (rasm albomi + narx + tavsif
+# + buyurtma tugmalari) bo'lib lentadek chiqadi. Do'konda 40+ mahsulot bo'lishi
+# mumkin — hammasini birdan yuborish sekin va Telegram flood limitiga olib keladi.
+# Shuning uchun har safar _FEED_BATCH talik partiya yuboriladi, oxirida
+# "⬇️ Ko'proq ko'rsatish" tugmasi (feed_<seller_id>_<offset>).
+_FEED_BATCH = 8
+
+# Kartochkalar orasidagi qisqa pauza — Telegram flood limitiga tushmaslik uchun.
+_FEED_GAP = 0.3
 
 
-def _shop_menu_chunks(seller_id: int):
-    """(sarlavha_matni, [klaviatura, ...]) — do'kon mahsulotlarining BUTUN ro'yxati,
-    har biri ≤_SHOP_PER_PAGE tugmali bo'laklarga bo'lingan holda.
+def _sorted_shop_products(seller_id: int) -> list:
+    """Do'kon mahsulotlari KATEGORIYA bo'yicha guruhlangan, har guruh ichida
+    arzonidan qimmatiga tartiblangan (lenta va eski ro'yxat bir xil tartibda)."""
+    products = get_seller_products(seller_id)
+    return sorted(products, key=lambda p: (product_sort_key(p), p.get("price", 0)))
 
-    Bo'laklar ketma-ket alohida xabar bo'lib yuboriladi, shu sababli sahifalash
-    (◀️/▶️) tugmalari KERAK EMAS — ro'yxat uzluksiz ko'rinadi."""
+
+async def _send_product_feed(message: Message, seller_id: int, offset: int, user_id: int) -> list:
+    """`offset` dan boshlab _FEED_BATCH ta mahsulotni kartochka qilib yuboradi.
+    Partiya ichida kategoriya o'zgarsa, ixcham bo'luvchi sarlavha xabari qo'yiladi.
+    Oxirida yana mahsulot qolsa "⬇️ Ko'proq ko'rsatish" tugmasi, bo'lmasa
+    "‹ Do'konlarga qaytish". Yuborilgan barcha xabar id'larini qaytaradi."""
+    products = _sorted_shop_products(seller_id)
+    batch    = products[offset:offset + _FEED_BATCH]
+    ids      = []
+
+    prev_grp = product_sort_key(products[offset - 1]) if offset > 0 else object()
+    for p in batch:
+        grp = product_sort_key(p)
+        if grp != prev_grp:
+            prev_grp = grp
+            hdr = await message.answer(
+                f"➖➖  {product_emoji(p)} {product_group_label(p)}  ➖➖"
+            )
+            ids.append(hdr.message_id)
+        try:
+            ids.extend(await _send_product_card(message, p, user_id))
+        except Exception:
+            pass
+        await asyncio.sleep(_FEED_GAP)
+
+    remaining = len(products) - (offset + len(batch))
+    if remaining > 0:
+        more = await message.answer(
+            "📦 …davomi",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=f"⬇️  Ko'proq ko'rsatish (yana {remaining} ta)",
+                    callback_data=f"feed_{seller_id}_{offset + len(batch)}"
+                )],
+                [InlineKeyboardButton(text="‹  Do'konlarga qaytish", callback_data="back_shops")],
+            ])
+        )
+    else:
+        more = await message.answer(
+            "✅ Hammasi shu.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="‹  Do'konlarga qaytish", callback_data="back_shops")],
+            ])
+        )
+    ids.append(more.message_id)
+    return ids
+
+
+async def _send_shop_menu(call: CallbackQuery, seller_id: int):
+    """Do'konga kirilganda mahsulotlarni kartochka lentasi qilib yuboradi
+    (boshlab _FEED_BATCH ta, keyin "Ko'proq" tugmasi orqali)."""
+    chat_id = call.message.chat.id
+    await _clear_last_product(call.message.bot, chat_id, [call.message.message_id])
+
     seller    = get_seller(seller_id)
     shop_name = seller["shop_name"] if seller else "Do'kon"
     rating, cnt = get_seller_rating(seller_id)
     stars = f"   ⭐ {rating} ({cnt})" if cnt else ""
 
-    products = get_seller_products(seller_id)
+    products = _sorted_shop_products(seller_id)
     if not products:
-        return (
+        hdr = await call.message.answer(
             f"{title('🏪', shop_name)}\n{divider()}\n📦 Hozircha mahsulot yo'q.",
-            [InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="‹  Do'konlarga qaytish", callback_data="back_shops")]
-            ])]
-        )
-
-    # Mahsulotlarni KATEGORIYA bo'yicha guruhlaymiz — aralash chiqmasligi uchun
-    # (konditsionerlar ketma-ket, kir yuvishlar ketma-ket). Har kategoriya ichida
-    # ARZONIDAN QIMMATIGA (narx bo'yicha) tartiblanadi. Har guruh boshida
-    # chiroyli sarlavha (bosilmaydigan) ko'rsatiladi.
-    products = sorted(products, key=lambda p: (product_sort_key(p), p.get("price", 0)))
-
-    total = len(products)
-    rows = []
-    cur_group = object()
-    for p in products:
-        grp = product_sort_key(p)
-        if grp != cur_group:
-            cur_group = grp
-            rows.append([InlineKeyboardButton(
-                text=f"➖➖  {product_emoji(p)} {product_group_label(p)}  ➖➖",
-                callback_data="noop"
-            )])
-        name = p.get("name", "—")
-        if len(name) > 30:
-            name = name[:30].rstrip() + "…"
-        finished = "  ·  ❌ Tugagan" if p.get("is_finished") else ""
-        rows.append([InlineKeyboardButton(
-            text=f"{product_emoji(p)} {name}  ·  {money(p.get('price', 0))}{finished}",
-            callback_data=f"prod_{p['id']}"
-        )])
-
-    # Tugmalarni ≤_SHOP_PER_PAGE talik bo'laklarga ajratamiz.
-    chunks = [rows[i:i + _SHOP_PER_PAGE] for i in range(0, len(rows), _SHOP_PER_PAGE)]
-    # "‹ Orqaga" tugmasi faqat oxirgi bo'lakda.
-    chunks[-1].append([InlineKeyboardButton(text="‹  Orqaga", callback_data="back_shops")])
-    keyboards = [InlineKeyboardMarkup(inline_keyboard=c) for c in chunks]
-
-    text = (f"{title('🏪', shop_name)}{stars}\n{divider()}\n"
-            f"📦 {total} ta mahsulot — birini tanlang 👇")
-    return text, keyboards
-
-
-async def _send_shop_menu(call: CallbackQuery, seller_id: int):
-    """Do'konga kirilganda BARCHA mahsulotlarni uzluksiz (sahifa tugmasisiz)
-    ketma-ket xabarlar bilan yuboradi."""
-    chat_id = call.message.chat.id
-    await _clear_last_product(call.message.bot, chat_id, [call.message.message_id])
-    text, keyboards = _shop_menu_chunks(seller_id)
-    # Birinchi bo'lak — sarlavha bilan; qolganlari "davomi" bilan.
-    await call.message.answer(text, parse_mode="HTML", reply_markup=keyboards[0])
-    for kb in keyboards[1:]:
-        await call.message.answer("📦 …davomi", reply_markup=kb)
-
-
-async def _send_category_products(message: Message, seller_id: int, code: str):
-    """Bo'lim mahsulotlarini AVVALGIDEK oddiy ro'yxat qilib yuboradi:
-    har bir mahsulot nomi + narxi alohida tugma (prod_<id>)."""
-    products  = [p for p in get_seller_products(seller_id) if product_category(p) == code]
-    seller    = get_seller(seller_id)
-    shop_name = seller["shop_name"] if seller else "Do'kon"
-    label     = category_label(code)
-
-    if not products:
-        await message.answer(
-            f"{title('🏪', shop_name)}\n{divider()}\n{label}: mahsulot qolmadi.",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="‹  Orqaga", callback_data=f"shop_{seller_id}")]
+                [InlineKeyboardButton(text="‹  Do'konlarga qaytish", callback_data="back_shops")]
             ])
         )
+        set_view_msgs(chat_id, [hdr.message_id])
         return
 
-    # Bo'lim ichida arzonidan qimmatiga tartiblaymiz.
-    products = sorted(products, key=lambda p: p.get("price", 0))
-    rows = []
-    for p in products:
-        name = p.get("name", "—")
-        if len(name) > 30:
-            name = name[:30].rstrip() + "…"
-        finished = "  ·  ❌ Tugagan" if p.get("is_finished") else ""
-        rows.append([InlineKeyboardButton(
-            text=f"{product_emoji(p)} {name}  ·  {money(p.get('price', 0))}{finished}",
-            callback_data=f"prod_{p['id']}"
-        )])
-    rows.append([InlineKeyboardButton(text="‹  Orqaga", callback_data=f"shop_{seller_id}")])
-
-    await message.answer(
-        f"{title('🏪', shop_name)}   {label}\n{divider()}\n"
-        f"📦 {len(products)} ta mahsulot — birini tanlang 👇",
-        parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows)
+    hdr = await call.message.answer(
+        f"{title('🏪', shop_name)}{stars}\n{divider()}\n"
+        f"📦 {len(products)} ta mahsulot 👇",
+        parse_mode="HTML"
     )
+    ids = [hdr.message_id]
+    ids.extend(await _send_product_feed(call.message, seller_id, 0, call.from_user.id))
+    set_view_msgs(chat_id, ids)
 
 
-@router.callback_query(F.data.startswith("cat_"))
-async def show_category(call: CallbackQuery):
-    parts = call.data.split("_", 2)
-    if len(parts) < 3:
-        await call.answer("Topilmadi."); return
-    seller_id, code = int(parts[1]), parts[2]
+@router.callback_query(F.data.startswith("feed_"))
+async def feed_more(call: CallbackQuery):
+    """"⬇️ Ko'proq ko'rsatish" — keyingi partiyani lentaga qo'shadi."""
+    parts = call.data.split("_")
+    seller_id, offset = int(parts[1]), int(parts[2])
     if not get_seller(seller_id):
         await call.answer("Do'kon topilmadi."); return
     await call.answer()
-    await _clear_last_product(call.message.bot, call.message.chat.id,
-                              [call.message.message_id])
-    await _send_category_products(call.message, seller_id, code)
+    chat_id = call.message.chat.id
+    # Bosilgan "Ko'proq" tugma xabarini o'chiramiz — yangi partiya pastda chiqadi.
+    await _delete_msgs(call.message.bot, chat_id, [call.message.message_id])
+    existing = [m for m in get_view_msgs(chat_id) if m != call.message.message_id]
+    new_ids  = await _send_product_feed(call.message, seller_id, offset, call.from_user.id)
+    set_view_msgs(chat_id, existing + new_ids)
 
 
 @router.callback_query(F.data.startswith("shop_"))
@@ -592,6 +575,50 @@ async def _clear_last_product(bot, chat_id: int, extra_ids: list | None = None):
     await _delete_msgs(bot, chat_id, pop_view_msgs(chat_id) + list(extra_ids or []))
 
 
+async def _send_product_card(message: Message, p: dict, user_id: int) -> list:
+    """Bitta mahsulotni to'liq kartochka qilib yuboradi: rasm albomi + matn +
+    buyurtma tugmalari + (bo'lsa) video. Yuborilgan barcha xabar id'larini
+    qaytaradi. Lentada (do'kon menyusida) ham, bitta mahsulot ochilganda ham
+    shu funksiya ishlatiladi — kod takrori bo'lmasligi uchun."""
+    text   = _product_caption(p)
+    photos = product_photos(p)
+    kb     = _product_kb(p, user_id)
+    ids    = []
+
+    if len(photos) > 1:
+        media = [InputMediaPhoto(media=ph) for ph in photos[:10]]
+        media[0] = InputMediaPhoto(media=photos[0], caption=text, parse_mode="HTML")
+        try:
+            sent = await message.answer_media_group(media)
+            ids.extend(m.message_id for m in sent)
+            btn = await message.answer("👆 Mahsulot rasmlari. Buyurtma uchun:", reply_markup=kb)
+            ids.append(btn.message_id)
+        except Exception:
+            btn = await message.answer(text, parse_mode="HTML", reply_markup=kb)
+            ids.append(btn.message_id)
+    elif len(photos) == 1:
+        try:
+            sent = await message.answer_photo(photos[0], caption=text, parse_mode="HTML", reply_markup=kb)
+            ids.append(sent.message_id)
+        except Exception:
+            sent = await message.answer(text + "\n\n<i>(rasm yuklanmadi)</i>", parse_mode="HTML", reply_markup=kb)
+            ids.append(sent.message_id)
+    else:
+        sent = await message.answer(text, parse_mode="HTML", reply_markup=kb)
+        ids.append(sent.message_id)
+
+    # Qisqa video (bo'lsa) — rasmlardan keyin alohida yuboriladi.
+    video = product_video(p)
+    if video:
+        try:
+            vmsg = await message.answer_video(video, caption=f"🎬 {p.get('name','')}")
+            ids.append(vmsg.message_id)
+        except Exception:
+            pass
+
+    return ids
+
+
 @router.callback_query(F.data.startswith("prod_"))
 async def product_detail(call: CallbackQuery):
     pid = int(call.data.split("_")[1])
@@ -602,52 +629,15 @@ async def product_detail(call: CallbackQuery):
     # yuborish) foydalanuvchini kuttirmasin.
     await call.answer()
 
-    text    = _product_caption(p)
-    photos  = product_photos(p)
-    kb      = _product_kb(p, call.from_user.id)
     chat_id = call.message.chat.id
-
     # Oldingi mahsulot xabarlarini (albom + tugmalar) va bosilgan xabarni
-    # (do'kon ro'yxati / qidiruv natijasi) parallel o'chiramiz. Bu yerda
-    # pop_view_msgs o'rniga get_view_msgs — yangi holat baribir pastda
-    # set_view_msgs bilan yoziladi (bitta diskka yozish yetadi).
+    # (qidiruv natijasi / istaklar ro'yxati) parallel o'chiramiz.
     await _delete_msgs(
         call.message.bot, chat_id,
         get_view_msgs(chat_id) + [call.message.message_id],
     )
 
-    ids = []
-    if len(photos) > 1:
-        media = [InputMediaPhoto(media=ph) for ph in photos[:10]]
-        media[0] = InputMediaPhoto(media=photos[0], caption=text, parse_mode="HTML")
-        try:
-            sent = await call.message.answer_media_group(media)
-            ids.extend(m.message_id for m in sent)
-            btn = await call.message.answer("👆 Mahsulot rasmlari. Buyurtma uchun:", reply_markup=kb)
-            ids.append(btn.message_id)
-        except Exception:
-            btn = await call.message.answer(text, parse_mode="HTML", reply_markup=kb)
-            ids.append(btn.message_id)
-    elif len(photos) == 1:
-        try:
-            sent = await call.message.answer_photo(photos[0], caption=text, parse_mode="HTML", reply_markup=kb)
-            ids.append(sent.message_id)
-        except Exception:
-            sent = await call.message.answer(text + "\n\n<i>(rasm yuklanmadi)</i>", parse_mode="HTML", reply_markup=kb)
-            ids.append(sent.message_id)
-    else:
-        sent = await call.message.answer(text, parse_mode="HTML", reply_markup=kb)
-        ids.append(sent.message_id)
-
-    # Qisqa video (bo'lsa) — rasmlardan keyin alohida yuboriladi.
-    video = product_video(p)
-    if video:
-        try:
-            vmsg = await call.message.answer_video(video, caption=f"🎬 {p.get('name','')}")
-            ids.append(vmsg.message_id)
-        except Exception:
-            pass
-
+    ids = await _send_product_card(call.message, p, call.from_user.id)
     set_view_msgs(chat_id, ids)
 
 
