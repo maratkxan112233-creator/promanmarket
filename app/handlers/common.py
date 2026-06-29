@@ -338,10 +338,10 @@ async def buyer_set_city(call: CallbackQuery):
 # mumkin — hammasini birdan yuborish sekin va Telegram flood limitiga olib keladi.
 # Shuning uchun har safar _FEED_BATCH talik partiya yuboriladi, oxirida
 # "⬇️ Ko'proq ko'rsatish" tugmasi (feed_<seller_id>_<offset>).
-_FEED_BATCH = 8
+_FEED_BATCH = 5
 
 # Kartochkalar orasidagi qisqa pauza — Telegram flood limitiga tushmaslik uchun.
-_FEED_GAP = 0.3
+_FEED_GAP = 0.15
 
 
 def _sorted_shop_products(seller_id: int) -> list:
@@ -370,7 +370,7 @@ async def _send_product_feed(message: Message, seller_id: int, offset: int, user
             )
             ids.append(hdr.message_id)
         try:
-            ids.extend(await _send_product_card(message, p, user_id))
+            ids.extend(await _send_product_card(message, p, user_id, with_video=False))
         except Exception:
             pass
         await asyncio.sleep(_FEED_GAP)
@@ -575,11 +575,14 @@ async def _clear_last_product(bot, chat_id: int, extra_ids: list | None = None):
     await _delete_msgs(bot, chat_id, pop_view_msgs(chat_id) + list(extra_ids or []))
 
 
-async def _send_product_card(message: Message, p: dict, user_id: int) -> list:
+async def _send_product_card(message: Message, p: dict, user_id: int,
+                             with_video: bool = True) -> list:
     """Bitta mahsulotni to'liq kartochka qilib yuboradi: rasm albomi + matn +
     buyurtma tugmalari + (bo'lsa) video. Yuborilgan barcha xabar id'larini
     qaytaradi. Lentada (do'kon menyusida) ham, bitta mahsulot ochilganda ham
-    shu funksiya ishlatiladi — kod takrori bo'lmasligi uchun."""
+    shu funksiya ishlatiladi — kod takrori bo'lmasligi uchun.
+
+    `with_video=False` — lentada tezlik uchun video yuborilmaydi (og'ir)."""
     text   = _product_caption(p)
     photos = product_photos(p)
     kb     = _product_kb(p, user_id)
@@ -608,7 +611,7 @@ async def _send_product_card(message: Message, p: dict, user_id: int) -> list:
         ids.append(sent.message_id)
 
     # Qisqa video (bo'lsa) — rasmlardan keyin alohida yuboriladi.
-    video = product_video(p)
+    video = product_video(p) if with_video else None
     if video:
         try:
             vmsg = await message.answer_video(video, caption=f"🎬 {p.get('name','')}")
