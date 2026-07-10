@@ -4,6 +4,8 @@ Butun bot bo'ylab xabar va tugmalar bir xil, toza, zamonaviy ko'rinishi uchun
 shu yerda jamlangan. Bu yerni o'zgartirsangiz — hamma joyda bir vaqtda o'zgaradi.
 """
 
+import re
+
 # Ingichka ajratgich (xabar bo'limlarini toza ajratish uchun).
 DIVIDER = "──────────────"
 
@@ -128,6 +130,23 @@ def money(value) -> str:
     except (TypeError, ValueError):
         n = 0
     return f"{n:,}".replace(",", " ") + " so'm"
+
+
+def normalize_uz_phone(raw) -> str | None:
+    """Telefonni +998XXXXXXXXX ko'rinishiga keltiradi; yaroqsiz bo'lsa None.
+
+    Qabul qilinadigan shakllar: +998 90 123 45 67, 998901234567, 90-123-45-67.
+    """
+    if not raw:
+        return None
+    digits = re.sub(r"[\s\-\(\)\.\+]", "", str(raw).strip())
+    if not digits.isdigit():
+        return None
+    if len(digits) == 12 and digits.startswith("998"):
+        return "+" + digits
+    if len(digits) == 9:  # 901234567 — operator kodi bilan mahalliy shakl
+        return "+998" + digits
+    return None
 
 
 def divider() -> str:

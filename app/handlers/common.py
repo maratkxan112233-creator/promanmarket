@@ -7,6 +7,7 @@ from aiogram.types import (
     InputMediaPhoto,
 )
 from aiogram.fsm.context import FSMContext
+from aiogram.exceptions import TelegramBadRequest
 
 from app.storage import (
     is_seller, get_seller, get_all_products, get_seller_products,
@@ -29,7 +30,7 @@ from app.states.seller_application import SearchState, OrderState, CartCheckoutS
 from app.app.config.settings import settings
 from app.ui import (
     money, divider, title, category_label, product_category,
-    product_emoji, product_sort_key, product_group_label,
+    product_emoji, product_sort_key, product_group_label, normalize_uz_phone,
 )
 
 router = Router()
@@ -311,8 +312,9 @@ async def _show_market(message: Message, city: str):
 
 @router.callback_query(F.data == "changecity")
 async def change_city(call: CallbackQuery):
-    await call.message.answer("📍 Shaharingizni tanlang:", reply_markup=_city_picker())
+    # Spinner darhol o'chsin — keyin javob yuboriladi.
     await call.answer()
+    await call.message.answer("📍 Shaharingizni tanlang:", reply_markup=_city_picker())
 
 
 @router.callback_query(F.data.startswith("bcity_"))
@@ -357,7 +359,7 @@ def _shop_menu_chunks(seller_id: int):
         return (
             f"{title('🏪', shop_name)}\n{divider()}\n📦 Hozircha mahsulot yo'q.",
             [InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="‹  Do'konlarga qaytish", callback_data="back_shops")]
+                [InlineKeyboardButton(text="🔙 Orqaga", callback_data="back_shops")]
             ])]
         )
 
@@ -375,7 +377,7 @@ def _shop_menu_chunks(seller_id: int):
         if grp != cur_group:
             cur_group = grp
             rows.append([InlineKeyboardButton(
-                text=f"➖➖  {product_emoji(p)} {product_group_label(p)}  ➖➖",
+                text=f"— {product_emoji(p)} {product_group_label(p)} —",
                 callback_data="noop"
             )])
         name = p.get("name", "—")
@@ -389,8 +391,8 @@ def _shop_menu_chunks(seller_id: int):
 
     # Tugmalarni ≤_SHOP_PER_PAGE talik bo'laklarga ajratamiz.
     chunks = [rows[i:i + _SHOP_PER_PAGE] for i in range(0, len(rows), _SHOP_PER_PAGE)]
-    # "‹ Orqaga" tugmasi faqat oxirgi bo'lakda.
-    chunks[-1].append([InlineKeyboardButton(text="‹  Orqaga", callback_data="back_shops")])
+    # "🔙 Orqaga" tugmasi faqat oxirgi bo'lakda.
+    chunks[-1].append([InlineKeyboardButton(text="🔙 Orqaga", callback_data="back_shops")])
     keyboards = [InlineKeyboardMarkup(inline_keyboard=c) for c in chunks]
 
     text = (f"{title('🏪', shop_name)}{stars}\n{divider()}\n"
@@ -398,16 +400,28 @@ def _shop_menu_chunks(seller_id: int):
     return text, keyboards
 
 
+# chat_id -> (seller_id, [ro'yxat bo'laklari xabar id'lari]). Xotirada saqlanadi:
+# mahsulot ochilganda ro'yxat chatda QOLADI, "orqaga" bosilganda esa qayta
+# yuborilmaydi (tekin qaytish). Restart bo'lsa oddiy qayta-yuborish yo'liga qaytadi.
+_SHOP_LIST_MSGS: dict[int, tuple[int, list[int]]] = {}
+
+
 async def _send_shop_menu(call: CallbackQuery, seller_id: int):
     """Do'konga kirilganda BARCHA mahsulotlarni uzluksiz (sahifa tugmasisiz)
     ketma-ket xabarlar bilan yuboradi."""
     chat_id = call.message.chat.id
-    await _clear_last_product(call.message.bot, chat_id, [call.message.message_id])
+    # Eski ro'yxat bo'laklari (bo'lsa) ham o'chirish partiyasiga qo'shiladi.
+    _, old_list_ids = _SHOP_LIST_MSGS.pop(chat_id, (0, []))
+    await _clear_last_product(call.message.bot, chat_id,
+                              [call.message.message_id] + old_list_ids)
     text, keyboards = _shop_menu_chunks(seller_id)
     # Birinchi bo'lak — sarlavha bilan; qolganlari "davomi" bilan.
-    await call.message.answer(text, parse_mode="HTML", reply_markup=keyboards[0])
+    first = await call.message.answer(text, parse_mode="HTML", reply_markup=keyboards[0])
+    ids = [first.message_id]
     for kb in keyboards[1:]:
-        await call.message.answer("📦 …davomi", reply_markup=kb)
+        m = await call.message.answer("📦 …davomi", reply_markup=kb)
+        ids.append(m.message_id)
+    _SHOP_LIST_MSGS[chat_id] = (seller_id, ids)
 
 
 async def _send_category_products(message: Message, seller_id: int, code: str):
@@ -423,7 +437,7 @@ async def _send_category_products(message: Message, seller_id: int, code: str):
             f"{title('🏪', shop_name)}\n{divider()}\n{label}: mahsulot qolmadi.",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="‹  Orqaga", callback_data=f"shop_{seller_id}")]
+                [InlineKeyboardButton(text="🔙 Orqaga", callback_data=f"shop_{seller_id}")]
             ])
         )
         return
@@ -440,7 +454,7 @@ async def _send_category_products(message: Message, seller_id: int, code: str):
             text=f"{product_emoji(p)} {name}  ·  {money(p.get('price', 0))}{finished}",
             callback_data=f"prod_{p['id']}"
         )])
-    rows.append([InlineKeyboardButton(text="‹  Orqaga", callback_data=f"shop_{seller_id}")])
+    rows.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data=f"shop_{seller_id}")])
 
     await message.answer(
         f"{title('🏪', shop_name)}   {label}\n{divider()}\n"
@@ -459,8 +473,10 @@ async def show_category(call: CallbackQuery):
     if not get_seller(seller_id):
         await call.answer("Do'kon topilmadi."); return
     await call.answer()
-    await _clear_last_product(call.message.bot, call.message.chat.id,
-                              [call.message.message_id])
+    chat_id = call.message.chat.id
+    _, list_ids = _SHOP_LIST_MSGS.pop(chat_id, (0, []))
+    await _clear_last_product(call.message.bot, chat_id,
+                              [call.message.message_id] + list_ids)
     await _send_category_products(call.message, seller_id, code)
 
 
@@ -470,15 +486,26 @@ async def show_shop(call: CallbackQuery):
     if not get_seller(uid):
         await call.answer("Do'kon topilmadi."); return
     await call.answer()
+    chat_id = call.message.chat.id
+    listed = _SHOP_LIST_MSGS.get(chat_id)
+    # Mahsulot kartochkasidan "Orqaga": shu do'kon ro'yxati hali chatda turgan
+    # bo'lsa — faqat kartochka (+ albom/video) o'chiriladi, ro'yxat qayta
+    # yuborilmaydi. Bu qaytishni bir zumlik qiladi.
+    if listed and listed[0] == uid and chat_id in _PRODUCT_CARD:
+        await _clear_last_product(call.message.bot, chat_id)
+        return
     await _send_shop_menu(call, uid)
 
 
 @router.callback_query(F.data == "back_shops")
 async def back_to_shops(call: CallbackQuery):
-    # Lentadagi barcha mahsulot xabarlarini tozalab, do'konlar ro'yxatini qaytaramiz.
+    # Lentadagi barcha mahsulot xabarlarini VA do'kon ro'yxati bo'laklarini
+    # tozalab, do'konlar ro'yxatini qaytaramiz.
     await call.answer()
     chat_id = call.message.chat.id
-    await _clear_last_product(call.message.bot, chat_id, [call.message.message_id])
+    _, list_ids = _SHOP_LIST_MSGS.pop(chat_id, (0, []))
+    await _clear_last_product(call.message.bot, chat_id,
+                              [call.message.message_id] + list_ids)
     u = get_user(call.from_user.id)
     city = (u.get("city") if u else None)
     if not city:
@@ -531,27 +558,29 @@ def _product_caption(p: dict) -> str:
         if stock is not None and stock <= 5:
             lines.append(f"\n🔥 <b>Shoshiling — atigi {stock} dona qoldi!</b>")
 
-    # ── Tavsif ──
+    # ── Tavsif (rasm caption limiti 1024 belgi — uzun tavsifni qisqartiramiz) ──
     if desc:
+        if len(desc) > 500:
+            desc = desc[:500].rstrip() + "…"
         lines.append(f"\n📝 {desc}")
 
-    # ── Yetkazib berish (bitta qator) ──
+    # ── Yetkazib berish (bitta ixcham qator) ──
     fee = delivery_fee_for(price)
     if fee:
         lines.append(
-            f"\n🚚 Yetkazish: <b>{money(fee)}</b> · "
-            f"{money(FREE_DELIVERY_THRESHOLD)}+ xaridga BEPUL · bugun yetkazamiz"
+            f"\n🚚 <b>{money(fee)}</b> · "
+            f"{money(FREE_DELIVERY_THRESHOLD)}+ = BEPUL · bugun"
         )
     else:
-        lines.append("\n🚚 <b>Yetkazish BEPUL 🎉</b> · bugun yetkazamiz")
+        lines.append("\n🚚 <b>Yetkazish BEPUL 🎉</b> · bugun")
 
-    # Qisqa eslatma (avval 2 qatorli edi).
+    # Qisqa eslatma (bitta qator).
     lines.append("ℹ️ <i>Rasm namunaviy bo'lishi mumkin.</i>")
     return "\n".join(lines)
 
 
-def _product_kb(p: dict, user_id: int) -> InlineKeyboardMarkup:
-    """Mahsulot xabari uchun tugmalar: buyurtma, istaklar (❤️) va orqaga."""
+def _product_kb(p: dict, user_id: int, with_album: bool = True) -> InlineKeyboardMarkup:
+    """Mahsulot xabari uchun tugmalar: buyurtma, istaklar (❤️), albom va orqaga."""
     if is_favorite(user_id, p["id"]):
         fav_text = "💔 Istaklardan olib tashlash"
     else:
@@ -561,19 +590,39 @@ def _product_kb(p: dict, user_id: int) -> InlineKeyboardMarkup:
         rows.append([InlineKeyboardButton(text="🛒  Buyurtma berish", callback_data=f"order_{p['id']}")])
         rows.append([InlineKeyboardButton(text="➕  Savatga qo'shish", callback_data=f"addcart_{p['id']}")])
     rows.append([InlineKeyboardButton(text=fav_text, callback_data=f"fav_{p['id']}")])
+    # Qo'shimcha rasm/video bo'lsa — alohida tugma bilan so'ralganda yuboriladi
+    # (kartochka bitta xabar bo'lib qoladi — tez ochiladi va tez almashadi).
+    if with_album:
+        n_photos = len(product_photos(p))
+        has_video = bool(product_video(p))
+        if n_photos > 1 and has_video:
+            album_text = f"📸 Barcha rasmlar ({n_photos}) + 🎬 video"
+        elif n_photos > 1:
+            album_text = f"📸 Barcha rasmlar ({n_photos})"
+        elif has_video:
+            album_text = "🎬 Videoni ko'rish"
+        else:
+            album_text = None
+        if album_text:
+            rows.append([InlineKeyboardButton(text=album_text, callback_data=f"album_{p['id']}")])
     rows.append([InlineKeyboardButton(
-        text="‹  Orqaga",
+        text="🔙 Orqaga",
         callback_data=f"shop_{p['seller_id']}",
     )])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-# chat_id -> hozir ko'rsatilgan mahsulotning barcha xabar id'lari (albom rasmlari + tugmalar).
-# Yangi mahsulot ochilganda hammasini o'chiramiz — chatda bir vaqtda faqat bitta
-# mahsulot rasmlari turadi, shunda Telegram rasm ko'ruvchisida (surganda) boshqa
-# mahsulot rasmlari aralashib ketmaydi (qaysi yo'l bilan ochilganidan qat'i nazar).
-# Bu ma'lumot diskda (storage) saqlanadi — bot qayta ishga tushganda ham eski
-# rasmlarni o'chira olishi uchun (set_view_msgs / pop_view_msgs).
+# chat_id -> hozir ko'rsatilgan mahsulotning barcha xabar id'lari (kartochka +
+# albom + video). Yangi mahsulot ochilganda ortiqchalari o'chiriladi — chatda
+# bir vaqtda faqat bitta mahsulot turadi. Bu ma'lumot diskda (storage)
+# saqlanadi — bot qayta ishga tushganda ham eski xabarlarni o'chira olishi
+# uchun (set_view_msgs / pop_view_msgs).
+
+# chat_id -> (kartochka xabar id'si, "photo" | "text"). Xotirada saqlanadi:
+# yangi mahsulot ochilganda kartochka O'CHIRILMAY, joyida TAHRIRLANADI
+# (edit_message_media) — tez va "lip-lip"siz. Restart bo'lsa bo'sh qoladi va
+# oddiy o'chir-yubor yo'liga qaytadi.
+_PRODUCT_CARD: dict[int, tuple[int, str]] = {}
 
 
 async def _delete_msgs(bot, chat_id: int, ids: list):
@@ -589,6 +638,7 @@ async def _delete_msgs(bot, chat_id: int, ids: list):
 
 
 async def _clear_last_product(bot, chat_id: int, extra_ids: list | None = None):
+    _PRODUCT_CARD.pop(chat_id, None)
     await _delete_msgs(bot, chat_id, pop_view_msgs(chat_id) + list(extra_ids or []))
 
 
@@ -606,40 +656,83 @@ async def product_detail(call: CallbackQuery):
     photos  = product_photos(p)
     kb      = _product_kb(p, call.from_user.id)
     chat_id = call.message.chat.id
+    bot     = call.message.bot
 
-    # Oldingi mahsulot xabarlarini (albom + tugmalar) va bosilgan xabarni
-    # (do'kon ro'yxati / qidiruv natijasi) parallel o'chiramiz. Bu yerda
-    # pop_view_msgs o'rniga get_view_msgs — yangi holat baribir pastda
-    # set_view_msgs bilan yoziladi (bitta diskka yozish yetadi).
-    await _delete_msgs(
-        call.message.bot, chat_id,
-        get_view_msgs(chat_id) + [call.message.message_id],
-    )
+    card = _PRODUCT_CARD.get(chat_id)
+    card_id = card[0] if card else None
 
+    # Oldingi mahsulotning QO'SHIMCHA xabarlari (albom/video) o'chiriladi.
+    # Kartochkaning o'zi tahrirlanadi, bosilgan ro'yxat xabari esa CHATDA
+    # QOLADI — "orqaga" bosilganda ro'yxat qayta yuborilmaydi.
+    extra = [mid for mid in get_view_msgs(chat_id) if mid != card_id]
+    await _delete_msgs(bot, chat_id, extra)
+
+    # ── Tahrirlash yo'li: eski kartochka joyida yangi mahsulotga almashadi ──
+    edited = False
+    if card_id:
+        try:
+            if card[1] == "photo" and photos:
+                await bot.edit_message_media(
+                    chat_id=chat_id, message_id=card_id,
+                    media=InputMediaPhoto(media=photos[0], caption=text, parse_mode="HTML"),
+                    reply_markup=kb,
+                )
+                edited = True
+            elif card[1] == "text" and not photos:
+                await bot.edit_message_text(
+                    text, chat_id=chat_id, message_id=card_id,
+                    parse_mode="HTML", reply_markup=kb,
+                )
+                edited = True
+        except TelegramBadRequest as e:
+            # O'sha mahsulot qayta bosilgan bo'lsa — xabar o'zgarmagan, bu xato emas.
+            if "message is not modified" in str(e):
+                edited = True
+        except Exception:
+            pass
+
+    # ── Zaxira yo'li: tahrirlab bo'lmasa (tur almashdi / kartochka yo'q /
+    # foydalanuvchi o'chirib yuborgan) — eskisini o'chirib, yangisini yuboramiz.
+    kind = "photo" if photos else "text"
+    if not edited:
+        if card_id:
+            await _delete_msgs(bot, chat_id, [card_id])
+        if photos:
+            try:
+                sent = await call.message.answer_photo(
+                    photos[0], caption=text, parse_mode="HTML", reply_markup=kb)
+            except Exception:
+                sent = await call.message.answer(
+                    text + "\n\n<i>(rasm yuklanmadi)</i>", parse_mode="HTML", reply_markup=kb)
+                kind = "text"
+        else:
+            sent = await call.message.answer(text, parse_mode="HTML", reply_markup=kb)
+        card_id = sent.message_id
+
+    set_view_msgs(chat_id, [card_id])
+    _PRODUCT_CARD[chat_id] = (card_id, kind)
+
+
+@router.callback_query(F.data.startswith("album_"))
+async def show_album(call: CallbackQuery):
+    """Kartochkadagi «📸 Barcha rasmlar» tugmasi: albom + video so'ralganda
+    yuboriladi (kartochka o'zi bitta xabar bo'lib tez ochilishi uchun)."""
+    pid = int(call.data.split("_")[1])
+    p = get_product_by_id(pid)
+    if not p:
+        await call.answer("Topilmadi."); return
+    await call.answer()
+
+    chat_id = call.message.chat.id
     ids = []
+    photos = product_photos(p)
     if len(photos) > 1:
         media = [InputMediaPhoto(media=ph) for ph in photos[:10]]
-        media[0] = InputMediaPhoto(media=photos[0], caption=text, parse_mode="HTML")
         try:
             sent = await call.message.answer_media_group(media)
             ids.extend(m.message_id for m in sent)
-            btn = await call.message.answer("👆 Mahsulot rasmlari. Buyurtma uchun:", reply_markup=kb)
-            ids.append(btn.message_id)
         except Exception:
-            btn = await call.message.answer(text, parse_mode="HTML", reply_markup=kb)
-            ids.append(btn.message_id)
-    elif len(photos) == 1:
-        try:
-            sent = await call.message.answer_photo(photos[0], caption=text, parse_mode="HTML", reply_markup=kb)
-            ids.append(sent.message_id)
-        except Exception:
-            sent = await call.message.answer(text + "\n\n<i>(rasm yuklanmadi)</i>", parse_mode="HTML", reply_markup=kb)
-            ids.append(sent.message_id)
-    else:
-        sent = await call.message.answer(text, parse_mode="HTML", reply_markup=kb)
-        ids.append(sent.message_id)
-
-    # Qisqa video (bo'lsa) — rasmlardan keyin alohida yuboriladi.
+            pass
     video = product_video(p)
     if video:
         try:
@@ -648,7 +741,16 @@ async def product_detail(call: CallbackQuery):
         except Exception:
             pass
 
-    set_view_msgs(chat_id, ids)
+    if ids:
+        # Albom/video ham shu mahsulot xabarlariga qo'shiladi — keyingi
+        # mahsulot ochilganda birga o'chiriladi.
+        set_view_msgs(chat_id, get_view_msgs(chat_id) + ids)
+        # Tugmani olib tashlaymiz — albom qayta-qayta yuborilmasin.
+        try:
+            await call.message.edit_reply_markup(
+                reply_markup=_product_kb(p, call.from_user.id, with_album=False))
+        except Exception:
+            pass
 
 
 # ─── ❤️ Istaklar (sevimli mahsulotlar) ───────────────────────────────────────
@@ -662,10 +764,13 @@ async def toggle_fav(call: CallbackQuery):
     await call.answer(
         "❤️ Istaklarimga qo'shildi!" if added else "💔 Istaklardan olib tashlandi."
     )
-    # Tugma yozuvini yangi holatga moslab yangilaymiz
+    # Tugma yozuvini yangi holatga moslab yangilaymiz. Albom allaqachon
+    # yuborilgan bo'lsa (view msgs'da kartochkadan tashqari xabarlar bor),
+    # albom tugmasi qayta chiqarilmaydi.
+    album_pending = len(get_view_msgs(call.message.chat.id)) <= 1
     try:
         await call.message.edit_reply_markup(
-            reply_markup=_product_kb(p, call.from_user.id)
+            reply_markup=_product_kb(p, call.from_user.id, with_album=album_pending)
         )
     except Exception:
         pass
@@ -946,12 +1051,18 @@ async def order_address(message: Message, state: FSMContext):
 @router.message(OrderState.phone)
 async def order_phone(message: Message, state: FSMContext):
     if message.contact:
-        phone = message.contact.phone_number
-    elif message.text and message.text.strip():
-        phone = message.text.strip()
+        # Kontakt ulashilsa — ishonchli manba: chet el raqami ham qabul qilinadi.
+        raw = message.contact.phone_number
+        phone = normalize_uz_phone(raw) or ("+" + str(raw).lstrip("+"))
     else:
-        await message.answer("❌ Telefon raqamni yuboring yoki yozing:")
-        return
+        phone = normalize_uz_phone(message.text)
+        if not phone:
+            await message.answer(
+                "❌ Raqam noto'g'ri. Namuna: <b>+998 90 123 45 67</b>\n"
+                "Pastdagi tugma orqali yuborsangiz ham bo'ladi:",
+                parse_mode="HTML", reply_markup=phone_keyboard,
+            )
+            return
 
     # Raqamni profilga ham yozamiz — keyin telefon orqali topish mumkin bo'ladi
     # (masalan, seller yordamchini raqami bilan qo'shganda)
@@ -1012,43 +1123,27 @@ async def order_phone(message: Message, state: FSMContext):
     await state.set_state(OrderState.receipt)
 
     platform_card = settings.PLATFORM_CARD or "⚠️ admin kartani sozlamagan"
-    card_name_line = f"   → Karta egasi: <b>{settings.PLATFORM_CARD_NAME}</b>\n" if settings.PLATFORM_CARD_NAME else ""
+    card_name = f" ({settings.PLATFORM_CARD_NAME})" if settings.PLATFORM_CARD_NAME else ""
     pct = int(settings.COMMISSION_RATE * 100)
     remain = max(total - commission, 0)
 
-    # ── Xaridorga: oldi-to'lov PLATFORMA kartasiga ──
-    fee_note = (
-        f" + yetkazib berish <b>{money(fee)}</b>" if fee
-        else " (yetkazib berish <b>BEPUL 🎉</b>)"
-    )
-    deliver_line = (
-        f"🚚 Yetkazib berish: <b>{delivery_text(fee)}</b>\n"
-        f"📍 Manzil: {data['address']}\n"
-        f"📱 Tel: {phone}\n"
-        f"<b>🟢 Yetkazib berish: SHU BUGUNOQ</b>\n\n"
-        f"💵 Yetkazilganda <b>kurierga naqd</b> to'laysiz: qolgan mahsulot puli "
-        f"<b>{money(remain)}</b>{fee_note}.\n"
-        f"💳 Karta orqali to'lamoqchi bo'lsangiz — kurierdan so'raysiz.\n\n"
-    )
+    # ── Xaridorga: oldi-to'lov PLATFORMA kartasiga (qisqa, bir ekranlik xabar) ──
+    fee_note = f" + yetkazish {money(fee)}" if fee else ""
     promo_summary = (
         f"🎁 Promo {promo_code}: −{data.get('promo_percent',0)}%\n" if promo_code else ""
     )
     await message.answer(
-        f"✅ <b>Buyurtmangiz qabul qilindi!</b>  (#{order_id})\n"
-        f"Boshlang'ich <b>{pct}%</b> to'lovni qiling.\n"
+        f"✅ <b>Buyurtma #{order_id} qabul qilindi!</b>\n"
         f"{divider()}\n"
-        f"📦 Mahsulot:  {p['name']}\n"
-        f"🔢 Miqdor:  {qty} dona × {money(unit)}\n"
+        f"📦 {p['name']} — {qty} × {money(unit)} = <b>{money(total)}</b>\n"
         f"{promo_summary}"
-        f"💰 Narxi:  <b>{money(total)}</b>\n"
-        f"💳 Oldindan to'lov ({pct}%):  <b>{money(commission)}</b>\n"
-        f"➡️ Karta:  <code>{platform_card}</code>\n"
-        f"{card_name_line}"
-        f"{divider()}\n"
-        f"{deliver_line}"
-        f"🧾 <b>To'lov chekining rasmini (skrinshot) yoki PDF faylini shu yerga yuboring.</b>\n"
-        f"Chek tasdiqlangach buyurtmangiz tayyorlanadi.\n"
-        f"❓ Muammo bo'lsa — admin: @{settings.ADMIN_USERNAME}",
+        f"🚚 {delivery_text(fee)} · 📍 {data['address']} · 📱 {phone}\n\n"
+        f"💳 Oldindan to'lov ({pct}%): <b>{money(commission)}</b>\n"
+        f"➡️ <code>{platform_card}</code>{card_name}\n"
+        f"Qolgan <b>{money(remain)}</b>{fee_note} — kurierga naqd yoki karta orqali.\n\n"
+        f"🧾 <b>To'lov chekini (rasm yoki PDF) shu yerga yuboring</b> — "
+        f"chek tasdiqlangach buyurtma tayyorlanadi.\n"
+        f"❓ Admin: @{settings.ADMIN_USERNAME}",
         parse_mode="HTML", reply_markup=cancel_keyboard
     )
 
@@ -1420,12 +1515,18 @@ async def cart_phone_cancel(message: Message, state: FSMContext):
 @router.message(CartCheckoutState.phone)
 async def cart_phone(message: Message, state: FSMContext):
     if message.contact:
-        phone = message.contact.phone_number
-    elif message.text and message.text.strip():
-        phone = message.text.strip()
+        # Kontakt ulashilsa — ishonchli manba: chet el raqami ham qabul qilinadi.
+        raw = message.contact.phone_number
+        phone = normalize_uz_phone(raw) or ("+" + str(raw).lstrip("+"))
     else:
-        await message.answer("❌ Telefon raqamni yuboring yoki yozing:")
-        return
+        phone = normalize_uz_phone(message.text)
+        if not phone:
+            await message.answer(
+                "❌ Raqam noto'g'ri. Namuna: <b>+998 90 123 45 67</b>\n"
+                "Pastdagi tugma orqali yuborsangiz ham bo'ladi:",
+                parse_mode="HTML", reply_markup=phone_keyboard,
+            )
+            return
     set_user_field(message.from_user.id, "phone", phone)
 
     data = await state.get_data()
@@ -1507,44 +1608,36 @@ async def cart_phone(message: Message, state: FSMContext):
     # Har bir buyurtma uchun seller xabari admin to'lovni tasdiqlaganda
     # yuboriladi (app/handlers/admin.py → _confirm_single_order).
 
-    # ── Xaridorga: BITTA umumiy oldi-to'lov xabari ──
+    # ── Xaridorga: BITTA umumiy oldi-to'lov xabari (qisqa, bir ekranlik) ──
     platform_card = settings.PLATFORM_CARD or "⚠️ admin kartani sozlamagan"
-    card_name_line = f"   → Karta egasi: <b>{settings.PLATFORM_CARD_NAME}</b>\n" if settings.PLATFORM_CARD_NAME else ""
+    card_name = f" ({settings.PLATFORM_CARD_NAME})" if settings.PLATFORM_CARD_NAME else ""
     pct = int(settings.COMMISSION_RATE * 100)
     remain = max(combined_total - combined_prepay, 0)
-    fee_note = (f" + yetkazib berish <b>{money(fee)}</b>" if fee
-                else " (yetkazib berish <b>BEPUL 🎉</b>)")
+    fee_note = f" + yetkazish {money(fee)}" if fee else ""
     promo_summary = f"🎁 Promo {promo_code}: −{promo_percent}%\n" if promo_code else ""
 
     items_txt = ""
     for oid, p, qty, unit, total, commission in created:
-        items_txt += f"• {p['name']} — {qty} dona × {money(unit)} = <b>{money(total)}</b>\n"
+        items_txt += f"• {p['name']} — {qty} × {money(unit)} = <b>{money(total)}</b>\n"
 
     skipped_txt = ""
     if skipped:
         skipped_txt = "⚠️ Tugagani uchun qo'shilmadi: " + ", ".join(skipped) + "\n"
 
     await message.answer(
-        f"✅ <b>Buyurtmangiz qabul qilindi!</b>  ({len(created)} ta mahsulot)\n"
-        f"Boshlang'ich <b>{pct}%</b> to'lovni qiling.\n"
+        f"✅ <b>Buyurtma qabul qilindi!</b> ({len(created)} ta mahsulot)\n"
         f"{divider()}\n"
         f"{items_txt}"
         f"{skipped_txt}"
         f"{promo_summary}"
-        f"💰 Umumiy narx:  <b>{money(combined_total)}</b>\n"
-        f"💳 Oldindan to'lov ({pct}%):  <b>{money(combined_prepay)}</b>\n"
-        f"➡️ Karta:  <code>{platform_card}</code>\n"
-        f"{card_name_line}"
-        f"{divider()}\n"
-        f"🚚 Yetkazib berish: <b>{delivery_text(fee)}</b>\n"
-        f"📍 Manzil: {address}\n"
-        f"📱 Tel: {phone}\n"
-        f"<b>🟢 Yetkazib berish: SHU BUGUNOQ</b>\n\n"
-        f"💵 Yetkazilganda <b>kurierga naqd</b> to'laysiz: qolgan mahsulot puli "
-        f"<b>{money(remain)}</b>{fee_note}.\n\n"
-        f"🧾 <b>To'lov chekining rasmini (skrinshot) yoki PDF faylini shu yerga yuboring.</b>\n"
-        f"Chek tasdiqlangach buyurtmangiz tayyorlanadi.\n"
-        f"❓ Muammo bo'lsa — admin: @{settings.ADMIN_USERNAME}",
+        f"💰 Jami: <b>{money(combined_total)}</b>\n"
+        f"🚚 {delivery_text(fee)} · 📍 {address} · 📱 {phone}\n\n"
+        f"💳 Oldindan to'lov ({pct}%): <b>{money(combined_prepay)}</b>\n"
+        f"➡️ <code>{platform_card}</code>{card_name}\n"
+        f"Qolgan <b>{money(remain)}</b>{fee_note} — kurierga naqd yoki karta orqali.\n\n"
+        f"🧾 <b>To'lov chekini (rasm yoki PDF) shu yerga yuboring</b> — "
+        f"chek tasdiqlangach buyurtma tayyorlanadi.\n"
+        f"❓ Admin: @{settings.ADMIN_USERNAME}",
         parse_mode="HTML", reply_markup=cancel_keyboard,
     )
 
