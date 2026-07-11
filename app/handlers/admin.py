@@ -193,6 +193,7 @@ def admin_menu_kb(uid: int):
             [InlineKeyboardButton(text="📋 Arizalar",        callback_data="admin_applications")],
             [InlineKeyboardButton(text="🏪 Sellerlar",        callback_data="admin_sellers")],
             [InlineKeyboardButton(text="📢 Ommaviy xabar / e'lon", callback_data="admin_broadcast")],
+            [InlineKeyboardButton(text="📣 Guruhlarga reklama",    callback_data="admin_ads")],
             [InlineKeyboardButton(text="➕ Mahsulot qo'shish", callback_data="admin_addprod")],
             [InlineKeyboardButton(text="📦 Mahsulotlar",      callback_data="admin_products")],
             [InlineKeyboardButton(text="🎁 Promo-kodlar",     callback_data="admin_promos")],

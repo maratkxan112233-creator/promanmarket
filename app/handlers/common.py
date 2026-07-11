@@ -105,7 +105,8 @@ async def _send_receipt(chat_id, file_id, rtype, caption, reply_markup=None):
                              parse_mode="HTML", reply_markup=reply_markup)
 
 
-async def _send_photo_or_text(chat_id: int, photo_id: str | None, caption: str):
+async def _send_photo_or_text(chat_id: int, photo_id: str | None, caption: str,
+                              reply_markup=None):
     """Chatga rasm+matn (yoki rasm bo'lmasa — faqat matn) yuboradi.
 
     chat_id 0 bo'lsa yoki xato chiqsa — jim o'tkazib yuboriladi (asosiy buyurtma
@@ -115,9 +116,11 @@ async def _send_photo_or_text(chat_id: int, photo_id: str | None, caption: str):
     try:
         from app.bot.bot import bot
         if photo_id:
-            await bot.send_photo(chat_id, photo_id, caption=caption, parse_mode="HTML")
+            await bot.send_photo(chat_id, photo_id, caption=caption,
+                                 parse_mode="HTML", reply_markup=reply_markup)
         else:
-            await bot.send_message(chat_id, caption, parse_mode="HTML")
+            await bot.send_message(chat_id, caption, parse_mode="HTML",
+                                   reply_markup=reply_markup)
     except Exception:
         pass
 
@@ -126,10 +129,20 @@ async def _send_to_auction(photo_id: str | None, order_id, qty: int):
     """AUKSION guruhiga — barcha a'zolarga FAQAT rasm + buyurtma raqami + soni.
 
     Xaridor maxfiyligi uchun guruhda ism/telefon/narx/mahsulot nomi
-    ko'rsatilmaydi."""
+    ko'rsatilmaydi. Takliflar maxfiy — post ostidagi «📋 Takliflar» tugmasi
+    orqali faqat admin va taklif bergan sotuvchining o'ziga ko'rinadi
+    (handler: app/handlers/auction.py)."""
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="📋 Takliflar (0)",
+                             callback_data=f"aucoff_{order_id}")
+    ]])
     await _send_photo_or_text(
         settings.AUCTION_GROUP_ID, photo_id,
-        f"🆕 <b>Yangi buyurtma #{order_id}</b>\n🔢 Soni: <b>{qty} dona</b>"
+        f"🆕 <b>Yangi buyurtma #{order_id}</b>\n🔢 Soni: <b>{qty} dona</b>\n\n"
+        f"💰 Narx taklifingizni shu xabarga <b>reply</b> qilib yozing.\n"
+        f"🔒 Taklif guruhda ko'rinmaydi — faqat admin va o'zingiz "
+        f"«📋 Takliflar» tugmasidan ko'rasiz.",
+        reply_markup=kb,
     )
 
 

@@ -21,6 +21,8 @@ FAVORITES_FILE    = f"{DATA_DIR}/favorites.json"
 BLOCKED_FILE      = f"{DATA_DIR}/blocked.json"
 PROMOS_FILE       = f"{DATA_DIR}/promos.json"
 CART_FILE         = f"{DATA_DIR}/carts.json"
+OFFERS_FILE       = f"{DATA_DIR}/auction_offers.json"
+GROUP_ADS_FILE    = f"{DATA_DIR}/group_ads.json"
 
 DEFAULT_CITIES = ["Olmaliq", "Angren", "Bekobod", "Ohangaron", "Chirchiq", "Yangiyo'l", "Toshkent"]
 
@@ -650,6 +652,30 @@ def is_sub_admin(user_id: int) -> bool:
     return str(user_id) in get_admins()
 
 
+# ─── AUKSION takliflari ──────────────────────────────────────────────────────
+# Guruhdagi buyurtmaga sotuvchilar bergan narx takliflari.
+# order_id (str) -> [ {"uid": int, "name": str, "text": str, "ts": str} ]
+def get_auction_offers(order_id) -> list:
+    data = _read(OFFERS_FILE)
+    lst = data.get(str(order_id), [])
+    return lst if isinstance(lst, list) else []
+
+def add_auction_offer(order_id, uid: int, name: str, text: str):
+    data = _read(OFFERS_FILE)
+    if not isinstance(data, dict):
+        data = {}
+    lst = data.get(str(order_id))
+    if not isinstance(lst, list):
+        lst = []
+    lst.append({
+        "uid": uid, "name": name, "text": text,
+        "ts": datetime.now().strftime("%d.%m %H:%M"),
+    })
+    data[str(order_id)] = lst
+    _write(OFFERS_FILE, data)
+    return len(lst)
+
+
 # ─── Kurierlar ───────────────────────────────────────────────────────────────
 # To'lov (10% oldindan) tasdiqlangan yetkazib berish zakazlari shu kurierlarga
 # yuboriladi. user_id (str) -> {"user_id": int, "name": str}
@@ -714,6 +740,102 @@ def pop_all_view_msgs() -> dict:
     data = dict(_VIEW_MSGS)
     _VIEW_MSGS.clear()
     return data
+
+
+# ─── Guruh reklamalari (avtomatik tarqatish) ─────────────────────────────────
+# Bot qo'shilgan guruhlarga belgilangan interval bilan navbatma-navbat reklama
+# yuboriladi. Sozlamalar: app/handlers/ads.py (admin panel → 📣 Guruhlarga reklama).
+
+DEFAULT_GROUP_ADS = [
+    (
+        "🔥 OLMALIQLIKLAR DIQQATIGA!\n\n"
+        "📱 Endi maishiy texnika va elektronika xarid qilish yanada oson!\n\n"
+        "❌ Guruhlarda soatlab qidirish shart emas.\n\n"
+        "✅ Televizorlar\n"
+        "✅ Muzlatgichlar\n"
+        "✅ Konditsionerlar\n"
+        "✅ Kir yuvish mashinalari\n"
+        "✅ Va yana yuzlab mahsulotlar — barchasi bitta Telegram botda.\n\n"
+        "🚚 300 000 so'mdan yuqori xaridlar uchun bepul yetkazib berish "
+        "va qimmatbaho sovg'alar.\n\n"
+        "👇 Hoziroq kirib ko'ring va narxlarni solishtiring:\n\n"
+        "🤖 @promanmarketbot\n\n"
+        "⭐️ Qulay • Tez • Ishonchli"
+    ),
+    (
+        "⚠️ OLMALIQDA TEXNIKA OLADIGANLAR UCHUN!\n\n"
+        "Har safar Telegram guruhlarda mahsulot qidirishdan charchadingizmi?\n\n"
+        "Endi buning oson yo'li bor.\n\n"
+        "📦 Kerakli mahsulotni qidiring.\n"
+        "💰 Narxlarni solishtiring.\n"
+        "🛒 Bir necha bosishda buyurtma bering.\n"
+        "Barchasi bitta joyda:\n\n"
+        "👉 @promanmarketbot\n\n"
+        "🎁 Hozirdanoq kirib ko'ring va o'zingiz baho bering!"
+    ),
+]
+
+
+def get_ads_config() -> dict:
+    cfg = _read(GROUP_ADS_FILE)
+    if not isinstance(cfg, dict):
+        cfg = {}
+    cfg.setdefault("enabled", True)          # tarqatish yoqilganmi
+    cfg.setdefault("interval_hours", 6)      # necha soatda bir yuboriladi
+    cfg.setdefault("last_sent", 0)           # oxirgi yuborilgan vaqt (unix)
+    cfg.setdefault("next_index", 0)          # navbatdagi reklama (rotatsiya)
+    cfg.setdefault("groups", {})             # chat_id(str) -> {"title": ...}
+    if "ads" not in cfg:
+        cfg["ads"] = [
+            {"id": i + 1, "text": t, "photo": None}
+            for i, t in enumerate(DEFAULT_GROUP_ADS)
+        ]
+    return cfg
+
+
+def save_ads_config(cfg: dict):
+    _write(GROUP_ADS_FILE, cfg)
+
+
+def add_ad_group(chat_id: int, title: str):
+    cfg = get_ads_config()
+    cfg["groups"][str(chat_id)] = {
+        "title": title,
+        "added_at": datetime.now().isoformat(),
+    }
+    save_ads_config(cfg)
+
+
+def remove_ad_group(chat_id) -> bool:
+    cfg = get_ads_config()
+    if cfg["groups"].pop(str(chat_id), None) is not None:
+        save_ads_config(cfg)
+        return True
+    return False
+
+
+def add_group_ad(text: str, photo: str | None = None) -> int:
+    cfg = get_ads_config()
+    new_id = max((a.get("id", 0) for a in cfg["ads"]), default=0) + 1
+    cfg["ads"].append({"id": new_id, "text": text, "photo": photo})
+    save_ads_config(cfg)
+    return new_id
+
+
+def delete_group_ad(ad_id: int) -> bool:
+    cfg = get_ads_config()
+    before = len(cfg["ads"])
+    cfg["ads"] = [a for a in cfg["ads"] if a.get("id") != ad_id]
+    if len(cfg["ads"]) != before:
+        save_ads_config(cfg)
+        return True
+    return False
+
+
+def set_ads_field(field: str, value):
+    cfg = get_ads_config()
+    cfg[field] = value
+    save_ads_config(cfg)
 
 
 # ─── Restart: xaridor tarixini tozalash ──────────────────────────────────────

@@ -2,6 +2,8 @@ from aiogram import Dispatcher, BaseMiddleware
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import Message
 
+from app.handlers.ads import router as ads_router
+from app.handlers.auction import router as auction_router
 from app.handlers.start import router as start_router
 from app.handlers.seller.application import router as seller_app_router
 from app.handlers.admin import router as admin_router
@@ -24,7 +26,11 @@ class MenuRefreshMiddleware(BaseMiddleware):
             # FSM jarayonida (ariza, buyurtma, qidiruv...) klaviaturani
             # almashtirmaymiz — jarayon tugagach o'zi yangilanadi.
             # /start da ham shart emas — u menyuni o'zi yuboradi.
-            if uid and data.get("raw_state") is None and not text.startswith("/start"):
+            # Faqat shaxsiy chatda ishlaydi — guruhda (masalan, AUKSION)
+            # "Menyu yangilandi" xabari chiqib ketmasligi kerak.
+            if (uid and event.chat.type == "private"
+                    and data.get("raw_state") is None
+                    and not text.startswith("/start")):
                 from app.storage import get_user, set_user_field
                 from app.keyboards.seller import MENU_VERSION, menu_for
                 u = get_user(uid) or {}
@@ -52,6 +58,8 @@ dp = Dispatcher(storage=storage)
 
 dp.message.outer_middleware(MenuRefreshMiddleware())
 
+dp.include_router(auction_router)     # AUKSION guruhi — hammadan OLDIN
+dp.include_router(ads_router)         # guruh reklamalari (owner) — common dan OLDIN
 dp.include_router(admin_router)
 dp.include_router(seller_panel_router)
 dp.include_router(seller_app_router)   # common dan OLDIN

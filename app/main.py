@@ -55,6 +55,10 @@ async def main():
         seed_proman()
     except Exception:
         logger.exception("Seed (ProMan Electronics) bajarilmadi")
+    # Guruhlarga avtomatik reklama tarqatuvchi fon vazifasi.
+    # Sozlash: Admin panel → «📣 Guruhlarga reklama» yoki /reklama buyrug'i.
+    from app.handlers.ads import ads_scheduler
+    asyncio.create_task(ads_scheduler(bot))
     await dp.start_polling(
         bot,
         allowed_updates=dp.resolve_used_update_types(),
