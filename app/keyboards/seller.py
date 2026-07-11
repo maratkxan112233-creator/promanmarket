@@ -6,14 +6,14 @@ from aiogram.types import (
 # Menyu versiyasi: menyu tugmalari o'zgarganda shu raqamni 1 taga oshiring.
 # Shunda foydalanuvchilar /start bosmasdan ham yangi menyuni avtomatik oladi
 # (dispatcher.py dagi MenuRefreshMiddleware orqali).
-MENU_VERSION = 4
+MENU_VERSION = 5
 
 
 def _build_main_menu() -> ReplyKeyboardMarkup:
     rows = [
-        [KeyboardButton(text="🛒 Market"),         KeyboardButton(text="🔎 Qidirish")],
-        [KeyboardButton(text="🛍 Savatim"),        KeyboardButton(text="📦 Buyurtmalarim")],
-        [KeyboardButton(text="❤️ Istaklarim"),     KeyboardButton(text="👤 Profil")],
+        [KeyboardButton(text="🛍 Katalog"),        KeyboardButton(text="🔍 Qidiruv")],
+        [KeyboardButton(text="🧺 Savat"),          KeyboardButton(text="📦 Buyurtmalarim")],
+        [KeyboardButton(text="❤️ Sevimlilar"),     KeyboardButton(text="👤 Profil")],
         [KeyboardButton(text="🏪 Sotuvchi bo'lish")],
     ]
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
@@ -24,7 +24,7 @@ main_menu = _build_main_menu()
 
 def _build_seller_main_menu() -> ReplyKeyboardMarkup:
     rows = [
-        [KeyboardButton(text="🛒 Sotuvchi paneli"), KeyboardButton(text="👥 Shahrim sellerlari")],
+        [KeyboardButton(text="📊 Sotuvchi paneli"), KeyboardButton(text="👥 Shahrim sellerlari")],
         [KeyboardButton(text="👤 Profil")],
     ]
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
@@ -56,7 +56,7 @@ def admin_contact_kb() -> InlineKeyboardMarkup:
     """Bir bosishda admin chatini ochadigan kompakt tugma."""
     from app.app.config.settings import settings
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💬 Adminga yozish",
+        [InlineKeyboardButton(text="Admin bilan bog'lanish",
                               url=f"https://t.me/{settings.ADMIN_USERNAME}")]
     ])
 

@@ -21,12 +21,13 @@ async def cmd_start(message: Message, state: FSMContext):
     # /start menyuni o'zi yuboradi — qayta yangilash kerak emas
     set_user_field(message.from_user.id, "menu_ver", MENU_VERSION)
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🏪 Seller bo'lish", callback_data="become_seller")],
-        [InlineKeyboardButton(text="💬 Adminga yozish",
+        [InlineKeyboardButton(text="Sotuvchi bo'lish", callback_data="become_seller")],
+        [InlineKeyboardButton(text="Admin bilan bog'lanish",
                               url=f"https://t.me/{settings.ADMIN_USERNAME}")],
     ])
     await message.answer(
-        "✨ <b>Proman Market</b>ga xush kelibsiz!\n\n"
+        "<b>Proman Market</b> — xush kelibsiz.\n\n"
+        "Sifatli mahsulotlar, halol narxlar va tezkor yetkazib berish.\n\n"
         f"{FREE_DELIVERY_BANNER}\n"
         f"{SELLER_INVITE_BANNER}",
         parse_mode="HTML",
@@ -34,6 +35,6 @@ async def cmd_start(message: Message, state: FSMContext):
     )
     # Pastdagi doimiy menyuni ham qoldiramiz (Buyurtmalarim, Profil va h.k.)
     await message.answer(
-        "Boshlash uchun menyudan tanlang 👇",
+        "Quyidagi menyudan bo'limni tanlang.",
         reply_markup=menu_for(message.from_user.id),
     )

@@ -36,6 +36,9 @@ _MENU_BUTTONS = {
     "🛒 Market", "🛍 Bozor", "🔎 Qidirish", "🏪 Sotuvchi bo'lish", "📦 Buyurtmalarim",
     "🛍 Savatim", "❤️ Istaklarim",
     "👤 Profil", "ℹ️ Ma'lumot", "📞 Aloqa", "🛍 Do'kon (ilova)", "❌ Bekor qilish",
+    # Yangi (premium) menyu yozuvlari — eski klaviaturalar bilan birga qabul qilinadi.
+    "🛍 Katalog", "🔍 Qidiruv", "🧺 Savat", "❤️ Sevimlilar",
+    "🛒 Sotuvchi paneli", "📊 Sotuvchi paneli", "👥 Shahrim sellerlari",
 }
 
 async def _ack(call):
@@ -220,15 +223,17 @@ async def admin_panel(message: Message):
         apps = get_applications()
         pending = [a for a in apps.values() if a.get("status") == "pending"]
         text = (
-            f"👑 <b>Admin Panel</b>\n\n"
-            f"⏳ Kutilayotgan arizalar: <b>{len(pending)}</b>\n"
-            f"🏪 Jami sellerlar: <b>{len(get_sellers())}</b>\n"
-            f"👮 Sub-adminlar: <b>{len(get_admins())}</b>"
+            f"<b>Admin panel</b>\n"
+            f"──────────────\n"
+            f"Kutilayotgan arizalar: <b>{len(pending)}</b>\n"
+            f"Sellerlar: <b>{len(get_sellers())}</b>\n"
+            f"Sub-adminlar: <b>{len(get_admins())}</b>"
         )
     else:
         text = (
-            "🛡 <b>Admin Panel</b> (yordamchi)\n\n"
-            "Sizda quyidagi huquqlar bor:\n"
+            "<b>Admin panel</b> (yordamchi)\n"
+            "──────────────\n"
+            "Huquqlaringiz:\n"
             "• Arizalarni tasdiqlab seller qo'shish\n"
             "• Mahsulot qo'shish"
         )
@@ -243,14 +248,16 @@ async def admin_back(call: CallbackQuery):
         apps = get_applications()
         pending = [a for a in apps.values() if a.get("status") == "pending"]
         text = (
-            f"👑 <b>Admin Panel</b>\n\n"
-            f"⏳ Kutilayotgan arizalar: <b>{len(pending)}</b>\n"
-            f"🏪 Jami sellerlar: <b>{len(get_sellers())}</b>\n"
-            f"👮 Sub-adminlar: <b>{len(get_admins())}</b>"
+            f"<b>Admin panel</b>\n"
+            f"──────────────\n"
+            f"Kutilayotgan arizalar: <b>{len(pending)}</b>\n"
+            f"Sellerlar: <b>{len(get_sellers())}</b>\n"
+            f"Sub-adminlar: <b>{len(get_admins())}</b>"
         )
     else:
         text = (
-            "🛡 <b>Admin Panel</b> (yordamchi)\n\n"
+            "<b>Admin panel</b> (yordamchi)\n"
+            "──────────────\n"
             "• Arizalarni tasdiqlab seller qo'shish\n"
             "• Mahsulot qo'shish"
         )
@@ -310,7 +317,7 @@ async def approve_seller(call: CallbackQuery):
         from app.bot.bot import bot
         await bot.send_message(
             uid,
-            "🎉 <b>Tabriklaymiz — siz endi sellersiz!</b>\n\n"
+            "<b>Tabriklaymiz — siz endi sotuvchisiz.</b>\n\n"
             "Arizangiz tasdiqlandi. Seller panelini ochish uchun /seller "
             "buyrug'ini bosing va mahsulot qo'shishni boshlang.",
             parse_mode="HTML"
@@ -2308,18 +2315,18 @@ async def courier_delivered(call: CallbackQuery):
          f"Buyurtma #{oid} — kurier: {courier.get('name', call.from_user.full_name)}")
 
     due = remain + fee
-    fee_txt = f"{fee:,} so'm" if fee else "BEPUL 🎉"
+    fee_txt = f"{fee:,} so'm" if fee else "bepul"
     # Xaridorga — qolgan to'lov + yetkazish KURIERGA naqd beriladi
     try:
         await bot.send_message(
             o["buyer_id"],
-            f"📦 <b>Buyurtmangiz yetib keldi!</b>  (#{oid})\n"
-            f"📦 {o.get('product_name','—')}\n\n"
-            f"💰 Qolgan to'lov:  <b>{remain:,} so'm</b>\n"
-            f"🚚 Yetkazib berish:  <b>{fee_txt}</b>\n"
-            f"💵 <b>Jami kurierga (naqd):  {due:,} so'm</b>\n\n"
+            f"<b>Buyurtmangiz yetib keldi</b>  (#{oid})\n"
+            f"{o.get('product_name','—')}\n\n"
+            f"Qolgan to'lov:  <b>{remain:,} so'm</b>\n"
+            f"Yetkazib berish:  <b>{fee_txt}</b>\n"
+            f"Jami kurierga (naqd):  <b>{due:,} so'm</b>\n\n"
             "Mahsulotni tekshirib, summani <b>kurierga naqd</b> bering.\n"
-            "💳 Karta orqali to'lamoqchi bo'lsangiz — kurierdan karta raqamini so'rang.",
+            "Karta orqali to'lamoqchi bo'lsangiz — kurierdan karta raqamini so'rang.",
             parse_mode="HTML"
         )
     except Exception:
@@ -2334,7 +2341,7 @@ async def courier_delivered(call: CallbackQuery):
         await call.message.edit_text(
             call.message.html_text +
             f"\n\n💵 <b>Xaridordan naqd oling: {due:,} so'm</b>"
-            f"  (mahsulot {remain:,}{f' + yetkazish {fee:,}' if fee else ', yetkazish BEPUL'})"
+            f"  (mahsulot {remain:,}{f' + yetkazish {fee:,}' if fee else ', yetkazish bepul'})"
             f"{card_hint}"
             f"\nPulni olib, mahsulotni topshirgach quyidagi tugmani bosing 👇",
             parse_mode="HTML",

@@ -83,14 +83,14 @@ def seller_menu_kb(user_id: int | None = None):
 
 # ─── /seller ─────────────────────────────────────────────────────────────────
 @router.message(Command("seller"))
-@router.message(F.text == "🛒 Sotuvchi paneli")
+@router.message(F.text.in_({"🛒 Sotuvchi paneli", "📊 Sotuvchi paneli"}))
 async def seller_panel(message: Message):
     if not is_shop_member(message.from_user.id):
-        await message.answer("❌ Siz sotuvchi emassiz. Ariza bering: 🏪 Sotuvchi bo'lish")
+        await message.answer("Siz sotuvchi emassiz. Ariza bering: 🏪 Sotuvchi bo'lish")
         return
     seller = get_shop_seller(message.from_user.id)
     await message.answer(
-        f"🏪 <b>{seller['shop_name']}</b> — Seller Panel",
+        f"<b>{seller['shop_name']}</b> — Sotuvchi paneli",
         reply_markup=seller_menu_kb(message.from_user.id), parse_mode="HTML"
     )
 
@@ -480,6 +480,9 @@ async def start_add_product(call: CallbackQuery, state: FSMContext):
 MENU_BUTTONS = {
     "🛒 Market", "🛍 Bozor", "🔎 Qidirish", "🏪 Sotuvchi bo'lish", "📦 Buyurtmalarim",
     "👤 Profil", "ℹ️ Ma'lumot", "📞 Aloqa", "🛍 Do'kon (ilova)", "❌ Bekor qilish",
+    # Yangi (premium) menyu yozuvlari — eski klaviaturalar bilan birga qabul qilinadi.
+    "🛍 Katalog", "🔍 Qidiruv", "🧺 Savat", "❤️ Sevimlilar", "❤️ Istaklarim",
+    "🛒 Sotuvchi paneli", "📊 Sotuvchi paneli", "👥 Shahrim sellerlari",
 }
 
 ADD_PRODUCT_STATES = StateFilter(
@@ -974,7 +977,7 @@ async def seller_stats(call: CallbackQuery):
         f"💵 Platforma xizmat haqi:  {commission:,} so'm\n"
         f"🟢 Sof tushum:  <b>{net:,} so'm</b>\n"
         f"{divider()}\n"
-        f"🔥 Eng ko'p sotilgan:  {top_line}\n"
+        f"Eng ko'p sotilgan:  {top_line}\n"
         f"⭐ Reyting:  {rating} ({cnt} ta baho)"
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -1187,7 +1190,7 @@ async def assistant_add_save(message: Message, state: FSMContext):
         await bot.send_message(
             uid,
             f"✅ Siz <b>{seller['shop_name']}</b> do'koniga yordamchi qilib qo'shildingiz!\n"
-            "Endi sizda sotuvchi paneli ochiq: 🛒 Sotuvchi paneli",
+            "Endi sizda sotuvchi paneli ochiq: 📊 Sotuvchi paneli",
             parse_mode="HTML", reply_markup=seller_main_menu
         )
     except Exception:

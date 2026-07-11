@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 async def main():
-    logger.info("Man Market starting...")
+    logger.info("Proman Market starting...")
     # Bir martalik xavfsiz seed: Bravo electronics do'koniga mahsulotlarni
     # (konditsioner + kir yuvish mashinasi) — agar hali yo'q bo'lsa — qo'shadi.
     # Xato bo'lsa ham bot to'xtamasin.
