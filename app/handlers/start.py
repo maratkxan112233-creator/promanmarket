@@ -5,7 +5,7 @@ from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 
 from app.keyboards.seller import menu_for, MENU_VERSION
 from app.storage import register_user, set_user_field
-from app.handlers.common import FREE_DELIVERY_BANNER, SELLER_INVITE_BANNER
+from app.handlers.common import FREE_DELIVERY_BANNER, GIFT_BANNER, SELLER_INVITE_BANNER
 from app.app.config.settings import settings
 
 router = Router()
@@ -28,6 +28,7 @@ async def cmd_start(message: Message, state: FSMContext):
     await message.answer(
         "<b>Proman Market</b> — xush kelibsiz.\n\n"
         "Sifatli mahsulotlar, halol narxlar va tezkor yetkazib berish.\n\n"
+        f"{GIFT_BANNER}\n"
         f"{FREE_DELIVERY_BANNER}\n"
         f"{SELLER_INVITE_BANNER}",
         parse_mode="HTML",

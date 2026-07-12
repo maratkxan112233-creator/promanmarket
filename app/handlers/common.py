@@ -75,6 +75,10 @@ FREE_DELIVERY_BANNER = (
     f"Yetkazib berish — {money(DELIVERY_FEE)} · "
     f"{money(FREE_DELIVERY_THRESHOLD)} dan yuqori xaridga <b>bepul</b>"
 )
+# Sovg'a aksiyasi banneri — yetkazib berish banneri bilan birga ko'rsatiladi.
+GIFT_BANNER = (
+    "🎁 Har bir buyurtmaga — <b>300 000 so'mgacha kafolatlangan sovg'a</b>"
+)
 # Sellerlarni jalb qilish (faqat /start salomida ko'rsatiladi, har market'da emas).
 SELLER_INVITE_BANNER = (
     f"Do'kon ochmoqchimisiz? Murojaat: @{settings.ADMIN_USERNAME}"
@@ -314,6 +318,7 @@ async def _show_market(message: Message, city: str):
         lines.append(f"{i}. {s['shop_name']} — {meta}")
     await message.answer(
         f"<b>Do'konlar</b>   ·   📍 {city}\n"
+        f"{GIFT_BANNER}\n"
         f"{FREE_DELIVERY_BANNER}\n\n"
         + "\n".join(lines) + "\n\n"
         "Kerakli do'konni tanlang.",
