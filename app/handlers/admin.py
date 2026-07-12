@@ -997,7 +997,7 @@ async def _send_start_screen(bot, uid: int):
     """Foydalanuvchiga /start ekranini yuboradi (restartdan keyin avtomatik).
     Seller bo'lsa — seller menyusi; xaridor bo'lsa — salomlashish + "Seller
     bo'lish" tugmasi + pastki menyu (xuddi /start bosgandek)."""
-    from app.handlers.common import FREE_DELIVERY_BANNER, GIFT_BANNER, SELLER_INVITE_BANNER
+    from app.handlers.common import TOP_BANNER, SELLER_INVITE_BANNER
     from app.keyboards.seller import menu_for, seller_main_menu
     from app.storage import is_shop_member
     if is_shop_member(uid):
@@ -1013,8 +1013,9 @@ async def _send_start_screen(bot, uid: int):
         ])
         await bot.send_message(
             uid,
+            f"{TOP_BANNER}\n\n"
             "👋 Salom!\n<b>Proman Market</b> botiga xush kelibsiz!\n\n"
-            f"{GIFT_BANNER}\n{FREE_DELIVERY_BANNER}\n{SELLER_INVITE_BANNER}",
+            f"{SELLER_INVITE_BANNER}",
             parse_mode="HTML", reply_markup=kb,
         )
         await bot.send_message(

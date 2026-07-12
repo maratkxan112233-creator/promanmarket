@@ -69,15 +69,13 @@ def delivery_text(fee: int) -> str:
     return "<b>Bepul</b>" if fee == 0 else money(fee)
 
 
-# Yetkazib berish haqida BITTA ixcham qator (har sahifani to'ldirib yubormaslik
-# uchun — avval 3 qatorli "gazeta" banneri edi).
-FREE_DELIVERY_BANNER = (
-    f"Yetkazib berish — {money(DELIVERY_FEE)} · "
-    f"{money(FREE_DELIVERY_THRESHOLD)} dan yuqori xaridga <b>bepul</b>"
-)
-# Sovg'a aksiyasi banneri — yetkazib berish banneri bilan birga ko'rsatiladi.
-GIFT_BANNER = (
-    "🎁 Har bir buyurtmaga — <b>300 000 so'mgacha kafolatlangan sovg'a</b>"
+# Har bir sahifaning YUQORISIDA chiqadigan yagona banner bloki:
+# 24 soatlik yetkazib berish + har buyurtmaga sovg'a.
+TOP_BANNER = (
+    "━━━━━━━━━━━━━━━━━━━\n\n"
+    "🚚 <b>24 SOAT ICHIDA YETKAZIB BERAMIZ</b>\n\n"
+    "🎁 Har buyurtmaga sovg'a\n\n"
+    "━━━━━━━━━━━━━━━━━━━"
 )
 # Sellerlarni jalb qilish (faqat /start salomida ko'rsatiladi, har market'da emas).
 SELLER_INVITE_BANNER = (
@@ -317,9 +315,8 @@ async def _show_market(message: Message, city: str):
         meta = f"★ {rating} · {len(prods)} ta mahsulot" if cnt else f"{len(prods)} ta mahsulot"
         lines.append(f"{i}. {s['shop_name']} — {meta}")
     await message.answer(
-        f"<b>Do'konlar</b>   ·   📍 {city}\n"
-        f"{GIFT_BANNER}\n"
-        f"{FREE_DELIVERY_BANNER}\n\n"
+        f"{TOP_BANNER}\n\n"
+        f"<b>Do'konlar</b>   ·   📍 {city}\n\n"
         + "\n".join(lines) + "\n\n"
         "Kerakli do'konni tanlang.",
         parse_mode="HTML",
@@ -412,7 +409,8 @@ def _shop_menu_chunks(seller_id: int):
     chunks[-1].append([InlineKeyboardButton(text="← Orqaga", callback_data="back_shops")])
     keyboards = [InlineKeyboardMarkup(inline_keyboard=c) for c in chunks]
 
-    text = (f"<b>{shop_name}</b>{stars}\n{divider()}\n"
+    text = (f"{TOP_BANNER}\n\n"
+            f"<b>{shop_name}</b>{stars}\n{divider()}\n"
             f"Mahsulotlar: {total} ta. Kerakli mahsulotni tanlang.")
     return text, keyboards
 
@@ -474,6 +472,7 @@ async def _send_category_products(message: Message, seller_id: int, code: str):
     rows.append([InlineKeyboardButton(text="← Orqaga", callback_data=f"shop_{seller_id}")])
 
     await message.answer(
+        f"{TOP_BANNER}\n\n"
         f"<b>{shop_name}</b>   ·   {label}\n{divider()}\n"
         f"Mahsulotlar: {len(products)} ta. Kerakli mahsulotni tanlang.",
         parse_mode="HTML",
