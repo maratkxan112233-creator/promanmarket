@@ -361,6 +361,13 @@ async def _confirm_single_order(o: dict, notify_buyer: bool = True, speed: str =
     Mahsulot turiga qarab admin tanlaydi va xaridorга shu vaqt ko'rsatiladi."""
     oid = o["id"]
     update_order_status(oid, "paid")
+    # ── Sovg'a: BITTA profilga BIR marta ──
+    # Birinchi tasdiqlangan buyurtmada sovg'a beriladi va profilga yozib
+    # qo'yiladi (gift_order_id) — keyingi buyurtmalarda qayta berilmaydi.
+    buyer_profile = get_user(o["buyer_id"]) or {}
+    gift_now = not buyer_profile.get("gift_order_id")
+    if gift_now:
+        set_user_field(o["buyer_id"], "gift_order_id", oid)
     # Tanlangan yetkazib berish vaqtini buyurtmaga yozamiz (keyin /orders va
     # boshqa joylarda ham ko'rsatish mumkin).
     try:
@@ -383,6 +390,16 @@ async def _confirm_single_order(o: dict, notify_buyer: bool = True, speed: str =
     }
     dlv_label = dlv_map.get(o.get("delivery", ""), o.get("delivery", "—"))
 
+    # Sovg'a qatorlari — faqat birinchi buyurtmada ko'rsatiladi.
+    gift_line_buyer = (
+        "\n🎁 Buyurtmangizga <b>kafolatlangan sovg'a</b> qo'shib yuboriladi!"
+        if gift_now else ""
+    )
+    gift_line_seller = (
+        "🎁 <b>Bu buyurtmaga sovg'a qo'shing</b> — xaridorning birinchi buyurtmasi.\n"
+        if gift_now else ""
+    )
+
     if is_pickup:
         # ── PICKUP: xaridor o'zi olib ketadi ──
         # Sellerga xaridor ma'lumotlari KO'RSATILMAYDI.
@@ -403,7 +420,8 @@ async def _confirm_single_order(o: dict, notify_buyer: bool = True, speed: str =
                     f"🏪 Do'kon: {shop_name}\n"
                     f"🏙 Shahar: {shop_city}\n"
                     f"📱 Do'kon tel: {shop_phone}\n\n"
-                    f"Do'kon bilan bog'lanib, mahsulotni olib keting.",
+                    f"Do'kon bilan bog'lanib, mahsulotni olib keting."
+                    f"{gift_line_buyer}",
                     parse_mode="HTML"
                 )
             except Exception:
@@ -416,6 +434,7 @@ async def _confirm_single_order(o: dict, notify_buyer: bool = True, speed: str =
             f"🚚 {dlv_label}\n\n"
             f"🔒 <b>Xaridor o'zi olib ketadi — ma'lumotlari ko'rsatilmaydi.</b>\n"
             f"Xaridor do'kon raqamiga bog'lanib, mahsulotni olib ketadi.\n"
+            f"{gift_line_seller}"
             f"💡 <i>Eslatma: bu buyurtma uchun platforma xizmat haqi "
             f"({o.get('commission', int(o.get('total',0)*0.1)):,} so'm — 10%) "
             f"xaridorning oldi-to'lovidan olingan.</i>\n"
@@ -436,7 +455,8 @@ async def _confirm_single_order(o: dict, notify_buyer: bool = True, speed: str =
                     f"✅ <b>Buyurtma #{oid} to'lovi tasdiqlandi!</b>\n"
                     f"📦 {o.get('product_name','—')}\n"
                     f"{_speed_text(speed)}\n"
-                    f"Buyurtmangiz tayyorlanmoqda. 🔄",
+                    f"Buyurtmangiz tayyorlanmoqda. 🔄"
+                    f"{gift_line_buyer}",
                     parse_mode="HTML"
                 )
             except Exception:
@@ -451,6 +471,7 @@ async def _confirm_single_order(o: dict, notify_buyer: bool = True, speed: str =
             f"🚚 {dlv_label}\n\n"
             f"🔒 <b>Xaridor ma'lumotlari kurierда — sizga ko'rsatilmaydi.</b>\n"
             f"Mahsulotni tayyorlab qo'ying — kurier do'koningizdan olib ketadi.\n"
+            f"{gift_line_seller}"
             f"Kurierga berganingizda «🚚 Kurierga berdim» tugmasini bosing.\n\n"
             f"💡 <i>Eslatma: bu buyurtma uchun platforma xizmat haqi "
             f"({o.get('commission', int(o.get('total',0)*0.1)):,} so'm — 10%) "
@@ -492,6 +513,9 @@ async def _confirm_single_order(o: dict, notify_buyer: bool = True, speed: str =
                                oid, o.get("quantity", 1))
     except Exception:
         pass
+
+    # Savat (guruh) oqimi xaridorga umumiy xabarda sovg'ani ko'rsatishi uchun.
+    return gift_now
 
 
 @router.callback_query(F.data.startswith("paycfm_"))
@@ -571,13 +595,20 @@ async def confirm_payment_group(call: CallbackQuery):
         pass
 
     # Har bir buyurtmani alohida tasdiqlaymiz (seller/kurier xabarlari), lekin
-    # xaridorга bitta umumiy xabar yuboramiz.
+    # xaridorга bitta umumiy xabar yuboramiz. Sovg'a bitta profilga bir marta —
+    # guruhda ham faqat birinchi buyurtma sovg'a oladi.
+    gift_any = False
     for o in orders:
-        await _confirm_single_order(o, notify_buyer=False, speed=speed)
+        if await _confirm_single_order(o, notify_buyer=False, speed=speed):
+            gift_any = True
 
     items_txt = "".join(
         f"• {o.get('product_name','—')} — {o.get('quantity',1)} dona\n"
         for o in orders
+    )
+    gift_line = (
+        "\n🎁 Buyurtmangizga <b>kafolatlangan sovg'a</b> qo'shib yuboriladi!"
+        if gift_any else ""
     )
     try:
         from app.bot.bot import bot
@@ -586,7 +617,8 @@ async def confirm_payment_group(call: CallbackQuery):
             f"✅ <b>Buyurtmangiz to'lovi tasdiqlandi!</b>  ({len(orders)} ta mahsulot)\n\n"
             f"{items_txt}\n"
             f"{_speed_text(speed)}\n"
-            f"Buyurtmangiz tayyorlanmoqda. 🔄",
+            f"Buyurtmangiz tayyorlanmoqda. 🔄"
+            f"{gift_line}",
             parse_mode="HTML",
         )
     except Exception:
