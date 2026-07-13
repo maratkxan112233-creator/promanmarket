@@ -493,13 +493,34 @@ async def _confirm_single_order(o: dict, notify_buyer: bool = True, speed: str =
                 pass
 
         # ── KURIERLARGA — yangi zakaz (10% to'lov tasdiqlanishi bilanoq) ──
-        for cid in get_couriers():
+        # Xaridor manzili/telefoni FAQAT shu xabarda ochiladi — sellerga emas.
+        couriers = get_couriers()
+        courier_ok = 0
+        for cid in couriers:
             try:
                 await bot.send_message(int(cid), _courier_order_text(oid, o),
                                        parse_mode="HTML",
                                        reply_markup=_courier_done_kb(oid))
+                courier_ok += 1
             except Exception:
                 # Kurier botga /start bosmagan yoki bloklagan bo'lsa — o'tkazib yuboramiz
+                pass
+        if not courier_ok:
+            # Zakaz birorta ham kurierga yetmadi — ownerga ogohlantirish, aks holda
+            # zakaz "havoda qolib" hech kim yetkazmasligi mumkin.
+            sabab = ("kurierlar ro'yxati bo'sh" if not couriers
+                     else "kurier(lar) botga /start bosmagan yoki botni bloklagan")
+            try:
+                await bot.send_message(
+                    settings.OWNER_ID,
+                    f"⚠️ <b>Zakaz #{oid} birorta ham kurierga yetmadi!</b>\n"
+                    f"Sabab: {sabab}.\n\n"
+                    f"Admin panel → 🚚 Kurierlar → ➕ Kurier qo'shish orqali "
+                    f"kurier qo'shing (kurier avval botga /start bosgan bo'lishi shart). "
+                    f"Keyin kurier zakazni /kurier buyrug'i bilan ko'ra oladi.",
+                    parse_mode="HTML"
+                )
+            except Exception:
                 pass
 
     # ── AUKSION guruhiga: rasm + buyurtma raqami + soni ──
