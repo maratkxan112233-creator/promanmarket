@@ -6,8 +6,7 @@ Ishlash tartibi:
 2. Rejalashtirgich (ads_scheduler) har daqiqada tekshiradi: interval vaqti
    kelgan bo'lsa, navbatdagi reklamani BARCHA guruhlarga yuboradi.
    Reklamalar navbatma-navbat (rotatsiya) yuboriladi — har safar boshqasi.
-3. Tungi soatlarda (22:00–08:00) reklama yuborilmaydi — guruh a'zolarini
-   bezovta qilmaslik uchun.
+3. Reklama KECHAYU KUNDUZ (24/7) yuboriladi — tungi tanaffus yo'q.
 4. Boshqarish: Admin panel → «📣 Guruhlarga reklama» yoki /reklama buyrug'i
    (faqat owner): yoqish/to'xtatish, interval, reklama qo'shish/o'chirish,
    guruhlar ro'yxati, darhol yuborish.
@@ -23,6 +22,7 @@ import time
 from datetime import datetime
 
 from aiogram import Router, F
+from aiogram.dispatcher.event.bases import SkipHandler
 from aiogram.exceptions import (TelegramBadRequest, TelegramForbiddenError,
                                 TelegramRetryAfter)
 from aiogram.filters import Command
@@ -41,7 +41,6 @@ logger = logging.getLogger(__name__)
 
 CHECK_EVERY = 60          # rejalashtirgich necha soniyada tekshiradi
 SEND_PAUSE = 1.5          # guruhlar orasidagi pauza (flood-limit uchun)
-QUIET_FROM, QUIET_TO = 22, 8   # tungi tinchlik: 22:00 dan 08:00 gacha
 
 
 def _is_owner(uid: int) -> bool:
@@ -84,6 +83,20 @@ async def on_membership_change(event: ChatMemberUpdated):
     elif status in ("left", "kicked"):
         if remove_ad_group(event.chat.id):
             logger.info("Reklama guruhi o'chirildi: %s (%s)", title, event.chat.id)
+
+
+@router.message(F.chat.type.in_({"group", "supergroup"}))
+async def register_seen_group(message: Message):
+    """Bot ILGARI qo'shilgan guruhlar my_chat_member hodisasini bermaydi —
+    shuning uchun guruhdan kelgan istalgan xabarda guruh ro'yxatga olinadi.
+    Xabar boshqa handlerlarga ham o'tishi uchun SkipHandler tashlanadi."""
+    if message.chat.id != settings.AUCTION_GROUP_ID:
+        cfg = get_ads_config()
+        if str(message.chat.id) not in (cfg.get("groups") or {}):
+            add_ad_group(message.chat.id, message.chat.title or str(message.chat.id))
+            logger.info("Reklama guruhi (xabardan) ro'yxatga olindi: %s (%s)",
+                        message.chat.title, message.chat.id)
+    raise SkipHandler
 
 
 # ─── Reklamani yuborish ──────────────────────────────────────────────────────
@@ -143,21 +156,16 @@ async def send_next_ad(bot) -> tuple[int, int]:
     return sent, len(dead)
 
 
-def _in_quiet_hours() -> bool:
-    h = datetime.now().hour
-    return h >= QUIET_FROM or h < QUIET_TO
-
-
 async def ads_scheduler(bot):
-    """Fon vazifasi: interval vaqti kelganda reklamani avtomatik yuboradi.
+    """Fon vazifasi: interval vaqti kelganda reklamani avtomatik yuboradi —
+    KECHAYU KUNDUZ (24/7), tungi tanaffussiz.
     main.py da bot ishga tushganda start qilinadi."""
     await asyncio.sleep(30)  # bot to'liq ishga tushib olsin
-    logger.info("Reklama rejalashtirgichi ishga tushdi")
+    logger.info("Reklama rejalashtirgichi ishga tushdi (24/7 rejim)")
     while True:
         try:
             cfg = get_ads_config()
-            if (cfg.get("enabled") and cfg.get("groups") and cfg.get("ads")
-                    and not _in_quiet_hours()):
+            if cfg.get("enabled") and cfg.get("groups") and cfg.get("ads"):
                 due = cfg.get("last_sent", 0) + cfg.get("interval_hours", 6) * 3600
                 if time.time() >= due:
                     sent, dead = await send_next_ad(bot)
@@ -188,9 +196,9 @@ def _panel_text() -> str:
         f"Reklamalar: <b>{len(cfg.get('ads', []))}</b> ta (navbatma-navbat)\n"
         f"Oxirgi yuborilgan: {last_s}\n"
         f"Keyingisi: {nxt}\n\n"
-        f"🌙 Tungi 22:00–08:00 da yuborilmaydi.\n"
+        f"🕐 Kechayu kunduz (24/7) yuboriladi — tungi tanaffus yo'q.\n"
         f"➕ Guruh qo'shish uchun botni guruhga a'zo qiling — "
-        f"o'zi ro'yxatga olinadi."
+        f"o'zi ro'yxatga olinadi (guruhda birorta xabar yozilishi kifoya)."
     )
 
 
