@@ -170,3 +170,38 @@ def divider() -> str:
 def title(emoji: str, text: str) -> str:
     """Bir xil sarlavha uslubi: emoji + qalin matn."""
     return f"{emoji} <b>{text}</b>"
+
+
+# Buyurtma holati zanjiri: Buyurtmalarim bo'limida ko'rsatiladi.
+_PROGRESS_STEPS = [
+    "📦 Buyurtma qabul qilindi",
+    "💳 To'lov tekshirilmoqda",
+    "📦 Tayyorlanmoqda",
+    "🚚 Yo'lda",
+    "✅ Yetkazildi",
+]
+
+
+def order_progress(status: str, has_receipt: bool = False) -> str:
+    """Buyurtma holatini bosqichma-bosqich zanjir ko'rinishida qaytaradi.
+
+    O'tilgan bosqich — ✅, joriy bosqich — qalin, kelgusi — ▫️.
+    Bekor qilingan buyurtma zanjirsiz ko'rsatiladi."""
+    if status == "cancelled":
+        return "✕ <b>Bekor qilindi</b>"
+    current = {
+        "pending":    1 if has_receipt else 0,
+        "paid":       2,
+        "processing": 2,
+        "shipped":    3,
+        "delivered":  4,
+    }.get(status, 0)
+    lines = []
+    for i, step in enumerate(_PROGRESS_STEPS):
+        if i < current:
+            lines.append(f"✅ {step.split(' ', 1)[1]}")
+        elif i == current:
+            lines.append(f"{step.split(' ', 1)[0]} <b>{step.split(' ', 1)[1]}</b> ◀️")
+        else:
+            lines.append(f"▫️ {step.split(' ', 1)[1]}")
+    return "\n".join(lines)

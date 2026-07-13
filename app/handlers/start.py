@@ -1,33 +1,48 @@
 from aiogram import Router
-from aiogram.filters import CommandStart
+from aiogram.filters import CommandStart, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 
 from app.keyboards.seller import menu_for, MENU_VERSION
-from app.storage import register_user, set_user_field
-from app.handlers.common import TOP_BANNER, SELLER_INVITE_BANNER
+from app.storage import register_user, set_user_field, get_product_by_id, track_event
+from app.handlers.common import SELLER_INVITE_BANNER, send_product_card
+from app.services import runtime_settings as rs
 from app.app.config.settings import settings
 
 router = Router()
 
 
 @router.message(CommandStart())
-async def cmd_start(message: Message, state: FSMContext):
+async def cmd_start(message: Message, command: CommandObject, state: FSMContext):
     await state.clear()
-    register_user(message.from_user.id, {
+    uid = message.from_user.id
+    register_user(uid, {
         "full_name": message.from_user.full_name,
         "username":  message.from_user.username,
     })
     # /start menyuni o'zi yuboradi — qayta yangilash kerak emas
-    set_user_field(message.from_user.id, "menu_ver", MENU_VERSION)
+    set_user_field(uid, "menu_ver", MENU_VERSION)
+    track_event("start", uid)
+
+    # Deep-link: t.me/bot?start=prod_N («📤 Do'stingizga ulashish» havolasi) —
+    # mahsulot kartasi to'g'ridan-to'g'ri ochiladi.
+    arg = (command.args or "").strip()
+    if arg.startswith("prod_") and arg[5:].isdigit():
+        p = get_product_by_id(int(arg[5:]))
+        if p:
+            await message.answer("👇 Sizga ulashilgan mahsulot:",
+                                 reply_markup=menu_for(uid))
+            await send_product_card(message, uid, p)
+            return
+
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Sotuvchi bo'lish", callback_data="become_seller")],
         [InlineKeyboardButton(text="Admin bilan bog'lanish",
                               url=f"https://t.me/{settings.ADMIN_USERNAME}")],
     ])
     await message.answer(
-        f"{TOP_BANNER}\n\n"
-        "<b>Proman Market</b> — xush kelibsiz.\n\n"
+        f"{rs.start_banner()}\n\n"
+        "<b>Pro Man Market</b> — xush kelibsiz.\n\n"
         "Sifatli mahsulotlar, halol narxlar va tezkor yetkazib berish.\n\n"
         f"{SELLER_INVITE_BANNER}",
         parse_mode="HTML",
@@ -36,5 +51,5 @@ async def cmd_start(message: Message, state: FSMContext):
     # Pastdagi doimiy menyuni ham qoldiramiz (Buyurtmalarim, Profil va h.k.)
     await message.answer(
         "Quyidagi menyudan bo'limni tanlang.",
-        reply_markup=menu_for(message.from_user.id),
+        reply_markup=menu_for(uid),
     )

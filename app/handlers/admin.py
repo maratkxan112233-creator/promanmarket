@@ -24,6 +24,7 @@ from app.storage import (
     get_cities, add_city, remove_city, get_user, get_users, set_user_field,
     shop_notify_ids, get_owner_id,
     get_blocked, mark_blocked, unmark_blocked,
+    track_event, get_stats_data,
 )
 from app.album import collect
 from app.keyboards.seller import main_menu, stars_kb, menu_for, MENU_VERSION
@@ -204,6 +205,7 @@ def admin_menu_kb(uid: int):
             [InlineKeyboardButton(text="📑 Hisobotlar",       callback_data="admin_reports")],
             [InlineKeyboardButton(text="👮 Adminlar",         callback_data="admin_admins")],
             [InlineKeyboardButton(text="🚚 Kurierlar",        callback_data="admin_couriers")],
+            [InlineKeyboardButton(text="⚙️ Sozlamalar",       callback_data="admin_settings")],
             [InlineKeyboardButton(text="💾 Zaxira (backup)",  callback_data="admin_backup")],
             [InlineKeyboardButton(text="🔄 Restart (hammaga yangi menyu)", callback_data="admin_restart_menu")],
         ])
@@ -1699,6 +1701,31 @@ async def admin_blocked(call: CallbackQuery):
 
 
 # ─── Statistika ──────────────────────────────────────────────────────────────
+# Funnel bosqichlari: foydalanuvchi qaysi qadamda chiqib ketayotganini ko'rsatadi.
+_FUNNEL_STEPS = [
+    ("start",            "▶️ START bosgan"),
+    ("catalog_opened",   "🛍 Katalogga kirgan"),
+    ("product_opened",   "📦 Mahsulot ochgan"),
+    ("add_to_cart",      "🧺 Savatga qo'shgan"),
+    ("checkout_started", "🛒 Checkout boshlagan"),
+    ("payment_receipt",  "💳 Chek yuborgan"),
+    ("order_completed",  "✅ Yetkazilgan"),
+]
+
+
+def _funnel_text(counts: dict, title: str) -> str:
+    lines = [f"<b>{title}</b>"]
+    prev = None
+    for key, label in _FUNNEL_STEPS:
+        n = int(counts.get(key, 0))
+        pct = ""
+        if prev not in (None, 0):
+            pct = f"  ({round(n / prev * 100)}%)"
+        lines.append(f"{label}: <b>{n}</b>{pct}")
+        prev = n
+    return "\n".join(lines)
+
+
 @router.callback_query(F.data == "admin_stats")
 async def show_stats(call: CallbackQuery):
     if not is_owner(call.from_user.id): return
@@ -1706,6 +1733,8 @@ async def show_stats(call: CallbackQuery):
     apps = get_applications()
     orders = get_orders()
     revenue = sum(o.get("total", 0) for o in orders)
+    stats = get_stats_data()
+    today = datetime.now().strftime("%Y-%m-%d")
     text = (
         f"📊 <b>Statistika</b>\n\n"
         f"📋 Arizalar: {len(apps)} ta\n"
@@ -1713,7 +1742,11 @@ async def show_stats(call: CallbackQuery):
         f"🏪 Sellerlar: {len(get_sellers())}\n"
         f"📦 Mahsulotlar: {len(get_all_products())}\n"
         f"🛒 Buyurtmalar: {len(orders)} ta\n"
-        f"💰 Jami savdo: {revenue:,} so'm"
+        f"💰 Jami savdo: {revenue:,} so'm\n\n"
+        f"{_funnel_text(stats.get('days', {}).get(today, {}), '📅 Bugungi funnel')}\n\n"
+        f"{_funnel_text(stats.get('totals', {}), '📈 Jami funnel')}\n\n"
+        f"<i>Foizlar — oldingi bosqichga nisbatan. Qaysi bosqichda foiz keskin "
+        f"tushsa, foydalanuvchilar o'sha yerda chiqib ketayapti.</i>"
     )
     await call.message.edit_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(
         inline_keyboard=[[InlineKeyboardButton(text="🔙 Orqaga", callback_data="admin_back")]]
@@ -2285,6 +2318,7 @@ async def _finalize_handover(oid: int, o: dict):
     Qolgan to'lovni kurier naqd oldi (yoki qoldiq yo'q edi)."""
     from app.bot.bot import bot
     update_order_status(oid, "delivered")
+    track_event("order_completed", o.get("buyer_id"))
     total  = o.get("total", 0)
     prepay = o.get("prepay", 0)
     remain = max(total - prepay, 0)

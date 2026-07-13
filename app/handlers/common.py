@@ -1,6 +1,7 @@
 import asyncio
 import re
 import time
+from urllib.parse import quote
 
 from aiogram import Router, F
 from aiogram.types import (
@@ -22,7 +23,9 @@ from app.storage import (
     product_stock, validate_promo, use_promo,
     get_cart, add_to_cart, set_cart_item_qty, remove_cart_item, clear_cart,
     cart_count, get_orders_by_group, get_orders,
+    track_event,
 )
+from app.services import runtime_settings as rs
 from app.keyboards.seller import (
     main_menu, seller_main_menu, menu_for, phone_keyboard, cancel_keyboard,
     admin_contact_kb,
@@ -32,7 +35,7 @@ from app.app.config.settings import settings
 from app.ui import (
     money, divider, title, category_label, product_category,
     product_emoji, product_sort_key, product_group_label, product_groups,
-    normalize_uz_phone,
+    normalize_uz_phone, order_progress,
 )
 
 router = Router()
@@ -55,15 +58,16 @@ DELIVERY_LABELS = {
     "uzum": "Uzum Pochta",
 }
 
-# Yetkazib berish narxi — qat'iy belgilangan (har bir buyurtma uchun bir xil).
+# Yetkazib berish narxi va bepul chegara endi admin panel (⚙️ Sozlamalar)
+# orqali boshqariladi — runtime.json da saqlanadi (app/services/runtime_settings).
+# Quyidagi konstantalar faqat zaxira (fallback) qiymat sifatida qoladi.
 DELIVERY_FEE = 19_000
-# Shu summadan yuqori (va teng) xaridlarga yetkazib berish bepul.
 FREE_DELIVERY_THRESHOLD = 300_000
 
 
 def delivery_fee_for(total: int) -> int:
-    """Yetkazish narxi: xarid 300 000 so'mdan yuqori bo'lsa bepul (0)."""
-    return 0 if total >= FREE_DELIVERY_THRESHOLD else DELIVERY_FEE
+    """Yetkazish narxi: xarid bepul chegaradan yuqori bo'lsa 0."""
+    return 0 if total >= rs.free_threshold() else rs.delivery_fee()
 
 
 def delivery_text(fee: int) -> str:
@@ -251,8 +255,9 @@ async def go_start(call: CallbackQuery):
 
 
 # ─── Ma'lumot (Aloqa) ────────────────────────────────────────────────────────
-# Eski "📞 Aloqa" yozuvi ham qabul qilinadi (eski klaviaturasi ochiq foydalanuvchilar uchun).
-@router.message(F.text.in_({"ℹ️ Ma'lumot", "📞 Aloqa"}))
+# "ℹ️ Ma'lumot" endi app/handlers/info.py da (yangi bo'lim). Bu yerda faqat
+# eski "📞 Aloqa" yozuvi qoladi (eski klaviaturasi ochiq foydalanuvchilar uchun).
+@router.message(F.text == "📞 Aloqa")
 async def contact_handler(message: Message):
     await message.answer(
         "<b>Ma'lumot</b>\n"
@@ -323,6 +328,7 @@ async def market_handler(message: Message):
             reply_markup=seller_main_menu
         )
         return
+    track_event("catalog_opened", message.from_user.id)
     u = get_user(message.from_user.id)
     city = u.get("city") if u else None
     if not city:
@@ -769,6 +775,7 @@ def _product_caption(p: dict) -> str:
         if old_price:
             price_line += f"  <s>{money(old_price)}</s>"
     lines.append(price_line)
+    lines.append("⭐⭐⭐⭐⭐  ✅ Tekshirilgan")
     lines.append("")
 
     # ── Sotuvchi bloki ──
@@ -786,33 +793,24 @@ def _product_caption(p: dict) -> str:
         if stock is not None and stock <= 5:
             lines.append(f"\n⚡ Omborda: {stock} dona qoldi")
 
-    # ── Tavsif — qisqa punktlar ko'rinishida ──
-    if desc:
-        lines.append("")
-        lines.append(_desc_bullets(desc))
+    def _finish(desc_items: int) -> str:
+        out = list(lines)
+        if desc and desc_items:
+            out += ["", _desc_bullets(desc, max_items=desc_items)]
+        # ── Ishonch bloki (15-band): kafolat, 24 soat, oldindan to'lov, sovg'a ──
+        out += ["", rs.product_benefits_block(price,
+                                              has_warranty=bool(p.get("warranty")))]
+        # Qisqa eslatma (yumshoq ohangda).
+        out += ["", "📌 <i>Mahsulot ko'rinishi ishlab chiqaruvchiga qarab "
+                    "biroz farq qilishi mumkin.</i>"]
+        return "\n".join(out)
 
-    # ── Ishonch bloki ──
-    lines.append("")
-    lines.append("✅ Mahsulot tekshirilgan")
-    lines.append("🛡 Kafolat mavjud")
-
-    # ── Yetkazib berish — asosiy ustunlik, ajratilgan blok ──
-    fee = delivery_fee_for(price)
-    lines.append("")
-    lines.append("━━━━━━━━━━━━━━")
-    lines.append("🚚 <b>24 SOAT ICHIDA YETKAZIB BERAMIZ!</b>")
-    if fee:
-        lines.append(f"💵 Yetkazib berish: {money(fee)}")
-        lines.append(f"🎁 {money(FREE_DELIVERY_THRESHOLD)}dan yuqori xaridga <b>BEPUL</b>")
-    else:
-        lines.append("🎁 Yetkazib berish: <b>BEPUL</b>")
-    lines.append("━━━━━━━━━━━━━━")
-
-    # Qisqa eslatma (yumshoq ohangda).
-    lines.append("")
-    lines.append("📌 <i>Mahsulot ko'rinishi ishlab chiqaruvchiga qarab "
-                 "biroz farq qilishi mumkin.</i>")
-    return "\n".join(lines)
+    # Rasm caption limiti 1024 belgi — oshsa tavsif punktlarini qisqartiramiz.
+    for items in (4, 2, 0):
+        caption = _finish(items)
+        if len(caption) <= 1000:
+            break
+    return caption
 
 
 def _similar_products(p: dict, limit: int = 3) -> list[dict]:
@@ -841,11 +839,19 @@ def _product_kb(p: dict, user_id: int, with_album: bool = True) -> InlineKeyboar
         fav_text = "❤️ Sevimlilarga qo'shish"
     rows = []
     if not p.get("is_finished"):
-        rows.append([InlineKeyboardButton(text="🟢 🛒 HOZIR BUYURTMA BERISH",
+        rows.append([InlineKeyboardButton(text=rs.cta_label(),
                                           callback_data=f"order_{p['id']}")])
         rows.append([InlineKeyboardButton(text="🧺 Savatga qo'shish",
                                           callback_data=f"addcart_{p['id']}")])
     rows.append([InlineKeyboardButton(text=fav_text, callback_data=f"fav_{p['id']}")])
+    # 📤 Ulashish: deep-link do'stning botida shu mahsulot kartasini ochadi.
+    share_url = quote(f"https://t.me/{settings.BOT_USERNAME}?start=prod_{p['id']}",
+                      safe="")
+    share_text = quote(f"{p.get('name', '')} — Pro Man Market", safe="")
+    rows.append([InlineKeyboardButton(
+        text="📤 Do'stingizga ulashish",
+        url=f"https://t.me/share/url?url={share_url}&text={share_text}",
+    )])
     # Qo'shimcha rasm/video bo'lsa — alohida tugma bilan so'ralganda yuboriladi
     # (kartochka bitta xabar bo'lib qoladi — tez ochiladi va tez almashadi).
     if with_album:
@@ -905,6 +911,29 @@ async def _clear_last_product(bot, chat_id: int, extra_ids: list | None = None):
     await _delete_msgs(bot, chat_id, pop_view_msgs(chat_id) + list(extra_ids or []))
 
 
+async def send_product_card(message: Message, user_id: int, p: dict):
+    """Mahsulot kartasini yangi xabar sifatida yuboradi. Deep-link
+    (t.me/bot?start=prod_N — «Do'stingizga ulashish») orqali kelganlar uchun."""
+    track_event("product_opened", user_id)
+    text = _product_caption(p)
+    kb   = _product_kb(p, user_id)
+    photos = product_photos(p)
+    chat_id = message.chat.id
+    await _clear_last_product(message.bot, chat_id)
+    kind = "photo" if photos else "text"
+    if photos:
+        try:
+            sent = await message.answer_photo(
+                photos[0], caption=text, parse_mode="HTML", reply_markup=kb)
+        except Exception:
+            sent = await message.answer(text, parse_mode="HTML", reply_markup=kb)
+            kind = "text"
+    else:
+        sent = await message.answer(text, parse_mode="HTML", reply_markup=kb)
+    set_view_msgs(chat_id, [sent.message_id])
+    _PRODUCT_CARD[chat_id] = (sent.message_id, kind)
+
+
 @router.callback_query(F.data.startswith("prod_"))
 async def product_detail(call: CallbackQuery):
     pid = int(call.data.split("_")[1])
@@ -914,6 +943,7 @@ async def product_detail(call: CallbackQuery):
     # Tugma spinnerini darhol o'chiramiz — qolgan ishlar (o'chirish, rasm
     # yuborish) foydalanuvchini kuttirmasin.
     await call.answer()
+    track_event("product_opened", call.from_user.id)
 
     text    = _product_caption(p)
     photos  = product_photos(p)
@@ -1157,15 +1187,24 @@ def _max_qty(p: dict) -> int:
     return min(99, s) if (s is not None and s > 0) else 99
 
 
-def _qty_kb(qty: int, max_qty: int = 99) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
+def _qty_kb(qty: int, max_qty: int = 99, promo_percent: int = 0) -> InlineKeyboardMarkup:
+    rows = [
         [
             InlineKeyboardButton(text="➖",          callback_data=f"qset_{max(1, qty - 1)}"),
             InlineKeyboardButton(text=f"{qty} dona", callback_data="noop"),
             InlineKeyboardButton(text="➕",          callback_data=f"qset_{min(max_qty, qty + 1)}"),
         ],
-        [InlineKeyboardButton(text="Davom etish", callback_data=f"qok_{qty}")],
-    ])
+    ]
+    # Promo avtomatik so'ralmaydi — faqat tugma bosilgandagina kiritish ochiladi
+    # (checkout'dagi keraksiz to'xtalishlarni kamaytiradi).
+    if promo_percent:
+        rows.append([InlineKeyboardButton(text=f"✓ Promo qo'llandi: −{promo_percent}%",
+                                          callback_data="noop")])
+    else:
+        rows.append([InlineKeyboardButton(text="🎁 Promo kodim bor",
+                                          callback_data=f"promo_open_{qty}")])
+    rows.append([InlineKeyboardButton(text="Davom etish", callback_data=f"qok_{qty}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 @router.callback_query(F.data.startswith("order_"))
@@ -1180,6 +1219,7 @@ async def start_order(call: CallbackQuery, state: FSMContext):
     await state.clear()
     await state.update_data(pid=pid)
     await state.set_state(OrderState.quantity)
+    track_event("checkout_started", call.from_user.id)
     mx = _max_qty(p)
     await call.message.answer(_qty_text(p, 1), parse_mode="HTML", reply_markup=_qty_kb(1, mx))
     await call.answer()
@@ -1194,7 +1234,9 @@ async def order_qty_set(call: CallbackQuery, state: FSMContext):
     mx = _max_qty(p)
     qty  = max(1, min(mx, int(call.data.split("_")[1])))
     try:
-        await call.message.edit_text(_qty_text(p, qty), parse_mode="HTML", reply_markup=_qty_kb(qty, mx))
+        await call.message.edit_text(
+            _qty_text(p, qty), parse_mode="HTML",
+            reply_markup=_qty_kb(qty, mx, data.get("promo_percent", 0)))
     except Exception:
         pass
     await call.answer()
@@ -1207,6 +1249,20 @@ async def order_qty_ok(call: CallbackQuery, state: FSMContext):
     mx = _max_qty(p0) if p0 else 99
     qty = max(1, min(mx, int(call.data.split("_")[1])))
     await state.update_data(quantity=qty)
+    data = await state.get_data()
+    p = get_product_by_id(data.get("pid"))
+    if not p:
+        await call.answer("Mahsulot topilmadi."); return
+    # Promo bosqichi endi avtomatik so'ralmaydi — to'g'ri keyingi bosqichga.
+    await _ask_color(call.message, state, p)
+    await call.answer()
+
+
+@router.callback_query(OrderState.quantity, F.data.startswith("promo_open_"))
+async def order_promo_open(call: CallbackQuery, state: FSMContext):
+    """«🎁 Promo kodim bor» tugmasi — kiritish oynasi faqat shunda ochiladi."""
+    qty = max(1, int(call.data.split("_")[2]))
+    await state.update_data(quantity=qty, promo_return="qty")
     data = await state.get_data()
     p = get_product_by_id(data.get("pid"))
     if not p:
@@ -1238,6 +1294,15 @@ async def _after_promo(message: Message, state: FSMContext):
     if not p:
         await state.clear()
         await message.answer("Mahsulot topilmadi.", reply_markup=main_menu)
+        return
+    if data.get("promo_return") == "qty":
+        # Promo miqdor ekranidagi tugma orqali ochilgan — o'sha ekranga qaytamiz.
+        await state.update_data(promo_return=None)
+        await state.set_state(OrderState.quantity)
+        qty = max(1, int(data.get("quantity", 1)))
+        await message.answer(
+            _qty_text(p, qty), parse_mode="HTML",
+            reply_markup=_qty_kb(qty, _max_qty(p), data.get("promo_percent", 0)))
         return
     await _ask_color(message, state, p)
 
@@ -1353,7 +1418,7 @@ async def order_phone(message: Message, state: FSMContext):
     unit  = _unit_price(p, data)
     total = unit * qty
     fee   = delivery_fee_for(total)   # 300 000 dan yuqori xaridga — bepul
-    commission = int(total * settings.COMMISSION_RATE)
+    commission = int(total * rs.prepay_rate())
     promo_code = data.get("promo_code")
     order_id = save_order({
         "buyer_id":     message.from_user.id,
@@ -1389,7 +1454,7 @@ async def order_phone(message: Message, state: FSMContext):
 
     platform_card = settings.PLATFORM_CARD or "⚠️ admin kartani sozlamagan"
     card_name = f" ({settings.PLATFORM_CARD_NAME})" if settings.PLATFORM_CARD_NAME else ""
-    pct = int(settings.COMMISSION_RATE * 100)
+    pct = rs.prepay_percent()
     remain = max(total - commission, 0)
 
     # ── Xaridorga: oldi-to'lov PLATFORMA kartasiga (qisqa, bir ekranlik xabar) ──
@@ -1410,7 +1475,7 @@ async def order_phone(message: Message, state: FSMContext):
         f"Qolgan {money(remain)}{fee_note} kurierga naqd yoki karta orqali to'lanadi.\n\n"
         f"<b>To'lov chekini (rasm yoki PDF) shu yerga yuboring</b> — "
         f"chek tasdiqlangach buyurtma tayyorlanadi.\n"
-        f"Savollar uchun: @{settings.ADMIN_USERNAME}",
+        f"Savollar uchun: @{settings.ADMIN_USERNAME}  ·  📞 {rs.contact_phone()}",
         parse_mode="HTML", reply_markup=cancel_keyboard
     )
 
@@ -1457,14 +1522,19 @@ async def order_receipt(message: Message, state: FSMContext):
     except Exception:
         pass
 
+    track_event("payment_receipt", message.from_user.id)
     await message.answer(
-        f"Chek qabul qilindi. Buyurtma #{order_id} to'lovi tekshirilmoqda — "
-        f"tasdiqlangach xabar beramiz.",
-        reply_markup=main_menu
+        "✅ <b>Buyurtmangiz qabul qilindi.</b>\n\n"
+        "Operator tez orada siz bilan bog'lanadi.\n\n"
+        f"Buyurtma raqami: <b>#{order_id}</b>\n\n"
+        f"📞 Aloqa:\n{rs.contact_phone()}\n\n"
+        "Buyurtma holatini «📦 Buyurtmalarim» bo'limidan "
+        "kuzatishingiz mumkin.",
+        parse_mode="HTML", reply_markup=main_menu
     )
 
     # Adminga chek + tasdiqlash tugmalari
-    pct = int(settings.COMMISSION_RATE * 100)
+    pct = rs.prepay_percent()
     # To'lovni tasdiqlash + yetkazib berish vaqtini tanlash (mahsulot turiga qarab):
     #   🟢 Bugun  —  juda tez (kichik/yengil mahsulotlar)
     #   🟡 24 soat — ertaga (katta/og'ir maishiy texnika)
@@ -1514,6 +1584,7 @@ async def add_to_cart_cb(call: CallbackQuery):
         await call.answer("Mahsulot topilmadi."); return
     if p.get("is_finished"):
         await call.answer("Mahsulot tugagan.", show_alert=True); return
+    track_event("add_to_cart", call.from_user.id)
     colors = p.get("colors") or []
     if colors:
         # Rang bor — avval rang tanlaymiz (savatga rang bilan qo'shiladi).
@@ -1598,8 +1669,8 @@ def _cart_view(user_id: int):
     lines.append(f"Jami: <b>{money(combined)}</b>")
     lines.append(f"Yetkazib berish: {delivery_text(fee)}")
     if has_orderable:
-        pct = int(settings.COMMISSION_RATE * 100)
-        prepay = int(combined * settings.COMMISSION_RATE)
+        pct = rs.prepay_percent()
+        prepay = int(combined * rs.prepay_rate())
         lines.append(f"Oldindan to'lov ({pct}%): <b>{money(prepay)}</b>")
 
     kb_rows = []
@@ -1618,6 +1689,8 @@ def _cart_view(user_id: int):
                 InlineKeyboardButton(text="Olib tashlash", callback_data=f"cdel_{idx}"),
             ])
     if has_orderable:
+        kb_rows.append([InlineKeyboardButton(text="🎁 Promo kodim bor",
+                                             callback_data="cartpromo")])
         kb_rows.append([InlineKeyboardButton(text="Buyurtma berish", callback_data="cocheckout")])
     kb_rows.append([InlineKeyboardButton(text="Savatni tozalash", callback_data="cclear")])
 
@@ -1689,7 +1762,7 @@ async def cart_clear(call: CallbackQuery):
         pass
 
 
-# ─── Savatdan buyurtma: promo → manzil → telefon ─────────────────────────────
+# ─── Savatdan buyurtma: manzil → telefon (promo — faqat tugma orqali) ────────
 @router.callback_query(F.data == "cocheckout")
 async def cart_checkout(call: CallbackQuery, state: FSMContext):
     rows, combined = _cart_lines(call.from_user.id)
@@ -1698,13 +1771,41 @@ async def cart_checkout(call: CallbackQuery, state: FSMContext):
         await call.answer("Savatda buyurtma qilish mumkin mahsulot yo'q.", show_alert=True)
         return
     await call.answer()
+    track_event("checkout_started", call.from_user.id)
+    # Savat ko'rinishida kiritilgan promo state.clear() da yo'qolmasin.
+    old = await state.get_data()
     await state.clear()
+    if old.get("promo_code"):
+        await state.update_data(promo_code=old["promo_code"],
+                                promo_percent=old.get("promo_percent", 0))
+    await _cart_ask_address(call.message, state)
+
+
+@router.callback_query(F.data == "cartpromo")
+async def cart_promo_open(call: CallbackQuery, state: FSMContext):
+    """Savatdagi «🎁 Promo kodim bor» tugmasi — kiritish oynasini ochadi."""
+    await call.answer()
     await state.set_state(CartCheckoutState.promo)
+    await state.update_data(promo_return="cart")
     await call.message.answer(
-        "<b>Promo-kodingiz bo'lsa yuboring</b> — chegirma savatdagi barcha "
-        "mahsulotlarga qo'llanadi.\nBo'lmasa quyidagi tugmani bosing.",
+        "<b>Promo-kodingizni yuboring</b> — chegirma savatdagi barcha "
+        "mahsulotlarga qo'llanadi.\nBekor qilish uchun quyidagi tugmani bosing.",
         parse_mode="HTML", reply_markup=_promo_skip_kb(),
     )
+
+
+async def _cart_after_promo(message: Message, state: FSMContext, user_id: int):
+    """Promo bosqichidan keyin: savatdan ochilgan bo'lsa savatga qaytadi,
+    aks holda (eski oqim) manzil so'raladi."""
+    data = await state.get_data()
+    if data.get("promo_return") == "cart":
+        await state.update_data(promo_return=None)
+        await state.set_state(None)   # ma'lumot (promo) saqlanib qoladi
+        text, kb = _cart_view(user_id)
+        if text:
+            await message.answer(text, parse_mode="HTML", reply_markup=kb)
+        return
+    await _cart_ask_address(message, state)
 
 
 @router.callback_query(CartCheckoutState.promo, F.data == "promoskip")
@@ -1714,7 +1815,7 @@ async def cart_promo_skip(call: CallbackQuery, state: FSMContext):
         await call.message.edit_reply_markup(reply_markup=None)
     except Exception:
         pass
-    await _cart_ask_address(call.message, state)
+    await _cart_after_promo(call.message, state, call.from_user.id)
 
 
 @router.message(CartCheckoutState.promo, F.text == "❌ Bekor qilish")
@@ -1739,9 +1840,11 @@ async def cart_promo_enter(message: Message, state: FSMContext):
         )
         return
     await state.update_data(promo_code=promo["code"], promo_percent=promo["percent"])
-    await message.answer(f"Promo-kod qabul qilindi: <b>−{promo['percent']}%</b> chegirma.",
-                         parse_mode="HTML")
-    await _cart_ask_address(message, state)
+    await message.answer(
+        f"Promo-kod qabul qilindi: <b>−{promo['percent']}%</b> chegirma "
+        f"buyurtma berishda qo'llanadi.",
+        parse_mode="HTML")
+    await _cart_after_promo(message, state, message.from_user.id)
 
 
 async def _cart_ask_address(message: Message, state: FSMContext):
@@ -1813,7 +1916,7 @@ async def cart_phone(message: Message, state: FSMContext):
         qty = max(1, min(_max_qty(p), int(it.get("quantity", 1))))
         unit = _unit_price(p, data)
         total = unit * qty
-        commission = int(total * settings.COMMISSION_RATE)
+        commission = int(total * rs.prepay_rate())
         lines.append((p, qty, unit, total, commission, it.get("color") or ""))
         combined_total += total
 
@@ -1878,7 +1981,7 @@ async def cart_phone(message: Message, state: FSMContext):
     # ── Xaridorga: BITTA umumiy oldi-to'lov xabari (qisqa, bir ekranlik) ──
     platform_card = settings.PLATFORM_CARD or "⚠️ admin kartani sozlamagan"
     card_name = f" ({settings.PLATFORM_CARD_NAME})" if settings.PLATFORM_CARD_NAME else ""
-    pct = int(settings.COMMISSION_RATE * 100)
+    pct = rs.prepay_percent()
     remain = max(combined_total - combined_prepay, 0)
     fee_note = f" + yetkazib berish {money(fee)}" if fee else ""
     promo_summary = f"Promo {promo_code}: −{promo_percent}%\n" if promo_code else ""
@@ -1906,7 +2009,7 @@ async def cart_phone(message: Message, state: FSMContext):
         f"Qolgan {money(remain)}{fee_note} kurierga naqd yoki karta orqali to'lanadi.\n\n"
         f"<b>To'lov chekini (rasm yoki PDF) shu yerga yuboring</b> — "
         f"chek tasdiqlangach buyurtma tayyorlanadi.\n"
-        f"Savollar uchun: @{settings.ADMIN_USERNAME}",
+        f"Savollar uchun: @{settings.ADMIN_USERNAME}  ·  📞 {rs.contact_phone()}",
         parse_mode="HTML", reply_markup=cancel_keyboard,
     )
 
@@ -1956,14 +2059,20 @@ async def cart_receipt(message: Message, state: FSMContext):
     except Exception:
         pass
 
+    track_event("payment_receipt", message.from_user.id)
+    order_nums = ", ".join(f"#{o['id']}" for o in orders)
     await message.answer(
-        f"Chek qabul qilindi. Buyurtmalaringiz ({len(orders)} ta) to'lovi "
-        f"tekshirilmoqda — tasdiqlangach xabar beramiz.",
-        reply_markup=menu_for(message.from_user.id),
+        "✅ <b>Buyurtmangiz qabul qilindi.</b>\n\n"
+        "Operator tez orada siz bilan bog'lanadi.\n\n"
+        f"Buyurtma raqami: <b>{order_nums}</b>\n\n"
+        f"📞 Aloqa:\n{rs.contact_phone()}\n\n"
+        "Buyurtma holatini «📦 Buyurtmalarim» bo'limidan "
+        "kuzatishingiz mumkin.",
+        parse_mode="HTML", reply_markup=menu_for(message.from_user.id),
     )
 
     # Adminga: BITTA xabar — barcha buyurtmalar + tasdiqlash tugmalari
-    pct = int(settings.COMMISSION_RATE * 100)
+    pct = rs.prepay_percent()
     total_prepay = sum(int(o.get("prepay", 0)) for o in orders)
     o0 = orders[0]
     items_txt = "".join(
@@ -2035,12 +2144,12 @@ async def my_orders(message: Message):
     rows = []
     for o in orders[-10:]:
         dlv = DELIVERY_LABELS.get(o.get("delivery",""), o.get("delivery",""))
-        status = ORDER_STATUSES.get(o.get("status",""), o.get("status",""))
+        progress = order_progress(o.get("status", ""), bool(o.get("receipt")))
         text += (
             f"<b>#{o['id']}</b> — {o.get('product_name','—')}\n"
             f"   Summa: {o.get('total',0):,} so'm\n"
-            f"   Yetkazib berish: {dlv}\n"
-            f"   Holat: {status}\n"
+            f"   Yetkazib berish: {dlv}\n\n"
+            f"{progress}\n"
         )
         if o.get("status") not in ("delivered","cancelled"):
             if o.get("delivery") == "pickup":

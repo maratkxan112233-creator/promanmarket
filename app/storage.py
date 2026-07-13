@@ -23,6 +23,9 @@ PROMOS_FILE       = f"{DATA_DIR}/promos.json"
 CART_FILE         = f"{DATA_DIR}/carts.json"
 OFFERS_FILE       = f"{DATA_DIR}/auction_offers.json"
 GROUP_ADS_FILE    = f"{DATA_DIR}/group_ads.json"
+RUNTIME_FILE      = f"{DATA_DIR}/runtime.json"
+STATS_FILE        = f"{DATA_DIR}/stats.json"
+TESTIMONIALS_FILE = f"{DATA_DIR}/testimonials.json"
 
 DEFAULT_CITIES = ["Olmaliq", "Angren", "Bekobod", "Ohangaron", "Chirchiq", "Yangiyo'l", "Toshkent"]
 
@@ -856,3 +859,149 @@ def reset_buyer_data() -> dict:
     _write(USERS_FILE, {})
     _VIEW_MSGS.clear()
     return counts
+
+
+# ─── Ish vaqti sozlamalari (admin panel → ⚙️ Sozlamalar) ─────────────────────
+# Biznes qiymatlari kodga yozilmaydi — admin istalgan payt o'zgartira oladi.
+# Matnlar ichida {prepay}/{threshold}/{fee}/{phone} o'rinbosarlari ishlatiladi
+# va ko'rsatish paytida joriy qiymatlar bilan almashtiriladi.
+
+RUNTIME_DEFAULTS = {
+    "delivery_fee": 19_000,
+    "free_delivery_threshold": 300_000,
+    "prepay_percent": 10,
+    "contact_phone": "+998 93 805 27 20",
+    "banner_extra": "",   # aksiya matni — bo'sh bo'lmasa bosh sahifa banneriga qo'shiladi
+    "gift_text": "Kafolatlangan sovg'a",
+    "popup": {"id": 0, "text": "", "enabled": False},
+    "about": {
+        "company": (
+            "Pro Man Market — maishiy texnika va elektronika bo'yicha "
+            "onlayn do'kon. Tekshirilgan sotuvchilar, halol narxlar va "
+            "tezkor yetkazib berish."
+        ),
+        "phone": "+998 93 805 27 20",
+        "telegram": "@Marufzxon",
+        "work_hours": "09:00 – 21:00",
+        "address": "",
+        "map_link": "",
+        "requisites": "",
+    },
+    "faq": [
+        {"q": "Yetkazish qancha vaqt oladi?",
+         "a": "Buyurtmangiz to'lov tasdiqlangach 24 soat ichida yetkaziladi."},
+        {"q": "Kafolat bormi?",
+         "a": "Ha. Barcha mahsulotlar tekshirilgan va kafolat bilan sotiladi. "
+              "Kafolat muddati mahsulot turiga qarab belgilanadi."},
+        {"q": "{prepay}% oldindan to'lov qanday ishlaydi?",
+         "a": "Buyurtma berganingizda umumiy summaning atigi {prepay}% ini "
+              "oldindan to'laysiz. Qolgan qismini mahsulotni qo'lingizga "
+              "olganingizda kurierga naqd yoki karta orqali to'laysiz."},
+        {"q": "To'lov qanday qilinadi?",
+         "a": "Oldindan to'lov ({prepay}%) karta orqali qilinadi va chek "
+              "yuboriladi. Qolgan summa yetkazib berilganda to'lanadi."},
+        {"q": "Qaysi shaharlarga yetkaziladi?",
+         "a": "Olmaliq, Angren, Bekobod, Ohangaron, Chirchiq, Yangiyo'l va "
+              "Toshkentga yetkazib beramiz. {threshold} so'mdan yuqori "
+              "xaridlarga yetkazib berish BEPUL."},
+    ],
+}
+
+
+def get_runtime_config() -> dict:
+    cfg = _read(RUNTIME_FILE)
+    if not isinstance(cfg, dict):
+        cfg = {}
+    for key, default in RUNTIME_DEFAULTS.items():
+        cfg.setdefault(key, default)
+    # Ichki dict'larda ham yetishmagan kalitlarni to'ldiramiz
+    for key in ("popup", "about"):
+        if not isinstance(cfg.get(key), dict):
+            cfg[key] = dict(RUNTIME_DEFAULTS[key])
+        else:
+            for k, v in RUNTIME_DEFAULTS[key].items():
+                cfg[key].setdefault(k, v)
+    return cfg
+
+
+def save_runtime_config(cfg: dict):
+    _write(RUNTIME_FILE, cfg)
+
+
+def set_runtime_field(field: str, value):
+    """Bitta sozlamani yangilaydi. "about.phone" ko'rinishidagi ichki
+    kalitlarni ham qo'llab-quvvatlaydi."""
+    cfg = get_runtime_config()
+    if "." in field:
+        parent, child = field.split(".", 1)
+        if not isinstance(cfg.get(parent), dict):
+            cfg[parent] = {}
+        cfg[parent][child] = value
+    else:
+        cfg[field] = value
+    save_runtime_config(cfg)
+
+
+# ─── Funnel statistikasi (foydalanuvchi qaysi bosqichda to'xtayapti) ─────────
+# Hodisalar: start, catalog_opened, product_opened, add_to_cart,
+# checkout_started, payment_receipt, order_completed.
+
+def track_event(event: str, user_id: int | None = None):
+    """Hodisa hisoblagichini oshiradi. HECH QACHON xatolik chiqarmaydi —
+    statistika xarid oqimini buzmasligi kerak."""
+    try:
+        data = _read(STATS_FILE)
+        if not isinstance(data, dict):
+            data = {}
+        data.setdefault("totals", {})
+        data.setdefault("days", {})
+        data["totals"][event] = data["totals"].get(event, 0) + 1
+        today = datetime.now().strftime("%Y-%m-%d")
+        day = data["days"].setdefault(today, {})
+        day[event] = day.get(event, 0) + 1
+        # Fayl cheksiz o'smasin: faqat oxirgi 60 kun saqlanadi
+        if len(data["days"]) > 60:
+            for old in sorted(data["days"])[:-60]:
+                data["days"].pop(old, None)
+        _write(STATS_FILE, data)
+    except Exception:
+        pass
+
+
+def get_stats_data() -> dict:
+    data = _read(STATS_FILE)
+    if not isinstance(data, dict):
+        return {"totals": {}, "days": {}}
+    data.setdefault("totals", {})
+    data.setdefault("days", {})
+    return data
+
+
+# ─── Xaridorlar fikrlari (admin qo'shadigan rasm/video guvohliklar) ──────────
+def get_testimonials() -> list:
+    data = _read(TESTIMONIALS_FILE)
+    return data if isinstance(data, list) else []
+
+
+def add_testimonial(media_type: str, file_id: str, caption: str = "") -> int:
+    items = get_testimonials()
+    new_id = max((t.get("id", 0) for t in items), default=0) + 1
+    items.append({
+        "id": new_id,
+        "media_type": media_type,   # "photo" yoki "video"
+        "file_id": file_id,
+        "caption": caption,
+        "created_at": datetime.now().isoformat(),
+    })
+    _write(TESTIMONIALS_FILE, items)
+    return new_id
+
+
+def delete_testimonial(tst_id: int) -> bool:
+    items = get_testimonials()
+    before = len(items)
+    items = [t for t in items if t.get("id") != tst_id]
+    if len(items) != before:
+        _write(TESTIMONIALS_FILE, items)
+        return True
+    return False

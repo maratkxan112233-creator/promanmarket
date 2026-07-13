@@ -868,6 +868,9 @@ async def update_order(call: CallbackQuery):
     if not o or o["seller_id"] != get_owner_id(call.from_user.id):
         await call.answer("Ruxsat yo'q."); return
     update_order_status(oid, status)
+    if status == "delivered":
+        from app.storage import track_event
+        track_event("order_completed", o.get("buyer_id"))
     status_label = ORDER_STATUSES[status]
     await call.answer(f"✅ Holat: {status_label}")
 
