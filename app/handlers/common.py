@@ -20,7 +20,7 @@ from app.storage import (
     is_shop_member, get_shop_seller, get_owner_id, shop_notify_ids,
     product_stock, validate_promo, use_promo,
     get_cart, add_to_cart, set_cart_item_qty, remove_cart_item, clear_cart,
-    cart_count, get_orders_by_group,
+    cart_count, get_orders_by_group, get_orders,
 )
 from app.keyboards.seller import (
     main_menu, seller_main_menu, menu_for, phone_keyboard, cancel_keyboard,
@@ -30,7 +30,8 @@ from app.states.seller_application import SearchState, OrderState, CartCheckoutS
 from app.app.config.settings import settings
 from app.ui import (
     money, divider, title, category_label, product_category,
-    product_emoji, product_sort_key, product_group_label, normalize_uz_phone,
+    product_emoji, product_sort_key, product_group_label, product_groups,
+    normalize_uz_phone,
 )
 
 router = Router()
@@ -175,8 +176,44 @@ def _shops_keyboard(sellers: list[tuple[str, dict]]) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text=f"🏪 {s['shop_name']}", callback_data=f"shop_{uid}")]
         for uid, s in sellers
     ]
+    rows.append([InlineKeyboardButton(text="🏠 Bosh sahifa", callback_data="ghome")])
     rows.append([InlineKeyboardButton(text="📍 Shaharni o'zgartirish", callback_data="changecity")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _stars_visual(rating) -> str:
+    """Reytingni ★★★★☆ ko'rinishiga keltiradi (5 yulduzli shkala)."""
+    try:
+        full = max(0, min(5, round(float(rating))))
+    except (TypeError, ValueError):
+        full = 0
+    return "★" * full + "☆" * (5 - full)
+
+
+def _product_btn(p: dict) -> InlineKeyboardButton:
+    """Mahsulot tugmasi: emoji + qisqa nom + narx (hamma ro'yxatlarda bir xil)."""
+    name = p.get("name", "—")
+    if len(name) > 28:
+        name = name[:28].rstrip() + "…"
+    finished = "  ·  tugagan" if p.get("is_finished") else ""
+    return InlineKeyboardButton(
+        text=f"{product_emoji(p)} {name}  ·  {money(p.get('price', 0))}{finished}",
+        callback_data=f"prod_{p['id']}",
+    )
+
+
+def _city_products(city: str) -> list[dict]:
+    """Shahardagi BARCHA do'konlarning mahsulotlari (bosh sahifa katalogi uchun)."""
+    prods: list[dict] = []
+    for uid, _s in _city_sellers(city):
+        prods.extend(get_seller_products(int(uid)))
+    return prods
+
+
+def _discount_pct(p: dict) -> int:
+    """Chegirma foizi (old_price > price bo'lsa), aks holda 0."""
+    price, old = p.get("price", 0) or 0, p.get("old_price", 0) or 0
+    return round((old - price) / old * 100) if old > price > 0 else 0
 
 
 def _city_picker() -> InlineKeyboardMarkup:
@@ -294,7 +331,171 @@ async def market_handler(message: Message):
             parse_mode="HTML", reply_markup=_city_picker()
         )
         return
-    await _show_market(message, city)
+    await _show_home(message, city)
+
+
+# ─── 🏠 Bosh sahifa: Uzum/Wildberries uslubidagi tez katalog ─────────────────
+# Oqim: Start → Bosh sahifa (kategoriya) → Mahsulot = 3 bosish.
+# Do'kon-ma-do'kon aylanish ham saqlanadi ("🏪 Do'konlar" tugmasi).
+async def _show_home(message: Message, city: str):
+    prods = _city_products(city)
+    if not prods:
+        # Shaharda mahsulot yo'q — eski do'konlar ro'yxatiga qaytamiz.
+        await _show_market(message, city)
+        return
+
+    groups = product_groups()
+    counts: dict[int, int] = {}
+    for p in prods:
+        i = product_sort_key(p)
+        counts[i] = counts.get(i, 0) + 1
+    hot_cnt = sum(1 for p in prods if _discount_pct(p))
+
+    rows = []
+    if hot_cnt:
+        rows.append([InlineKeyboardButton(
+            text=f"🔥 Aksiya ({hot_cnt})", callback_data="ghot")])
+    rows.append([InlineKeyboardButton(
+        text="⭐ TOP mahsulotlar", callback_data="gtop")])
+    for i, (emoji, label) in enumerate(groups):
+        n = counts.get(i, 0)
+        if n:
+            rows.append([InlineKeyboardButton(
+                text=f"{emoji} {label} ({n})", callback_data=f"gcat_{i}")])
+    rows.append([InlineKeyboardButton(
+        text=f"🏪 Do'konlar ({len(_city_sellers(city))})", callback_data="gshops")])
+    rows.append([InlineKeyboardButton(
+        text="📍 Shaharni o'zgartirish", callback_data="changecity")])
+
+    await message.answer(
+        f"{TOP_BANNER}\n\n"
+        f"🏠 <b>Bosh sahifa</b>   ·   📍 {city}\n\n"
+        f"👇 Kategoriyani tanlang",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+    )
+
+
+async def _send_global_products(message: Message, header: str, products: list[dict]):
+    """Bosh sahifa bo'limlari (kategoriya/aksiya/TOP) mahsulotlarini ro'yxat
+    qilib yuboradi — do'kon sahifasidagidek bo'laklarga bo'lingan tugmalar."""
+    if not products:
+        await message.answer(
+            f"{header}\n\nHozircha mahsulot yo'q.",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🏠 Bosh sahifa", callback_data="ghome")]
+            ]))
+        return
+    rows = [[_product_btn(p)] for p in products]
+    chunks = [rows[i:i + _SHOP_PER_PAGE] for i in range(0, len(rows), _SHOP_PER_PAGE)]
+    chunks[-1].append([InlineKeyboardButton(text="🏠 Bosh sahifa", callback_data="ghome")])
+    text = (f"{TOP_BANNER}\n\n"
+            f"{header}\n\n"
+            f"📦 Mahsulotlar: {len(products)} ta\n"
+            f"🚚 24 soat ichida yetkazib berish\n\n"
+            f"👇 Kerakli mahsulotni tanlang")
+    first = await message.answer(
+        text, parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=chunks[0]))
+    ids = [first.message_id]
+    for c in chunks[1:]:
+        m = await message.answer(
+            "…davomi", reply_markup=InlineKeyboardMarkup(inline_keyboard=c))
+        ids.append(m.message_id)
+    # Ro'yxat bo'laklari keyin (boshqa sahifaga o'tilganda) tozalanishi uchun.
+    _SHOP_LIST_MSGS[message.chat.id] = (0, ids)
+
+
+async def _home_cleanup(call: CallbackQuery):
+    """Bosh sahifa navigatsiyasida eski ro'yxat/mahsulot xabarlarini tozalaydi."""
+    chat_id = call.message.chat.id
+    _, list_ids = _SHOP_LIST_MSGS.pop(chat_id, (0, []))
+    await _clear_last_product(call.message.bot, chat_id,
+                              [call.message.message_id] + list_ids)
+
+
+def _user_city(call: CallbackQuery) -> str | None:
+    u = get_user(call.from_user.id)
+    return u.get("city") if u else None
+
+
+@router.callback_query(F.data == "ghome")
+async def go_home(call: CallbackQuery):
+    await call.answer()
+    await _home_cleanup(call)
+    city = _user_city(call)
+    if not city:
+        await call.message.answer("📍 Shaharingizni tanlang:", reply_markup=_city_picker())
+        return
+    await _show_home(call.message, city)
+
+
+@router.callback_query(F.data == "gshops")
+async def go_shops(call: CallbackQuery):
+    await call.answer()
+    await _home_cleanup(call)
+    city = _user_city(call)
+    if not city:
+        await call.message.answer("📍 Shaharingizni tanlang:", reply_markup=_city_picker())
+        return
+    await _show_market(call.message, city)
+
+
+@router.callback_query(F.data.startswith("gcat_"))
+async def go_category(call: CallbackQuery):
+    await call.answer()
+    city = _user_city(call)
+    if not city:
+        await call.message.answer("📍 Shaharingizni tanlang:", reply_markup=_city_picker())
+        return
+    try:
+        idx = int(call.data.split("_", 1)[1])
+    except ValueError:
+        return
+    groups = product_groups()
+    if not 0 <= idx < len(groups):
+        return
+    await _home_cleanup(call)
+    emoji, label = groups[idx]
+    prods = [p for p in _city_products(city) if product_sort_key(p) == idx]
+    prods.sort(key=lambda p: p.get("price", 0))
+    await _send_global_products(call.message, f"{emoji} <b>{label}</b>", prods)
+
+
+@router.callback_query(F.data == "ghot")
+async def go_hot(call: CallbackQuery):
+    await call.answer()
+    city = _user_city(call)
+    if not city:
+        await call.message.answer("📍 Shaharingizni tanlang:", reply_markup=_city_picker())
+        return
+    await _home_cleanup(call)
+    prods = [p for p in _city_products(city) if _discount_pct(p)]
+    # Eng katta chegirma yuqorida.
+    prods.sort(key=lambda p: -_discount_pct(p))
+    await _send_global_products(
+        call.message, "🔥 <b>Aksiya</b> — chegirmadagi mahsulotlar", prods)
+
+
+@router.callback_query(F.data == "gtop")
+async def go_top(call: CallbackQuery):
+    await call.answer()
+    city = _user_city(call)
+    if not city:
+        await call.message.answer("📍 Shaharingizni tanlang:", reply_markup=_city_picker())
+        return
+    await _home_cleanup(call)
+    # Sotuvlar soni bo'yicha (bekor qilinganlardan tashqari barcha buyurtmalar).
+    sold: dict = {}
+    for o in get_orders():
+        if o.get("status") != "cancelled":
+            pid = o.get("product_id")
+            sold[pid] = sold.get(pid, 0) + (o.get("quantity", 1) or 1)
+    prods = sorted(_city_products(city),
+                   key=lambda p: (-sold.get(p["id"], 0), p.get("price", 0)))[:15]
+    await _send_global_products(
+        call.message, "⭐ <b>TOP mahsulotlar</b> — eng ko'p sotilganlar", prods)
 
 
 async def _show_market(message: Message, city: str):
@@ -346,7 +547,7 @@ async def buyer_set_city(call: CallbackQuery):
         await call.message.delete()
     except Exception:
         pass
-    await _show_market(call.message, city)
+    await _show_home(call.message, city)
 
 
 # Bitta xabardagi (inline-klaviaturadagi) mahsulotlar soni. Telegram bitta
@@ -366,12 +567,11 @@ def _shop_menu_chunks(seller_id: int):
     seller    = get_seller(seller_id)
     shop_name = seller["shop_name"] if seller else "Do'kon"
     rating, cnt = get_seller_rating(seller_id)
-    stars = f"   ·   ★ {rating} ({cnt})" if cnt else ""
 
     products = get_seller_products(seller_id)
     if not products:
         return (
-            f"<b>{shop_name}</b>\n{divider()}\nHozircha mahsulot yo'q.",
+            f"{TOP_BANNER}\n\n🏪 <b>{shop_name}</b>\n\nHozircha mahsulot yo'q.",
             [InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="← Orqaga", callback_data="back_shops")]
             ])]
@@ -384,6 +584,12 @@ def _shop_menu_chunks(seller_id: int):
     products = sorted(products, key=lambda p: (product_sort_key(p), p.get("price", 0)))
 
     total = len(products)
+    # Har guruhdagi mahsulotlar soni — sarlavhada ko'rsatiladi.
+    group_counts: dict[int, int] = {}
+    for p in products:
+        i = product_sort_key(p)
+        group_counts[i] = group_counts.get(i, 0) + 1
+
     rows = []
     cur_group = object()
     for p in products:
@@ -391,17 +597,10 @@ def _shop_menu_chunks(seller_id: int):
         if grp != cur_group:
             cur_group = grp
             rows.append([InlineKeyboardButton(
-                text=f"— {product_emoji(p)} {product_group_label(p)} —",
+                text=f"━━  {product_emoji(p)} {product_group_label(p)} ({group_counts[grp]})  ━━",
                 callback_data="noop"
             )])
-        name = p.get("name", "—")
-        if len(name) > 30:
-            name = name[:30].rstrip() + "…"
-        finished = "  ·  tugagan" if p.get("is_finished") else ""
-        rows.append([InlineKeyboardButton(
-            text=f"{name}  ·  {money(p.get('price', 0))}{finished}",
-            callback_data=f"prod_{p['id']}"
-        )])
+        rows.append([_product_btn(p)])
 
     # Tugmalarni ≤_SHOP_PER_PAGE talik bo'laklarga ajratamiz.
     chunks = [rows[i:i + _SHOP_PER_PAGE] for i in range(0, len(rows), _SHOP_PER_PAGE)]
@@ -409,9 +608,13 @@ def _shop_menu_chunks(seller_id: int):
     chunks[-1].append([InlineKeyboardButton(text="← Orqaga", callback_data="back_shops")])
     keyboards = [InlineKeyboardMarkup(inline_keyboard=c) for c in chunks]
 
+    rating_line = f"⭐ Reyting: {_stars_visual(rating)} ({cnt})\n" if cnt else ""
     text = (f"{TOP_BANNER}\n\n"
-            f"<b>{shop_name}</b>{stars}\n{divider()}\n"
-            f"Mahsulotlar: {total} ta. Kerakli mahsulotni tanlang.")
+            f"🏪 <b>{shop_name}</b>\n\n"
+            f"{rating_line}"
+            f"📦 Mahsulotlar: {total} ta\n"
+            f"🚚 24 soat ichida yetkazib berish\n\n"
+            f"👇 Kerakli mahsulotni tanlang")
     return text, keyboards
 
 
@@ -459,22 +662,15 @@ async def _send_category_products(message: Message, seller_id: int, code: str):
 
     # Bo'lim ichida arzonidan qimmatiga tartiblaymiz.
     products = sorted(products, key=lambda p: p.get("price", 0))
-    rows = []
-    for p in products:
-        name = p.get("name", "—")
-        if len(name) > 30:
-            name = name[:30].rstrip() + "…"
-        finished = "  ·  tugagan" if p.get("is_finished") else ""
-        rows.append([InlineKeyboardButton(
-            text=f"{name}  ·  {money(p.get('price', 0))}{finished}",
-            callback_data=f"prod_{p['id']}"
-        )])
+    rows = [[_product_btn(p)] for p in products]
     rows.append([InlineKeyboardButton(text="← Orqaga", callback_data=f"shop_{seller_id}")])
 
     await message.answer(
         f"{TOP_BANNER}\n\n"
-        f"<b>{shop_name}</b>   ·   {label}\n{divider()}\n"
-        f"Mahsulotlar: {len(products)} ta. Kerakli mahsulotni tanlang.",
+        f"🏪 <b>{shop_name}</b>   ·   {label}\n\n"
+        f"📦 Mahsulotlar: {len(products)} ta\n"
+        f"🚚 24 soat ichida yetkazib berish\n\n"
+        f"👇 Kerakli mahsulotni tanlang",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=rows)
     )

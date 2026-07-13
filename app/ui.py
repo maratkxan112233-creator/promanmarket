@@ -113,6 +113,13 @@ def product_group_label(p) -> str:
     return g[2] if g else _OTHER_LABEL
 
 
+def product_groups() -> list[tuple[str, str]]:
+    """(emoji, nom) juftliklari — katalog kategoriyalari tartibida.
+    Oxirgi element — guruhga mos kelmaganlar ("Boshqa mahsulotlar");
+    uning indeksi product_sort_key() qaytaradigan len(_PRODUCT_GROUPS) bilan mos."""
+    return [(g[1], g[2]) for g in _PRODUCT_GROUPS] + [("📦", _OTHER_LABEL)]
+
+
 def product_sort_key(p) -> int:
     """Mahsulotni kategoriya tartibiga soladi (katalog guruhlash uchun).
     Bir guruhdagilar yonma-yon keladi, aralash chiqmaydi. Topilmasa — oxirga."""
