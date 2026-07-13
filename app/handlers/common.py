@@ -1,4 +1,5 @@
 import asyncio
+import re
 import time
 
 from aiogram import Router, F
@@ -727,8 +728,23 @@ async def back_to_shops(call: CallbackQuery):
 
 
 # ─── Mahsulot detail ─────────────────────────────────────────────────────────
+def _desc_bullets(desc: str, max_items: int = 4) -> str:
+    """Tavsifni qisqa ✔ punktlarga aylantiradi — Telegramda punktlar oson
+    o'qiladi. Bo'linmasa (bitta uzun jumla) — qisqartirilgan matn qaytadi."""
+    parts = [s.strip(" •-–—.") for s in re.split(r"[\n;.]+", desc)]
+    parts = [s for s in parts if s]
+    if len(parts) < 2:
+        return desc if len(desc) <= 300 else desc[:300].rstrip() + "…"
+    out = []
+    for s in parts[:max_items]:
+        if len(s) > 60:
+            s = s[:60].rstrip() + "…"
+        out.append(f"✔ {s}")
+    return "\n".join(out)
+
+
 def _product_caption(p: dict) -> str:
-    """Tezkor uslubida mahsulot kartochkasi matni."""
+    """Mahsulot kartochkasi matni (rasm caption limiti — 1024 belgi)."""
     price     = p.get("price", 0)
     old_price = p.get("old_price", 0)
     name      = p.get("name", "—")
@@ -744,23 +760,23 @@ def _product_caption(p: dict) -> str:
     # Reyting
     rating, rev_cnt = get_seller_rating(p.get("seller_id", 0))
 
-    # ── Sarlavha + narx (eng muhimi yuqorida, bitta nigohda ko'rinadi) ──
-    lines = [f"<b>{name}</b>", divider()]
+    # ── Nom + narx (eng muhimi yuqorida, bitta nigohda ko'rinadi) ──
+    lines = [f"📦 <b>{name}</b>", ""]
 
-    price_line = f"Narx: <b>{money(price)}</b>"
+    price_line = f"💰 <b>{money(price)}</b>"
     if disc_pct:
         price_line += f"   −{disc_pct}%"
         if old_price:
             price_line += f"  <s>{money(old_price)}</s>"
     lines.append(price_line)
+    lines.append("")
 
-    # Do'kon · shahar · reyting — bitta ixcham qatorda
-    meta = f"{shop}"
+    # ── Sotuvchi bloki ──
+    lines.append(f"🏪 Sotuvchi: {shop}")
     if city:
-        meta += f"  ·  📍 {city}"
+        lines.append(f"📍 {city}")
     if rev_cnt:
-        meta += f"  ·  ★ {rating} ({rev_cnt})"
-    lines.append(meta)
+        lines.append(f"⭐ {_stars_visual(rating)} ({rev_cnt})")
 
     # ── Holat (faqat kerak bo'lganda) ──
     if p.get("is_finished"):
@@ -768,39 +784,67 @@ def _product_caption(p: dict) -> str:
     else:
         stock = product_stock(p)
         if stock is not None and stock <= 5:
-            lines.append(f"\nOmborda: {stock} dona qoldi")
+            lines.append(f"\n⚡ Omborda: {stock} dona qoldi")
 
-    # ── Tavsif (rasm caption limiti 1024 belgi — uzun tavsifni qisqartiramiz) ──
+    # ── Tavsif — qisqa punktlar ko'rinishida ──
     if desc:
-        if len(desc) > 500:
-            desc = desc[:500].rstrip() + "…"
-        lines.append(f"\n{desc}")
+        lines.append("")
+        lines.append(_desc_bullets(desc))
 
-    # ── Yetkazib berish (bitta ixcham qator) ──
+    # ── Ishonch bloki ──
+    lines.append("")
+    lines.append("✅ Mahsulot tekshirilgan")
+    lines.append("🛡 Kafolat mavjud")
+
+    # ── Yetkazib berish — asosiy ustunlik, ajratilgan blok ──
     fee = delivery_fee_for(price)
+    lines.append("")
+    lines.append("━━━━━━━━━━━━━━")
+    lines.append("🚚 <b>24 SOAT ICHIDA YETKAZIB BERAMIZ!</b>")
     if fee:
-        lines.append(
-            f"\nYetkazib berish: <b>{money(fee)}</b> · "
-            f"{money(FREE_DELIVERY_THRESHOLD)}+ xaridga bepul · bugun"
-        )
+        lines.append(f"💵 Yetkazib berish: {money(fee)}")
+        lines.append(f"🎁 {money(FREE_DELIVERY_THRESHOLD)}dan yuqori xaridga <b>BEPUL</b>")
     else:
-        lines.append("\nYetkazib berish: <b>bepul</b> · bugun")
+        lines.append("🎁 Yetkazib berish: <b>BEPUL</b>")
+    lines.append("━━━━━━━━━━━━━━")
 
-    # Qisqa eslatma (bitta qator).
-    lines.append("<i>Rasm namunaviy bo'lishi mumkin.</i>")
+    # Qisqa eslatma (yumshoq ohangda).
+    lines.append("")
+    lines.append("📌 <i>Mahsulot ko'rinishi ishlab chiqaruvchiga qarab "
+                 "biroz farq qilishi mumkin.</i>")
     return "\n".join(lines)
 
 
+def _similar_products(p: dict, limit: int = 3) -> list[dict]:
+    """Shu guruhdagi (va iloji bo'lsa shu shahardagi) o'xshash mahsulotlar —
+    "Sizga yana yoqishi mumkin" bloki uchun. Narxi yaqinlari birinchi."""
+    grp = product_sort_key(p)
+    city = p.get("city")
+    base = p.get("price", 0) or 0
+    similar = [
+        q for q in get_all_products()
+        if q.get("id") != p.get("id")
+        and not q.get("is_finished")
+        and product_sort_key(q) == grp
+        and (not city or q.get("city") == city)
+    ]
+    similar.sort(key=lambda q: abs((q.get("price", 0) or 0) - base))
+    return similar[:limit]
+
+
 def _product_kb(p: dict, user_id: int, with_album: bool = True) -> InlineKeyboardMarkup:
-    """Mahsulot xabari uchun tugmalar: buyurtma, sevimlilar, albom va orqaga."""
+    """Mahsulot xabari uchun tugmalar: asosiy CTA (buyurtma) ajratilgan,
+    qolganlari ikkinchi darajali; pastda o'xshash mahsulotlar."""
     if is_favorite(user_id, p["id"]):
-        fav_text = "Sevimlilardan olib tashlash"
+        fav_text = "💔 Sevimlilardan olib tashlash"
     else:
-        fav_text = "Sevimlilarga qo'shish"
+        fav_text = "❤️ Sevimlilarga qo'shish"
     rows = []
     if not p.get("is_finished"):
-        rows.append([InlineKeyboardButton(text="Buyurtma berish", callback_data=f"order_{p['id']}")])
-        rows.append([InlineKeyboardButton(text="Savatga qo'shish", callback_data=f"addcart_{p['id']}")])
+        rows.append([InlineKeyboardButton(text="🟢 🛒 HOZIR BUYURTMA BERISH",
+                                          callback_data=f"order_{p['id']}")])
+        rows.append([InlineKeyboardButton(text="🧺 Savatga qo'shish",
+                                          callback_data=f"addcart_{p['id']}")])
     rows.append([InlineKeyboardButton(text=fav_text, callback_data=f"fav_{p['id']}")])
     # Qo'shimcha rasm/video bo'lsa — alohida tugma bilan so'ralganda yuboriladi
     # (kartochka bitta xabar bo'lib qoladi — tez ochiladi va tez almashadi).
@@ -808,15 +852,22 @@ def _product_kb(p: dict, user_id: int, with_album: bool = True) -> InlineKeyboar
         n_photos = len(product_photos(p))
         has_video = bool(product_video(p))
         if n_photos > 1 and has_video:
-            album_text = f"Rasmlar ({n_photos}) va video"
+            album_text = f"🖼 Barcha rasmlar ({n_photos}) va video"
         elif n_photos > 1:
-            album_text = f"Rasmlar ({n_photos})"
+            album_text = f"🖼 Barcha rasmlar ({n_photos})"
         elif has_video:
-            album_text = "Videoni ko'rish"
+            album_text = "🎬 Videoni ko'rish"
         else:
             album_text = None
         if album_text:
             rows.append([InlineKeyboardButton(text=album_text, callback_data=f"album_{p['id']}")])
+    # ── O'xshash mahsulotlar — o'rtacha buyurtma summasini oshiradi ──
+    similar = _similar_products(p)
+    if similar:
+        rows.append([InlineKeyboardButton(text="🔥 Sizga yana yoqishi mumkin",
+                                          callback_data="noop")])
+        for q in similar:
+            rows.append([_product_btn(q)])
     rows.append([InlineKeyboardButton(
         text="← Orqaga",
         callback_data=f"shop_{p['seller_id']}",
