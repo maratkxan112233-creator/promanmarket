@@ -36,6 +36,9 @@ async def cmd_start(message: Message, command: CommandObject, state: FSMContext)
             return
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text="➕ Botni guruhingizga qo'shing",
+            url=f"https://t.me/{settings.BOT_USERNAME}?startgroup=true")],
         [InlineKeyboardButton(text="Sotuvchi bo'lish", callback_data="become_seller")],
         [InlineKeyboardButton(text="Admin bilan bog'lanish",
                               url=f"https://t.me/{settings.ADMIN_USERNAME}")],
@@ -44,7 +47,9 @@ async def cmd_start(message: Message, command: CommandObject, state: FSMContext)
         f"{rs.start_banner()}\n\n"
         "<b>Pro Man Market</b> — xush kelibsiz.\n\n"
         "Sifatli mahsulotlar, halol narxlar va tezkor yetkazib berish.\n\n"
-        f"{SELLER_INVITE_BANNER}",
+        f"{SELLER_INVITE_BANNER}\n\n"
+        "➕ Botni guruhingizga qo'shing — yangi mahsulot va aksiyalar "
+        "guruhda ham chiqadi.",
         parse_mode="HTML",
         reply_markup=kb,
     )
