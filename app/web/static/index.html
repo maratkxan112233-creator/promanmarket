@@ -8,27 +8,32 @@
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <header id="topbar">
-    <div class="topbar-row">
-      <span class="brand">ProMan Market</span>
-      <button id="cart-btn" class="cart-btn" aria-label="Savat">
-        <span class="cart-ico">🛒</span>
-        <span id="cart-badge" class="cart-badge" hidden>0</span>
-      </button>
+  <header class="app-header">
+    <div class="head-row">
+      <div class="brand-wrap">
+        <span class="brand">ProMan Market</span>
+        <span class="loc">📍 O'zbekiston bo'ylab yetkazamiz</span>
+      </div>
+      <div class="head-actions">
+        <button id="cart-btn" class="icon-btn" aria-label="Savat">🛒<span id="cart-badge" class="badge" hidden>0</span></button>
+        <button id="fav-btn" class="icon-btn" aria-label="Sevimlilar">🤍</button>
+      </div>
     </div>
-    <div class="search-wrap">
-      <input id="search" type="search" placeholder="Mahsulot qidirish..." autocomplete="off">
+    <div class="searchbar">
+      <span class="s-ico">🔍</span>
+      <input id="search" type="search" placeholder="Nima qidiryapsiz?" autocomplete="off">
+      <span class="s-right"><span>🎙</span><span>❐</span></span>
     </div>
-    <div id="chips" class="chips"></div>
   </header>
 
-  <main id="view"></main>
+  <main id="view"><div class="loading">Yuklanmoqda…</div></main>
 
-  <nav id="bottomnav">
-    <button data-nav="catalog" class="nav-item active"><span>🛍</span>Katalog</button>
-    <button data-nav="cart" class="nav-item"><span>🛒</span>Savat</button>
-    <button data-nav="orders" class="nav-item"><span>📦</span>Buyurtma</button>
-    <button data-nav="profile" class="nav-item"><span>👤</span>Profil</button>
+  <nav class="bottomnav">
+    <button data-nav="home" class="nav-item active"><span class="ni-ico">🏠</span>Bosh sahifa</button>
+    <button data-nav="catalog" class="nav-item"><span class="ni-ico">🗂</span>Katalog</button>
+    <button data-nav="cart" class="nav-item"><span class="ni-ico">🛒</span><span id="nav-cart-badge" class="nbadge" hidden>0</span>Savat</button>
+    <button data-nav="favorites" class="nav-item"><span class="ni-ico">❤️</span>Sevimlilar</button>
+    <button data-nav="profile" class="nav-item"><span class="ni-ico">👤</span>Profil</button>
   </nav>
 
   <div id="a2hs" class="sheet" hidden>

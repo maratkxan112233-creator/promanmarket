@@ -9,6 +9,7 @@ import logging
 import os
 import time
 import uuid
+from datetime import datetime, timedelta
 
 from aiohttp import web
 from aiogram.types import (FSInputFile, InlineKeyboardButton,
@@ -16,14 +17,35 @@ from aiogram.types import (FSInputFile, InlineKeyboardButton,
 
 from app.app.config.settings import settings
 from app.services import runtime_settings as rs
-from app.storage import (DATA_DIR, get_all_products, get_product_by_id,
+from app.storage import (DATA_DIR, get_all_products, get_favorites,
+                         get_orders, get_product_by_id, get_reviews,
                          product_photos, product_stock, save_order,
-                         search_products, set_user_field, track_event,
-                         use_promo, validate_promo)
+                         search_products, set_user_field, toggle_favorite,
+                         track_event, use_promo, validate_promo)
 from app.ui import normalize_uz_phone
 from app.web.auth import InitDataError, validate_init_data
 
 logger = logging.getLogger(__name__)
+
+
+def _ratings_map() -> dict:
+    """seller_id -> (o'rtacha yulduz, sharhlar soni). Bir marta hisoblanadi
+    (har mahsulotga alohida emas), reviews.json bir marta o'qiladi."""
+    agg = {}
+    for r in get_reviews():
+        sid = r.get("seller_id")
+        stars = r.get("stars")
+        if sid is None or stars is None:
+            continue
+        s, c = agg.get(sid, (0, 0))
+        agg[sid] = (s + stars, c + 1)
+    return {sid: (round(s / c, 1), c) for sid, (s, c) in agg.items()}
+
+
+def _init_data_from(request: web.Request) -> str:
+    """initData'ni header yoki query'dan oladi (autentifikatsiya uchun)."""
+    return (request.headers.get("X-Telegram-Init-Data")
+            or request.query.get("initData") or "")
 
 RECEIPTS_DIR = os.path.join(DATA_DIR, "receipts")
 os.makedirs(RECEIPTS_DIR, exist_ok=True)
@@ -33,17 +55,31 @@ _ALLOWED_IMAGE = {"image/jpeg", "image/png", "image/webp", "image/heic",
                   "image/heif"}
 
 
-def _card(p: dict) -> dict:
+def _discount(p: dict) -> int:
+    op = p.get("old_price")
+    price = p.get("price", 0)
+    if op and price and op > price:
+        return round((1 - price / op) * 100)
+    return 0
+
+
+def _card(p: dict, ratings: dict | None = None) -> dict:
     """Ro'yxat (grid) uchun qisqartirilgan mahsulot ma'lumoti."""
     photos = product_photos(p)
+    rating, reviews = (ratings or {}).get(p.get("seller_id"), (0, 0))
     return {
         "id": p.get("id"),
         "name": p.get("name", ""),
         "price": p.get("price", 0),
         "old_price": p.get("old_price"),
+        "discount": _discount(p),
         "shop_name": p.get("shop_name", ""),
         "city": p.get("city", ""),
         "photo": photos[0] if photos else None,
+        "rating": rating,
+        "reviews": reviews,
+        "free_delivery": p.get("price", 0) >= rs.free_threshold(),
+        "new": bool(p.get("id")),
     }
 
 
@@ -55,11 +91,20 @@ def _is_available(p: dict) -> bool:
 
 
 async def list_products(request: web.Request) -> web.Response:
-    """GET /api/products?q=&limit= — do'kon ro'yxati."""
+    """GET /api/products?q= — do'kon ro'yxati (reyting/chegirma bilan boyitilgan)."""
     q = (request.query.get("q") or "").strip()
     items = search_products(q) if q else get_all_products()
-    items = [_card(p) for p in items if _is_available(p)]
-    return web.json_response(items)
+    items = [p for p in items if _is_available(p)]
+    ratings = _ratings_map()
+    # "Yangi" belgisi — id bo'yicha eng so'nggi ~15% mahsulot.
+    ids = sorted((p.get("id", 0) for p in items))
+    new_from = ids[int(len(ids) * 0.85)] if ids else 0
+    cards = []
+    for p in items:
+        c = _card(p, ratings)
+        c["new"] = p.get("id", 0) >= new_from
+        cards.append(c)
+    return web.json_response(cards)
 
 
 async def get_product(request: web.Request) -> web.Response:
@@ -72,19 +117,83 @@ async def get_product(request: web.Request) -> web.Response:
     if not p:
         return web.json_response({"error": "not found"}, status=404)
     photos = product_photos(p)
+    rating, reviews = _ratings_map().get(p.get("seller_id"), (0, 0))
     return web.json_response({
         "id": p.get("id"),
         "name": p.get("name", ""),
         "description": p.get("description", ""),
         "price": p.get("price", 0),
         "old_price": p.get("old_price"),
+        "discount": _discount(p),
         "shop_name": p.get("shop_name", ""),
         "city": p.get("city", ""),
         "warranty": p.get("warranty"),
         "photos": photos,
         "stock": product_stock(p),
+        "rating": rating,
+        "reviews": reviews,
+        "free_delivery": p.get("price", 0) >= rs.free_threshold(),
         "available": _is_available(p),
     })
+
+
+async def get_stats(request: web.Request) -> web.Response:
+    """GET /api/stats — ijtimoiy dalil (real, ismsiz — maxfiylik uchun)."""
+    products = [p for p in get_all_products() if not p.get("is_finished")]
+    orders = get_orders()
+    now = datetime.now()
+
+    def _created(o):
+        try:
+            return datetime.fromisoformat(o.get("created_at", ""))
+        except (ValueError, TypeError):
+            return None
+
+    last_hour = 0
+    today = 0
+    for o in orders:
+        c = _created(o)
+        if not c:
+            continue
+        if now - c <= timedelta(hours=1):
+            last_hour += 1
+        if c.date() == now.date():
+            today += 1
+    return web.json_response({
+        "products": len(products),
+        "orders_total": len(orders),
+        "orders_last_hour": last_hour,
+        "orders_today": today,
+        "shops": len({p.get("seller_id") for p in products}),
+    })
+
+
+async def list_favorites(request: web.Request) -> web.Response:
+    """GET /api/favorites — foydalanuvchining sevimli mahsulot id'lari.
+    initData header/query orqali autentifikatsiya qilinadi."""
+    try:
+        user = validate_init_data(_init_data_from(request))
+    except InitDataError:
+        return web.json_response({"ids": []})   # anonim — bo'sh ro'yxat
+    return web.json_response({"ids": get_favorites(int(user["id"]))})
+
+
+async def toggle_favorite_ep(request: web.Request) -> web.Response:
+    """POST /api/favorite {initData, product_id} — sevimliga qo'shish/olib tashlash."""
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response({"error": "bad json"}, status=400)
+    try:
+        user = validate_init_data(body.get("initData") or "")
+    except InitDataError:
+        return web.json_response({"error": "auth"}, status=401)
+    try:
+        pid = int(body.get("product_id"))
+    except (TypeError, ValueError):
+        return web.json_response({"error": "bad product"}, status=400)
+    fav = toggle_favorite(int(user["id"]), pid)
+    return web.json_response({"favorite": fav})
 
 
 async def get_config(request: web.Request) -> web.Response:
