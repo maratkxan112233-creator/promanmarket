@@ -37,12 +37,14 @@ async def cmd_start(message: Message, command: CommandObject, state: FSMContext)
             return
 
     rows = []
-    # Mini App (ilova) tugmasi — faqat HTTPS manzil sozlangan bo'lsa ko'rsatiladi
-    # (Telegram web_app faqat https:// URL'ni qabul qiladi; lokalda tugma chiqmaydi).
-    if settings.WEBAPP_URL.startswith("https://"):
+    # Mini App (ilova) tugmasi — faqat HTTPS manzil bo'lsa ko'rsatiladi (Telegram
+    # web_app faqat https:// URL'ni qabul qiladi). Manzil WEBAPP_URL yoki Railway
+    # domenidan avtomatik olinadi (settings.webapp_url).
+    web_url = settings.webapp_url
+    if web_url.startswith("https://"):
         rows.append([InlineKeyboardButton(
             text="🛍 Do'konni ochish (ilova)",
-            web_app=WebAppInfo(url=settings.WEBAPP_URL))])
+            web_app=WebAppInfo(url=web_url))])
     rows += [
         [InlineKeyboardButton(
             text="➕ Botni guruhingizga qo'shing",

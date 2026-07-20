@@ -86,6 +86,20 @@ async def main():
     except Exception:
         logger.exception("Web-server (Mini App) ishga tushmadi — bot davom etadi")
 
+    # Chat menyu tugmasini (xabar yonidagi) avtomatik "🛍 Do'kon" ilovaga sozlaymiz —
+    # BotFather'da qo'lda sozlash shart emas. Manzil bo'lmasa (domen hali yo'q) —
+    # standart menyu qoladi.
+    web_url = settings.webapp_url
+    try:
+        if web_url.startswith("https://"):
+            from aiogram.types import MenuButtonWebApp, WebAppInfo
+            await bot.set_chat_menu_button(
+                menu_button=MenuButtonWebApp(text="🛍 Do'kon",
+                                             web_app=WebAppInfo(url=web_url)))
+            logger.info("Chat menyu tugmasi ilovaga sozlandi: %s", web_url)
+    except Exception:
+        logger.exception("Chat menyu tugmasini sozlab bo'lmadi")
+
     try:
         await dp.start_polling(
             bot,

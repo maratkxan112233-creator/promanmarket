@@ -1,3 +1,4 @@
+import os
 from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -27,6 +28,21 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8"
     )
+
+    @property
+    def webapp_url(self) -> str:
+        """Mini App ochiq HTTPS manzili. WEBAPP_URL berilgan bo'lsa — o'sha; aks
+        holda Railway avtomatik beradigan domendan quriladi (qo'lda sozlash shart
+        emas — domen generatsiya qilingan zahoti tugma o'zi paydo bo'ladi)."""
+        if self.WEBAPP_URL:
+            return self.WEBAPP_URL
+        dom = (os.getenv("RAILWAY_PUBLIC_DOMAIN")
+               or os.getenv("RAILWAY_STATIC_URL") or "").strip()
+        if not dom:
+            return ""
+        if not dom.startswith("http"):
+            dom = "https://" + dom
+        return dom
 
 
 settings = Settings()
