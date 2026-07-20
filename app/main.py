@@ -1,8 +1,11 @@
 import asyncio
 import logging
+import os
 
+from app.app.config.settings import settings
 from app.bot.bot import bot
 from app.bot.dispatcher import dp
+from app.web.server import start_web_server
 from app.seed_ac import seed_all
 from app.seed_bikes import seed_bikes
 from app.seed_cars import seed_cars
@@ -73,11 +76,25 @@ async def main():
     # Sozlash: Admin panel → «📣 Guruhlarga reklama» yoki /reklama buyrug'i.
     from app.handlers.ads import ads_scheduler
     asyncio.create_task(ads_scheduler(bot))
-    await dp.start_polling(
-        bot,
-        allowed_updates=dp.resolve_used_update_types(),
-        drop_pending_updates=True,
-    )
+
+    # Mini App (ilova) web-serveri — bot bilan bitta event-loop'da.
+    # Railway $PORT ni beradi; lokalda settings.WEB_PORT (standart 8080).
+    port = int(os.getenv("PORT", settings.WEB_PORT))
+    runner = None
+    try:
+        runner = await start_web_server("0.0.0.0", port)
+    except Exception:
+        logger.exception("Web-server (Mini App) ishga tushmadi — bot davom etadi")
+
+    try:
+        await dp.start_polling(
+            bot,
+            allowed_updates=dp.resolve_used_update_types(),
+            drop_pending_updates=True,
+        )
+    finally:
+        if runner is not None:
+            await runner.cleanup()
 
 
 if __name__ == "__main__":

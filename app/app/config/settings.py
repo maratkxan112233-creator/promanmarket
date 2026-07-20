@@ -14,6 +14,12 @@ class Settings(BaseSettings):
     # to'g'ridan-to'g'ri tushadi. .env dagi AUCTION_GROUP_ID bilan almashtirish
     # mumkin; standart qiymat — AUKSION guruhining ID si. 0 — o'chirilgan.
     AUCTION_GROUP_ID: int = -1004222209334
+    # ─── Mini App (Web App / ilova) ───
+    # Ilovaning ochiq HTTPS manzili (Railway domeni). Telegram web_app tugmasi
+    # faqat https:// bilan boshlansa ko'rsatiladi. Bo'sh bo'lsa — tugma chiqmaydi.
+    WEBAPP_URL: str = ""
+    # Lokal/dev port. Railway ishlab chiqarishda $PORT ni beradi (main.py da o'qiladi).
+    WEB_PORT: int = 8080
     DATABASE_URL: Optional[str] = None
     REDIS_URL: Optional[str] = None
 

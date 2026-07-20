@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+  <title>ProMan Market</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header id="topbar">
+    <div class="topbar-row">
+      <span class="brand">ProMan Market</span>
+      <button id="cart-btn" class="cart-btn" aria-label="Savat">
+        <span class="cart-ico">🛒</span>
+        <span id="cart-badge" class="cart-badge" hidden>0</span>
+      </button>
+    </div>
+    <div class="search-wrap">
+      <input id="search" type="search" placeholder="Mahsulot qidirish..." autocomplete="off">
+    </div>
+    <div id="chips" class="chips"></div>
+  </header>
+
+  <main id="view"></main>
+
+  <nav id="bottomnav">
+    <button data-nav="catalog" class="nav-item active"><span>🛍</span>Katalog</button>
+    <button data-nav="cart" class="nav-item"><span>🛒</span>Savat</button>
+    <button data-nav="orders" class="nav-item"><span>📦</span>Buyurtma</button>
+    <button data-nav="profile" class="nav-item"><span>👤</span>Profil</button>
+  </nav>
+
+  <div id="a2hs" class="sheet" hidden>
+    <div class="sheet-card">
+      <div class="sheet-head">
+        <div class="sheet-ico">📲</div>
+        <div>
+          <div class="sheet-title">Ilovani o'rnating</div>
+          <div class="sheet-sub">Telefon ekraningizga qo'shing</div>
+        </div>
+      </div>
+      <p class="sheet-text">ProMan'ni bosh ekranga qo'shsangiz, botni qidirmasdan bitta bosishda ochasiz.</p>
+      <div class="sheet-actions">
+        <button id="a2hs-add" class="btn btn-primary">O'rnatish</button>
+        <button id="a2hs-later" class="btn btn-ghost">Keyinroq</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

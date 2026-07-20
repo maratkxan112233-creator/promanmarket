@@ -1,7 +1,8 @@
 from aiogram import Router
 from aiogram.filters import CommandStart, CommandObject
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import (Message, InlineKeyboardMarkup, InlineKeyboardButton,
+                           WebAppInfo)
 
 from app.keyboards.seller import menu_for, MENU_VERSION
 from app.storage import register_user, set_user_field, get_product_by_id, track_event
@@ -35,14 +36,22 @@ async def cmd_start(message: Message, command: CommandObject, state: FSMContext)
             await send_product_card(message, uid, p)
             return
 
-    kb = InlineKeyboardMarkup(inline_keyboard=[
+    rows = []
+    # Mini App (ilova) tugmasi — faqat HTTPS manzil sozlangan bo'lsa ko'rsatiladi
+    # (Telegram web_app faqat https:// URL'ni qabul qiladi; lokalda tugma chiqmaydi).
+    if settings.WEBAPP_URL.startswith("https://"):
+        rows.append([InlineKeyboardButton(
+            text="🛍 Do'konni ochish (ilova)",
+            web_app=WebAppInfo(url=settings.WEBAPP_URL))])
+    rows += [
         [InlineKeyboardButton(
             text="➕ Botni guruhingizga qo'shing",
             url=f"https://t.me/{settings.BOT_USERNAME}?startgroup=true")],
         [InlineKeyboardButton(text="Sotuvchi bo'lish", callback_data="become_seller")],
         [InlineKeyboardButton(text="Admin bilan bog'lanish",
                               url=f"https://t.me/{settings.ADMIN_USERNAME}")],
-    ])
+    ]
+    kb = InlineKeyboardMarkup(inline_keyboard=rows)
     await message.answer(
         f"{rs.start_banner()}\n\n"
         "<b>Pro Man Market</b> — xush kelibsiz.\n\n"
