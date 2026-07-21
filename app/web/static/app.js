@@ -29,6 +29,7 @@ let STATS = { products: 0, orders_total: 0, orders_last_hour: 0, orders_today: 0
 let ALL = [];
 let CART = load("pm_cart", []);
 let FAV = new Set(load("pm_fav", []));
+let ME = { is_owner: false, is_admin: false, is_seller: false, shop: null };  // panel rollari (/api/me)
 const view = document.getElementById("view");
 let returnView = renderHome;   // detaldan "orqaga" qaytiladigan ekran
 
@@ -513,9 +514,15 @@ function renderProfile() {
       <div class="row"><span>🚚 Bepul yetkazish</span><b>${money(CONFIG.free_threshold)}+</b></div>
       ${CONFIG.contact_phone ? `<div class="row"><span>📞 Aloqa</span><b>${esc(CONFIG.contact_phone)}</b></div>` : ""}
     </div>
+    ${ME.is_seller ? '<button class="btn btn-ghost" id="p-seller" style="margin-top:4px">🏪 Sotuvchi paneli</button>' : ""}
+    ${ME.is_admin ? '<button class="btn btn-ghost" id="p-admin" style="margin-top:4px">🛠 Admin panel</button>' : ""}
     <button class="btn btn-primary" id="a2hs-open" style="margin-top:4px">📲 Ilovani ekranga o'rnatish</button>
     <div class="spacer80"></div>`;
   const a = document.getElementById("a2hs-open"); a && a.addEventListener("click", () => showA2HS(true));
+  const ps = document.getElementById("p-seller");
+  if (ps) ps.addEventListener("click", () => { if (typeof renderSellerPanel === "function") renderSellerPanel(); });
+  const pa = document.getElementById("p-admin");
+  if (pa) pa.addEventListener("click", () => { if (typeof renderAdminPanel === "function") renderAdminPanel(); });
 }
 
 /* ─── Ekranga o'rnatish ─── */
@@ -561,6 +568,11 @@ async function loadData() {
     try {
       const f = await api("/api/favorites", { headers: { "X-Telegram-Init-Data": tg.initData } });
       if (f && Array.isArray(f.ids)) { FAV = new Set([...FAV, ...f.ids.map(Number)]); saveFav(); }
+    } catch (e) {}
+    // rollar (admin/seller panel tugmalari uchun)
+    try {
+      const me = await api("/api/me", { headers: { "X-Telegram-Init-Data": tg.initData } });
+      if (me) ME = Object.assign(ME, me);
     } catch (e) {}
   }
 }

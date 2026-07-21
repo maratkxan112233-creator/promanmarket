@@ -213,3 +213,42 @@ button { font-family: inherit; }
 .toast { position: fixed; bottom: 92px; left: 50%; transform: translateX(-50%); background: #16181f; color: #fff; font-size: 13.5px; font-weight: 600; padding: 11px 20px; border-radius: 22px; z-index: 60; box-shadow: var(--shadow-2); }
 
 .spacer80 { height: 88px; }
+
+/* ─── Admin / Seller panellari ─── */
+.panel-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 8px 0; }
+.panel-tab { display: flex; flex-direction: column; align-items: center; gap: 8px; background: var(--card); border: none; border-radius: 16px; box-shadow: var(--shadow); padding: 22px 10px; font-size: 14px; font-weight: 700; color: var(--ink); cursor: pointer; }
+.panel-tab span { font-size: 26px; }
+.panel-tab:active { transform: scale(.98); }
+
+.prow { display: flex; align-items: center; gap: 12px; background: var(--card); border-radius: 14px; box-shadow: var(--shadow); padding: 10px; margin-bottom: 10px; }
+.pthumb { width: 54px; height: 54px; border-radius: 11px; overflow: hidden; flex: 0 0 auto; background: var(--bg); }
+.pthumb img { width: 100%; height: 100%; object-fit: cover; }
+.pthumb-ph { display: flex; align-items: center; justify-content: center; height: 100%; font-size: 24px; color: var(--ink-3); }
+.prow-b { flex: 1; min-width: 0; }
+.prow-n { font-size: 14px; font-weight: 700; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prow-m { font-size: 12px; color: var(--ink-2); margin-top: 2px; }
+.prow-shop { font-size: 11px; color: var(--ink-3); margin-top: 2px; }
+.prow-actions { display: flex; gap: 6px; flex: 0 0 auto; }
+.iconbtn { width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); font-size: 16px; cursor: pointer; }
+
+.pill { display: inline-block; font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 10px; margin-left: 4px; }
+.pill.ok { background: rgba(22,163,74,.14); color: var(--green); }
+.pill.off { background: rgba(239,68,68,.14); color: var(--red); }
+
+.photo-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.pchip { position: relative; width: 62px; height: 62px; border-radius: 11px; overflow: hidden; background: var(--bg); }
+.pchip img { width: 100%; height: 100%; object-fit: cover; }
+.pchip-ph { display: flex; align-items: center; justify-content: center; height: 100%; font-size: 22px; color: var(--ink-3); }
+.pchip button { position: absolute; top: 2px; right: 2px; width: 20px; height: 20px; border-radius: 50%; border: none; background: rgba(0,0,0,.6); color: #fff; font-size: 12px; line-height: 1; cursor: pointer; }
+.pf-select { width: 100%; border: 1px solid var(--line); background: var(--card); border-radius: 12px; padding: 12px 14px; font-size: 15px; color: var(--ink); outline: none; }
+
+.orow { display: flex; align-items: center; justify-content: space-between; }
+.status-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.ostat-b { border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 10px; padding: 8px 12px; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.ostat-b:active { transform: scale(.98); }
+
+.statgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 6px; }
+.statcard { background: var(--card); border-radius: 16px; box-shadow: var(--shadow); padding: 16px; text-align: center; }
+.stat-ico { font-size: 24px; }
+.stat-v { font-size: 20px; font-weight: 800; color: var(--ink); margin-top: 4px; }
+.stat-l { font-size: 12px; color: var(--ink-2); margin-top: 2px; }
