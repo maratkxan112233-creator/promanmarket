@@ -30,6 +30,7 @@ let ALL = [];
 let CART = load("pm_cart", []);
 let FAV = new Set(load("pm_fav", []));
 const view = document.getElementById("view");
+let returnView = renderHome;   // detaldan "orqaga" qaytiladigan ekran
 
 /* ─── Yordamchilar ─── */
 function money(n) { return (Number(n) || 0).toLocaleString("ru-RU").replace(/,/g, " "); }
@@ -215,6 +216,7 @@ const QCHIPS = [
 
 async function renderHome() {
   setNav("home");
+  returnView = renderHome;
   if (!ALL.length) { await loadData(); }
   HERO = heroSlides(); heroIdx = 0;
   const trend = trending();
@@ -292,6 +294,7 @@ function renderCatalog(key) {
 }
 
 function showGrid(items, title, activeKey) {
+  returnView = () => showGrid(items, title, activeKey);
   const chips = [{ key: "all", lbl: "Barchasi" }].concat(QCHIPS);
   view.innerHTML = `
     <div class="quickchips" style="margin-top:2px">${chips.map(c => `<button class="qchip${c.key === activeKey ? " on" : ""}" data-cat="${c.key}">${esc(c.lbl)}</button>`).join("")}</div>
@@ -316,6 +319,7 @@ async function toggleFav(id, btn) {
 }
 function renderFavorites() {
   setNav("favorites");
+  returnView = renderFavorites;
   const items = ALL.filter(p => FAV.has(p.id));
   view.innerHTML = `
     <div class="section-head" style="margin-top:6px"><h2>❤️ Sevimlilar</h2><a style="color:var(--ink-2)">${items.length} ta</a></div>
@@ -356,9 +360,9 @@ async function openDetail(id) {
     <button class="btn btn-primary" id="add" style="margin-top:16px" ${p.available ? "" : "disabled"}>${p.available ? "🛒 Savatga qo'shish" : "Hozircha tugagan"}</button>
     <div class="spacer80"></div>`;
   if (tg && tg.BackButton) {
-    showBack(goBackHome);           // Telegram/telefon tabiiy "orqaga" tugmasi
+    showBack(goBack);               // Telegram/telefon tabiiy "orqaga" tugmasi
   } else {
-    document.getElementById("back").addEventListener("click", goBackHome);
+    document.getElementById("back").addEventListener("click", goBack);
   }
   view.querySelector("[data-fav]").addEventListener("click", e => toggleFav(p.id, e.currentTarget));
   if (p.available) document.getElementById("add").addEventListener("click", () => { addToCart(p); haptic(); toast("Savatga qo'shildi ✓"); });
@@ -366,7 +370,7 @@ async function openDetail(id) {
   detailViews++;
   if (detailViews >= 3) maybePromptA2HS();
 }
-function goBackHome() { renderHome(); }
+function goBack() { (returnView || renderHome)(); }
 
 function addToCart(p) {
   const ex = CART.find(i => i.id === p.id);
