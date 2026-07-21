@@ -6,8 +6,7 @@ from aiogram.types import (Message, InlineKeyboardMarkup, InlineKeyboardButton,
 
 from app.keyboards.seller import menu_for, MENU_VERSION
 from app.storage import register_user, set_user_field, get_product_by_id, track_event
-from app.handlers.common import SELLER_INVITE_BANNER, send_product_card
-from app.services import runtime_settings as rs
+from app.handlers.common import send_product_card
 from app.app.config.settings import settings
 
 router = Router()
@@ -36,42 +35,22 @@ async def cmd_start(message: Message, command: CommandObject, state: FSMContext)
             await send_product_card(message, uid, p)
             return
 
-    rows = []
-    # 1) Mahsulotlarni bot ichida ko'rish — botning katalog bosh sahifasi (ghome).
-    rows.append([InlineKeyboardButton(
-        text="🛍 Mahsulotlarni ko'rish (bot orqali)", callback_data="ghome")])
-    # 2) Mini App (ilova) tugmasi — faqat HTTPS manzil bo'lsa ko'rsatiladi (Telegram
-    # web_app faqat https:// URL'ni qabul qiladi). Manzil WEBAPP_URL yoki Railway
-    # domenidan avtomatik olinadi (settings.webapp_url).
+    # /start — bannersiz, faqat 3 ta tugma:
+    #   1) Sotuvchi bo'lish
+    #   2) App (ilova) orqali ochish — Mini App
+    #   3) Bot orqali ochish — botning katalog bosh sahifasi (ghome)
+    rows = [
+        [InlineKeyboardButton(text="🏪 Sotuvchi bo'lish", callback_data="become_seller")],
+    ]
+    # Mini App tugmasi faqat HTTPS manzil bo'lsa ko'rsatiladi (Telegram web_app
+    # faqat https:// URL'ni qabul qiladi). Manzil settings.webapp_url'dan olinadi.
     web_url = settings.webapp_url
     if web_url.startswith("https://"):
         rows.append([InlineKeyboardButton(
-            text="📱 Ilova orqali ochish (do'kon)",
+            text="📱 App (ilova) orqali ochish",
             web_app=WebAppInfo(url=web_url))])
-    # 3) Sotuvchi bo'lish.
     rows.append([InlineKeyboardButton(
-        text="🏪 Sotuvchi bo'lish", callback_data="become_seller")])
-    # Qo'shimcha tugmalar.
-    rows += [
-        [InlineKeyboardButton(
-            text="➕ Botni guruhingizga qo'shing",
-            url=f"https://t.me/{settings.BOT_USERNAME}?startgroup=true")],
-        [InlineKeyboardButton(text="Admin bilan bog'lanish",
-                              url=f"https://t.me/{settings.ADMIN_USERNAME}")],
-    ]
+        text="🛍 Bot orqali ochish", callback_data="ghome")])
+
     kb = InlineKeyboardMarkup(inline_keyboard=rows)
-    await message.answer(
-        f"{rs.start_banner()}\n\n"
-        "<b>Pro Man Market</b> — xush kelibsiz.\n\n"
-        "Sifatli mahsulotlar, halol narxlar va tezkor yetkazib berish.\n\n"
-        f"{SELLER_INVITE_BANNER}\n\n"
-        "➕ Botni guruhingizga qo'shing — yangi mahsulot va aksiyalar "
-        "guruhda ham chiqadi.",
-        parse_mode="HTML",
-        reply_markup=kb,
-    )
-    # Pastdagi doimiy menyuni ham qoldiramiz (Buyurtmalarim, Profil va h.k.)
-    await message.answer(
-        "Quyidagi menyudan bo'limni tanlang.",
-        reply_markup=menu_for(uid),
-    )
+    await message.answer("<b>Pro Man Market</b>", parse_mode="HTML", reply_markup=kb)
