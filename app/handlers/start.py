@@ -37,19 +37,25 @@ async def cmd_start(message: Message, command: CommandObject, state: FSMContext)
             return
 
     rows = []
-    # Mini App (ilova) tugmasi — faqat HTTPS manzil bo'lsa ko'rsatiladi (Telegram
+    # 1) Mahsulotlarni bot ichida ko'rish — botning katalog bosh sahifasi (ghome).
+    rows.append([InlineKeyboardButton(
+        text="🛍 Mahsulotlarni ko'rish (bot orqali)", callback_data="ghome")])
+    # 2) Mini App (ilova) tugmasi — faqat HTTPS manzil bo'lsa ko'rsatiladi (Telegram
     # web_app faqat https:// URL'ni qabul qiladi). Manzil WEBAPP_URL yoki Railway
     # domenidan avtomatik olinadi (settings.webapp_url).
     web_url = settings.webapp_url
     if web_url.startswith("https://"):
         rows.append([InlineKeyboardButton(
-            text="🛍 Do'konni ochish (ilova)",
+            text="📱 Ilova orqali ochish (do'kon)",
             web_app=WebAppInfo(url=web_url))])
+    # 3) Sotuvchi bo'lish.
+    rows.append([InlineKeyboardButton(
+        text="🏪 Sotuvchi bo'lish", callback_data="become_seller")])
+    # Qo'shimcha tugmalar.
     rows += [
         [InlineKeyboardButton(
             text="➕ Botni guruhingizga qo'shing",
             url=f"https://t.me/{settings.BOT_USERNAME}?startgroup=true")],
-        [InlineKeyboardButton(text="Sotuvchi bo'lish", callback_data="become_seller")],
         [InlineKeyboardButton(text="Admin bilan bog'lanish",
                               url=f"https://t.me/{settings.ADMIN_USERNAME}")],
     ]

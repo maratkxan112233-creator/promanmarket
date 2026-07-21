@@ -3,6 +3,26 @@
 const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
 if (tg) { try { tg.ready(); tg.expand(); } catch (e) {} }
 
+/* ─── Telegram tabiiy "orqaga" tugmasi ───
+   Detal sahifada Telegram (telefonning) o'z BackButton'ini ko'rsatamiz;
+   asosiy bo'limlarga qaytilganda yashiramiz. Oddiy brauzerda (tg yo'q)
+   sahifadagi zaxira "← Orqaga" havolasi ishlaydi. */
+let _backHandler = null;
+function showBack(handler) {
+  if (!tg || !tg.BackButton) return;
+  hideBack();
+  _backHandler = handler;
+  try { tg.BackButton.onClick(handler); tg.BackButton.show(); } catch (e) {}
+}
+function hideBack() {
+  if (!tg || !tg.BackButton) return;
+  try {
+    if (_backHandler) tg.BackButton.offClick(_backHandler);
+    tg.BackButton.hide();
+  } catch (e) {}
+  _backHandler = null;
+}
+
 /* ─── Holat ─── */
 let CONFIG = { prepay_percent: 10, delivery_fee: 19000, free_threshold: 300000, contact_phone: "", card: "", card_name: "" };
 let STATS = { products: 0, orders_total: 0, orders_last_hour: 0, orders_today: 0, shops: 0 };
@@ -50,6 +70,7 @@ function clearHomeTimers() { homeTimers.forEach(clearInterval); homeTimers = [];
 /* ─── Navigatsiya ─── */
 function setNav(name) {
   clearHomeTimers();
+  hideBack();
   document.querySelectorAll(".nav-item").forEach(b => b.classList.toggle("active", b.dataset.nav === name));
   window.scrollTo(0, 0);
 }
@@ -318,7 +339,7 @@ async function openDetail(id) {
   const rate = p.reviews ? `<span><span style="color:var(--amber)">★</span> ${p.rating.toFixed(1)} (${p.reviews} sharh)</span>` : "";
   const favOn = FAV.has(p.id);
   view.innerHTML = `
-    <button class="back-link" id="back">← Orqaga</button>
+    ${tg && tg.BackButton ? "" : '<button class="back-link" id="back">← Orqaga</button>'}
     <div class="detail-imgs">${imgs}</div>
     <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
       <div class="detail-name">${esc(p.name)}</div>
@@ -334,7 +355,11 @@ async function openDetail(id) {
     ${p.description ? `<div class="detail-desc">${esc(p.description)}</div>` : ""}
     <button class="btn btn-primary" id="add" style="margin-top:16px" ${p.available ? "" : "disabled"}>${p.available ? "🛒 Savatga qo'shish" : "Hozircha tugagan"}</button>
     <div class="spacer80"></div>`;
-  document.getElementById("back").addEventListener("click", () => history.length > 1 ? goBackHome() : renderHome());
+  if (tg && tg.BackButton) {
+    showBack(goBackHome);           // Telegram/telefon tabiiy "orqaga" tugmasi
+  } else {
+    document.getElementById("back").addEventListener("click", goBackHome);
+  }
   view.querySelector("[data-fav]").addEventListener("click", e => toggleFav(p.id, e.currentTarget));
   if (p.available) document.getElementById("add").addEventListener("click", () => { addToCart(p); haptic(); toast("Savatga qo'shildi ✓"); });
 
